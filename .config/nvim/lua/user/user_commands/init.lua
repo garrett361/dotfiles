@@ -1,0 +1,7 @@
+require("user.user_commands.copy_path")
+require("user.user_commands.filter")
+require("user.user_commands.format")
+require("user.user_commands.py")
+require("user.user_commands.scratch")
+require("user.user_commands.snap")
+require("user.user_commands.toggle_diagnostics")

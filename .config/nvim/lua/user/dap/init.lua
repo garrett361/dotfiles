@@ -1,0 +1,480 @@
+M = {}
+local prequire = require("nvim_utils").prequire
+M.config = function()
+	prequire("user.dap.nvim_dap").config()
+	prequire("user.dap.nvim_dap_lldb").config()
+	prequire("user.dap.nvim_dap_python").config()
+	prequire("user.dap.nvim_dap_ui").config()
+	prequire("user.dap.nvim_dap_virtual_text").config()
+end
+
+---Return the set of all dap sessions at same level as the present one.
+---@return dap.Session[]
+local function get_sessions()
+	local dap = require("nvim_utils").prequire("dap")
+	local curr_session = dap.session()
+	if not curr_session.parent then
+		return { [curr_session.id] = curr_session }
+	end
+	return curr_session.parent.children
+end
+
+---Return the set of all dap sessions at same level as the present one that have a current frame
+---@return dap.Session[]
+local function get_sessions_with_frame()
+	local sessions = get_sessions()
+	local sessions_with_frame = {}
+	for _, s in pairs(sessions) do
+		if s.current_frame then
+			sessions_with_frame[s.id] = s
+		end
+	end
+	return sessions_with_frame
+end
+
+---Wait for all sessions to be stopped, up to a timeout
+---@param sessions dap.Sesssion[]
+---@param timeout_ms integer | nil
+---@param interval_ms integer | nil
+local function wait_for_sessions(sessions, timeout_ms, interval_ms)
+	timeout_ms = timeout_ms or 5000
+	interval_ms = interval_ms or 10
+	vim.wait(timeout_ms, function()
+		for _, s in pairs(sessions) do
+			if s.stopped_thread_id == nil then
+				return false
+			end
+			return true
+		end
+	end, interval_ms, false)
+end
+
+---Apply fn to all sessions provided
+---@param sessions dap.Session[] | nil
+---@param fn fun(session: dap.Session)
+---@param wait boolean | nil defaults to true
+local function broadcast(sessions, fn, wait)
+	if not sessions then
+		error("No debug sessions provided.")
+	end
+	-- Ensure we restore the current session
+	local dap = prequire("dap")
+	local curr_session = dap.session()
+	for _, s in pairs(sessions) do
+		fn(s)
+	end
+	-- Maybe wait for all sessions to finish step
+	if wait or wait == nil then
+		wait_for_sessions(sessions)
+	end
+	dap.set_session(curr_session)
+end
+
+---Step over in all sessions
+---@param sessions dap.Session[] | nil
+---@param opts table|nil
+local function step_over_all(sessions, opts)
+	sessions = sessions or get_sessions_with_frame()
+	broadcast(sessions, function(s)
+		s:_step("next", opts)
+	end)
+end
+
+---Continue in all sessions
+---@param sessions dap.Session[] | nil
+---@param opts table|nil
+local function continue_all(sessions)
+	sessions = sessions or get_sessions_with_frame()
+	broadcast(sessions, function(s)
+		s:_step("continue")
+	end)
+end
+
+---Step into in all sessions
+---@param sessions dap.Session[] | nil
+---@param opts table|nil
+local function step_into_all(sessions, opts)
+	sessions = sessions or get_sessions_with_frame()
+	broadcast(sessions, function(s)
+		s:_step("stepIn", opts)
+	end)
+end
+
+---Step out in all sessions
+---@param sessions dap.Session[] | nil
+---@param opts table|nil
+local function step_out_all(sessions, opts)
+	sessions = sessions or get_sessions_with_frame()
+	broadcast(sessions, function(s)
+		s:_step("stepOut", opts)
+	end)
+end
+
+---Run to cursor in all sessions
+---@param sessions dap.Session[] | nil
+---@param opts table|nil
+local function run_to_cursor_all(sessions)
+	sessions = sessions or get_sessions_with_frame()
+	local api = vim.api
+	local breakpoints = prequire("dap.breakpoints")
+	local dap = prequire("dap")
+
+	-- Save current breakpoints, then clear
+	local bps_before = breakpoints.get()
+	breakpoints.clear()
+	local cur_bufnr = api.nvim_get_current_buf()
+	local lnum = api.nvim_win_get_cursor(0)[1]
+	breakpoints.set({}, cur_bufnr, lnum)
+
+	local temp_bps = breakpoints.get(cur_bufnr)
+	for bufnr, _ in pairs(bps_before) do
+		if bufnr ~= cur_bufnr then
+			temp_bps[bufnr] = {}
+		end
+	end
+
+	if bps_before[cur_bufnr] == nil then
+		bps_before[cur_bufnr] = {}
+	end
+
+	local function restore_breakpoints(session)
+		dap.listeners.before.event_stopped["dap.run_to_cursor"] = nil
+		dap.listeners.before.event_terminated["dap.run_to_cursor"] = nil
+		breakpoints.clear()
+		for buf, buf_bps in pairs(bps_before) do
+			for _, bp in pairs(buf_bps) do
+				local line = bp.line
+				local bp_opts = {
+					condition = bp.condition,
+					log_message = bp.logMessage,
+					hit_condition = bp.hitCondition,
+				}
+				breakpoints.set(bp_opts, buf, line)
+			end
+		end
+		session:set_breakpoints(bps_before, nil)
+	end
+
+	local function restore_breakpoints_broadcast()
+		broadcast(sessions, restore_breakpoints, false)
+	end
+
+	dap.listeners.before.event_stopped["dap.run_to_cursor"] = restore_breakpoints_broadcast
+	dap.listeners.before.event_terminated["dap.run_to_cursor"] = restore_breakpoints_broadcast
+
+	local function set_temp_breakpoint(session)
+		session:set_breakpoints(temp_bps, function()
+			session:_step("continue")
+		end)
+	end
+	broadcast(sessions, set_temp_breakpoint, true)
+end
+
+local function pick_session_fzf(sessions)
+	sessions = sessions or get_sessions_with_frame()
+	local fzf = prequire("fzf-lua")
+	local dap = prequire("dap")
+
+	local function get_rank(session)
+		if session.filetype ~= "python" then
+			return "ERR"
+		end
+		local rank = nil
+		local done = false
+
+		-- Evaluate is done in the repl env so state is persisted, allowing us to import.
+		session:evaluate("import os")
+		session:evaluate("os.getenv('RANK', 'UNK')", function(err, resp)
+			if not err then
+				rank = tostring(resp.result)
+			else
+				rank = "ERR"
+			end
+			done = true
+		end)
+
+		-- Wait for the callback to complete
+		vim.wait(3000, function()
+			return done
+		end, 10, false)
+
+		if rank == "'UNK'" then
+			done = false
+			session:evaluate("import torch.distributed as dist")
+			session:evaluate("dist.get_rank()", function(err, resp)
+				if not err then
+					rank = tostring(resp.result)
+				else
+					rank = "ERR"
+				end
+				done = true
+			end)
+			-- Wait for the callback to complete
+			vim.wait(3000, function()
+				return done
+			end, 10, false)
+		end
+
+		return rank
+	end
+
+	local id_to_rank = {}
+	for k, s in pairs(sessions) do
+		local id = k
+		id_to_rank[id] = get_rank(s)
+	end
+
+	local all_ranks_found = true
+	for _, r in pairs(id_to_rank) do
+		if r == "ERR" or r == "'UNK'" then
+			all_ranks_found = false
+			break
+		end
+	end
+
+	local current_str = " (CURRENT)"
+	local key = ""
+	local fzf_table = {}
+	for id, r in pairs(id_to_rank) do
+		if all_ranks_found then
+			key = "[rank = " .. r .. "]"
+		else
+			key = tostring(id)
+		end
+		if id == dap.session().id then
+			key = key .. current_str
+		end
+		fzf_table[key] = id
+	end
+
+	local fzf_keys = {}
+	for k, _ in pairs(fzf_table) do
+		table.insert(fzf_keys, k)
+	end
+	table.sort(fzf_keys)
+
+	fzf.fzf_exec(fzf_keys, {
+		prompt = "Choose DAP Session",
+		actions = {
+			["default"] = function(selected)
+				dap.set_session(sessions[fzf_table[selected[1]]])
+			end,
+		},
+	})
+end
+
+M.lazy_keymaps = {
+	{
+		"<A-a>",
+		function()
+			pick_session_fzf()
+		end,
+		mode = { "n" },
+		noremap = true,
+		silent = true,
+	},
+	{
+		"<A-A>",
+		function()
+			prequire("fzf-lua").dap_breakpoints()
+		end,
+		mode = { "n" },
+		noremap = true,
+		silent = true,
+	},
+	{
+		"<A-b>",
+		function()
+			prequire("dap").toggle_breakpoint()
+		end,
+		mode = { "n" },
+		noremap = true,
+		silent = true,
+	},
+	{
+		"<A-B>",
+		function()
+			prequire("dap").clear_breakpoints()
+		end,
+		mode = { "n" },
+		noremap = true,
+		silent = true,
+	},
+	{
+		"<A-c>",
+		function()
+			prequire("dap").set_breakpoint(vim.fn.input("Breakpoint condition: "))
+		end,
+		mode = { "n" },
+		noremap = true,
+		silent = true,
+	},
+	{
+		"<A-C>",
+		function()
+			prequire("dap-python").test_class({ config = { justMyCode = true } })
+		end,
+		mode = { "n" },
+		noremap = true,
+		silent = true,
+	},
+	{
+		"<A-d>",
+		function()
+			local dap = prequire("dap")
+			if dap.session() == nil then
+				dap.continue()
+			else
+				continue_all()
+			end
+		end,
+		mode = { "n" },
+		noremap = true,
+		silent = true,
+	},
+	{
+		"<A-e>",
+		function()
+			prequire("dapui").eval()
+		end,
+		mode = { "n" },
+		noremap = true,
+		silent = true,
+	},
+	{
+		"<A-f>",
+		function()
+			prequire("dap-python").test_method({
+				config = { justMyCode = false, subProcess = true },
+			})
+		end,
+		mode = { "n" },
+		noremap = true,
+		silent = true,
+	},
+	{
+		"<A-F>",
+		function()
+			prequire("fzf-lua").dap_frames()
+		end,
+		mode = { "n" },
+		noremap = true,
+		silent = true,
+	},
+	{
+		"<A-g>",
+		function()
+			step_over_all()
+		end,
+		mode = { "n" },
+		noremap = true,
+		silent = true,
+	},
+	{
+		"<A-G>",
+		function()
+			prequire("dap").focus_frame()
+		end,
+		mode = { "n" },
+		noremap = true,
+		silent = true,
+	},
+	{
+		"<A-q>",
+		function()
+			prequire("dapui").toggle({ layout = 1, reset = true })
+		end,
+		mode = { "n" },
+		noremap = true,
+		silent = true,
+	},
+	{
+		"<A-Q>",
+		function()
+			-- Open the secondary dap window with stacks, watches, etc
+			prequire("dapui").toggle({ layout = 2, reset = true })
+		end,
+		mode = { "n" },
+		noremap = true,
+		silent = true,
+	},
+	{
+		"<A-r>",
+		function()
+			local dap = prequire("dap")
+			if dap.session() == nil then
+				dap.run_last()
+			else
+				dap.restart()
+			end
+		end,
+		mode = { "n" },
+		noremap = true,
+		silent = true,
+	},
+	{
+		"<A-s>",
+		function()
+			step_into_all()
+		end,
+		mode = { "n" },
+		noremap = true,
+		silent = true,
+	},
+	{
+		"<A-S>",
+		function()
+			step_out_all()
+		end,
+		mode = { "n" },
+		noremap = true,
+		silent = true,
+	},
+	{
+		"<A-x>",
+		function()
+			prequire("dap").terminate()
+		end,
+		mode = { "n" },
+		noremap = true,
+		silent = true,
+	},
+	{
+		"<A-t>",
+		function()
+			run_to_cursor_all()
+		end,
+		mode = { "n" },
+		noremap = true,
+		silent = true,
+	},
+	{
+		"<A-v>",
+		function()
+			prequire("dap").up()
+		end,
+		mode = { "n" },
+		noremap = true,
+		silent = true,
+	},
+	{
+		"<A-V>",
+		function()
+			prequire("dap").down()
+		end,
+		mode = { "n" },
+		noremap = true,
+		silent = true,
+	},
+	{
+		"<A-z>",
+		function()
+			prequire("fzf-lua").dap_commands()
+		end,
+		mode = { "n" },
+		noremap = true,
+		silent = true,
+	},
+}
+
+return M

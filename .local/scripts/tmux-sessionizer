@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+
+# counts the number of arguments passed to the script, -eq 1 check if it equals 1.
+if [[ $# -eq 1 ]]; then
+	selected=$1
+else
+	selected=$(find "$GITHUB" -mindepth 2 -maxdepth 2 -type d | fzf)
+fi
+
+if [[ -z $selected ]]; then
+	exit 0
+fi
+
+# Clean up the name to make it a short and valid tmux name
+selected_name=$(echo "$selected" | sed s:"$GITHUB"/:: | tr / _ | tr . _)
+tmux_running=$(pgrep tmux)
+
+# If tmux isn't running, create the session.
+# Check if tmux is not running (empty string checks). TMUX is defined if currently a tmux
+# environment
+if [[ -z $TMUX ]] && [[ -z $tmux_running ]]; then
+	# Specify session name (-s) and start dir (-c)
+	tmux new-session -s $selected_name -c $selected
+	exit 0
+fi
+
+# If tmux is running, but the session doesn't exist, create it.
+if ! tmux has-session -t=$selected_name 2>/dev/null; then
+    # -d flag detaches first, avoiding nested tmux instances
+	tmux new-session -ds $selected_name -c $selected
+fi
+
+# Attach if tmux isn't running the current process, otherwise switch
+clients=$(tmux list-clients)
+if [[ -z $TMUX ]] || [[ -z $clients ]]; then
+  tmux attach-session -t "$selected_name"
+else
+  tmux switch-client -t "$selected_name"
+fi

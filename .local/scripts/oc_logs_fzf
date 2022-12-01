@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+
+# Get the pod name
+header="NAME                                      READY   STATUS              RESTARTS   AGE     IP              NODE                                  NOMINATED NODE   READINESS GATES"
+pod_names=$(oc get pods -o wide | rg  ${1:-goon} | fzf -m --bind ctrl-a:select-all --header="$header" | awk '{print $1}')
+
+if [[ -z $pod_names ]]; then
+	exit 0
+fi
+
+# Print out the pod name, whether or not we C-c to cancel
+trap handleInt SIGINT
+
+
+function handleInt {
+    exit 0
+}
+
+# The logs disconnect often, so just infinite loop until we get a Ctrl-C or the pod stops running.
+
+
+
+
+
+if [ $(echo "$pod_names" | wc -w) -gt 1 ]; then
+    for pod in $pod_names; do tmux new-window "oc_loop_logs $pod"; done
+
+else
+    oc_loop_logs $pod_names
+fi

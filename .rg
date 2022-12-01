@@ -1,0 +1,2 @@
+--type-add
+cu:*.cu

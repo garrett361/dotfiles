@@ -1,0 +1,110 @@
+# Order the git statuses and display them in all the same brackets
+
+format = """
+$username\
+$hostname\
+$localip\
+$directory\
+$time\
+$git_branch\
+$git_commit\
+$git_state\
+$git_status\
+$docker_context\
+$package\
+$c\
+$cmake\
+$lua\
+$nodejs\
+$python\
+$rust\
+$conda\
+$meson\
+$spack\
+$memory_usage\
+$aws\
+$gcloud\
+$azure\
+$direnv\
+$env_var\
+$crystal\
+$custom\
+$sudo\
+$cmd_duration\
+$jobs\
+$battery\
+$line_break\
+$status\
+$container\
+$character"""
+
+
+[c]
+format = '\[[$symbol($version(-$name))]($style)\]'
+
+[cmake]
+format = '\[[$symbol($version)]($style)\]'
+
+[cmd_duration]
+format = '\[[⏱ $duration]($style)\]'
+
+[conda]
+format = '\[[$symbol$environment]($style)\]'
+ignore_base = false
+
+[directory]
+truncation_length = 5
+
+[docker_context]
+format = '\[[$symbol$context]($style)\]'
+
+[gcloud]
+disabled = true
+format = '\[[$symbol$account(@$domain)(\($region\))]($style)\]'
+
+# Git branch and git status are the first and last git modules in order, so we group brackets
+# accordingly.
+[git_branch]
+format = '\[[$symbol$branch]($style)'
+
+[git_state]
+format = '[\($state( $progress_current of $progress_total)\)]($style) '
+
+[git_status]
+format = '[$all_status](fg:red)[$ahead_behind](fg:green)\]'
+ahead = '⇡${count}'
+diverged = '⇕⇡${ahead_count}⇣${behind_count}'
+behind = '⇣${count}'
+untracked = '?${count}'
+stashed = '\$${count}'
+modified = '!${count}'
+staged = '++${count}'
+
+[lua]
+format = '\[[$symbol($version)]($style)\]'
+
+[memory_usage]
+disabled = true
+format = '\[[$ram](fg:yellow)[( | $swap \(swap\))](fg:green)\]'
+
+[package]
+format = '\[[$symbol$version]($style)\]'
+
+[python]
+format = '\[[${symbol}${pyenv_prefix}(${version})(\($virtualenv\))]($style)\]'
+
+[ruby]
+format = '\[[$symbol($version)]($style)\]'
+
+[rust]
+format = '\[[$symbol($version)]($style)\]'
+
+[sudo]
+format = '\[[as $symbol]($style)\]'
+
+[time]
+disabled = false
+format = '\[[$time]($style)\]'
+
+[username]
+format = '\[[$user]($style)\]'

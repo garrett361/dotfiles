@@ -1,0 +1,68 @@
+# This is Git's per-user configuration file.
+[user]
+	name = Garrett Goon
+	email = garrett361@gmail.com
+# Please adapt and uncomment the following lines:
+#	name = Garrett Goon
+#	email = garrett@Garretts-MacBook-Pro.local
+[init]
+	defaultBranch = main
+[submodule]
+    recurse = true
+[alias]
+    b = branch
+    bD = branch -D
+    bb = bisect bad
+    bd = branch -d
+    bg = bisect good
+    br = bisect reset
+    bs = bisect start
+    co = checkout
+    com = checkout main
+    cum = checkout upstream/main
+    cp = cherry-pick
+    cpa = cherry-pick --abort
+    cpc = cherry-pick --continue
+    d = diff
+    f = fetch
+    fum = fetch upstream main
+    fom = fetch origin main
+    l = log
+    m = merge
+    ma = merge --abort
+    mc = merge --continue
+    p = push
+    pd = push -d
+    pf = push --force-with-lease
+    pl = pull
+    ps = push --set-upstream
+    pushf = push --force-with-lease
+    r = rebase
+    ra = rebase --abort
+    rc = rebase --continue
+    rh = reset --hard
+    ri = rebase --interactive
+    ria = rebase --interactive --autosquash
+    rom = rebase origin/main
+    rum = rebase upstream/main
+    s = stash
+    sa = stash apply
+    sc = stash clear
+    sp = stash pop
+    stack = "!python $DOTFILES/gitstack/gitstack.py"
+    wt = worktree
+    wta = worktree add
+    wtr = worktree remove
+[filter "lfs"]
+	clean = git-lfs clean -- %f
+	smudge = git-lfs smudge -- %f
+	process = git-lfs filter-process
+	required = true
+[credential]
+	helper = /usr/local/share/gcm-core/git-credential-manager
+[credential "https://dev.azure.com"]
+	useHttpPath = true
+[core]
+    excludesfile = ~/.gitignore_global
+[credential "https://huggingface.co"]
+	provider = generic

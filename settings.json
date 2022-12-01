@@ -1,0 +1,14 @@
+{
+  "editor.fontSize": 16,
+  "editor.formatOnSave": true,
+  "editor.formatOnPaste": true,
+  "explorer.confirmDelete": false,
+  "python.formatting.provider": "black",
+  "[python]": {
+    "editor.formatOnType": true
+  },
+  "extensions.experimental.affinity": {
+    "asvetliakov.vscode-neovim": 1
+  },
+  "editor.accessibilitySupport": "off"
+}

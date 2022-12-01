@@ -1,0 +1,3 @@
+[submodule "gitstack"]
+	path = gitstack
+	url = git@github.com:stevearc/gitstack

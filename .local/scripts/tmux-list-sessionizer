@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+
+# counts the number of arguments passed to the script, -eq 1 check if it equals 1.
+selected=$(tmux list-sessions -F "#{session_name}"| fzf -m --header="Multi-select to delete")
+num_selected=$(echo "$selected" | wc -w)
+
+if [ $num_selected -eq 0 ]; then
+	exit 0
+elif [ $num_selected -eq 1 ]; then
+    clients=$(tmux list-clients)
+    if [[ -z $TMUX ]] || [[ -z $clients ]]; then
+      tmux attach-session -t $selected
+    else
+      tmux switch-client -t $selected
+    fi
+else
+    echo -e "Delete these sesions? [y/N]\n${selected}"
+    read response
+    case "$response" in
+        [yY][eE][sS]|[yY])
+            DELETE=1
+            ;;
+        *)
+            DELETE=0
+            ;;
+    esac
+
+
+    if [ $DELETE = "1" ]; then
+        for name in $selected; do
+            tmux kill-session -t $name;
+        done
+    else
+        echo "Delete aborted!"
+    fi
+fi
+
