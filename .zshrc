@@ -150,6 +150,12 @@ function gc_ibm()
     git clone git@github.ibm.com:$repo/$1
 }
 
+
+function dotfiles_rebase()
+{
+    cddot && g fa && g r origin/main && cd -
+}
+
 ################################   OTHER  ################################
 
 # Rust
