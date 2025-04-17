@@ -1,7 +1,8 @@
 # This is Git's per-user configuration file.
 [user]
 	name = Garrett Goon
-	email = garrett361@gmail.com
+	email = goon@ibm.com
+	signingkey = C535EE1BA19BB68A
 # Please adapt and uncomment the following lines:
 #	name = Garrett Goon
 #	email = garrett@Garretts-MacBook-Pro.local
@@ -66,3 +67,7 @@
     excludesfile = ~/.gitignore_global
 [credential "https://huggingface.co"]
 	provider = generic
+[commit]
+	gpgsign = true
+[tag]
+	gpgSign = true
