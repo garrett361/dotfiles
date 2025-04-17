@@ -14,18 +14,6 @@ fi
 git clone --depth 1 https://github.com/junegunn/fzf.git ~/.fzf
 ~/.fzf/install
 
-# Rust
-curl https://sh.rustup.rs -sSf | sh -s -- -y
-source $HOME/.cargo/env
-# cargo installs
-cargo install tree-sitter-cli
-cargo install starship
-#cargo install ripgrep
-#cargo install git-delta
-#cargo install bat
-#cargo install fd-find
-
-
 # rg
 if [ $is_linux -eq 1 ]; then
 
