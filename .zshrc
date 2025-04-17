@@ -152,6 +152,8 @@ function gc_ibm()
 
 ################################   OTHER  ################################
 
+# Rust
+[ -f ~/.cargo/env ] && source ~/.cargo/env
 
 # FZF
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
@@ -169,6 +171,7 @@ if command -v starship &> /dev/null
 then
     eval "$(starship init zsh)"
 fi
+
 
 
 # # For zsh-syntax-highlighting installed via brew
