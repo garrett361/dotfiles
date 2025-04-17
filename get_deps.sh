@@ -15,7 +15,7 @@ git clone --depth 1 https://github.com/junegunn/fzf.git ~/.fzf
 ~/.fzf/install
 
 # Rust
-curl https://sh.rustup.rs -sSf | sh
+curl https://sh.rustup.rs -sSf | sh -s -- -y
 source $HOME/.cargo/env
 # cargo installs
 cargo install --locked tree-sitter-cli
