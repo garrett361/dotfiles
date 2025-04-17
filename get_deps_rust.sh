@@ -6,8 +6,8 @@ source $HOME/.cargo/env
 # cargo installs
 cargo install tree-sitter-cli
 cargo install starship
-#cargo install ripgrep
-#cargo install git-delta
-#cargo install bat
-#cargo install fd-find
+cargo install ripgrep
+cargo install git-delta
+cargo install bat
+cargo install fd-find
 
