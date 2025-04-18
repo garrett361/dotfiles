@@ -21,14 +21,14 @@ tmux_running=$(pgrep tmux)
 # environment
 if [[ -z $TMUX ]] && [[ -z $tmux_running ]]; then
 	# Specify session name (-s) and start dir (-c)
-	tmux new-session -s $selected_name -c $selected
+	tmux -u new-session -s $selected_name -c $selected
 	exit 0
 fi
 
 # If tmux is running, but the session doesn't exist, create it.
 if ! tmux has-session -t=$selected_name 2>/dev/null; then
     # -d flag detaches first, avoiding nested tmux instances
-	tmux new-session -ds $selected_name -c $selected
+	tmux -u new-session -ds $selected_name -c $selected
 fi
 
 # Attach if tmux isn't running the current process, otherwise switch
