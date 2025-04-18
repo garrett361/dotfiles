@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 
+BASE_DIR=${TMUX_SESSIONIZER_BASE:-$GITHUB}
 # counts the number of arguments passed to the script, -eq 1 check if it equals 1.
 if [[ $# -eq 1 ]]; then
 	selected=$1
 else
-	selected=$(find "$GITHUB" -mindepth 2 -maxdepth 2 -type d | fzf)
+	selected=$(find "$BASE_DIR" -mindepth 2 -maxdepth 2 -type d | fzf)
 fi
 
 if [[ -z $selected ]]; then
@@ -12,7 +13,7 @@ if [[ -z $selected ]]; then
 fi
 
 # Clean up the name to make it a short and valid tmux name
-selected_name=$(echo "$selected" | sed s:"$GITHUB"/:: | tr / _ | tr . _)
+selected_name=$(echo "$selected" | sed s:"$BASE_DIR"/:: | tr / _ | tr . _)
 tmux_running=$(pgrep tmux)
 
 # If tmux isn't running, create the session.
