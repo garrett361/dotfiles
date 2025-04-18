@@ -1,3 +1,22 @@
+################################   EXPORTS  ################################
+
+export PATH=$PATH:$HOME/.local/bin
+export PATH=$PATH:$HOME/.local/scripts
+
+export GITHUB=$HOME/github
+export DOTFILES=$GITHUB/garrett361/dotfiles
+
+# Show hidden files and details
+export CLICOLOR=1
+export LSCOLORS=ExGxBxDxCxEgEdxbxgxcxd
+
+# default editor
+export EDITOR="env PYTHONPATH=$PYTHONPATH:$PWD nvim"
+export VISUAL="$EDITOR"
+
+# rg
+export RIPGREP_CONFIG_PATH="$HOME/.rg"
+
 ################################   ALIASES  ################################
 alias g="git"
 
@@ -25,24 +44,6 @@ alias cdgo="cd ${GITHUB}/goon; pwd"
 # Safer rm -rf
 alias rmrf="rm -rfI"
 
-################################   EXPORTS  ################################
-
-export PATH=$PATH:$HOME/.local/bin
-export PATH=$PATH:$HOME/.local/scripts
-
-export GITHUB=$HOME/github
-export DOTFILES=$GITHUB/garrett361/dotfiles
-
-# Show hidden files and details
-export CLICOLOR=1
-export LSCOLORS=ExGxBxDxCxEgEdxbxgxcxd
-
-# default editor
-export EDITOR="env PYTHONPATH=$PYTHONPATH:$PWD nvim"
-export VISUAL="$EDITOR"
-
-# rg
-export RIPGREP_CONFIG_PATH="$HOME/.rg"
 
 ################################   FUNCTIONS  ################################
 
