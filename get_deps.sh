@@ -49,6 +49,11 @@ if [ $is_linux -eq 1 ]; then
     tar -xvzf "${GH}.tar.gz"
     ln -s "${GH}/bin/gh" .
 
+    curl https://sh.rustup.rs -sSf | sh -s -- -y
+    source $HOME/.cargo/env
+    # cargo installs
+    cargo install tree-sitter-cli
+    cargo install starship
 
 else
     # Install brew
