@@ -67,7 +67,3 @@
     excludesfile = ~/.gitignore_global
 [credential "https://huggingface.co"]
 	provider = generic
-[commit]
-	gpgsign = true
-[tag]
-	gpgSign = true
