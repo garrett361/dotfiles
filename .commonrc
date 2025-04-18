@@ -60,7 +60,7 @@ function mkfile()
 
 function dotfiles_rebase()
 {
-    cddot && g fa && g r origin/main && cd -
+    cddot && g f origin main && g r origin/main && cd -
 }
 
 function gc()
