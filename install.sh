@@ -7,7 +7,7 @@ for localdir in ".local" ".config" ".git-template"; do
 	ln -sfF $dirpath/* $HOME/$localdir
 done
 
-for localfile in ".vimrc" ".zshrc" ".gitignore_global" ".stylua.toml" ".rg"; do
+for localfile in ".commonrc" ".vimrc" ".zshrc" ".gitignore_global" ".stylua.toml" ".rg"; do
     filepath=$(readlink -f $localfile)
 	ln -sfF $filepath $HOME/$localfile
 done

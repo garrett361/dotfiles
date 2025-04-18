@@ -1,26 +1,5 @@
 ################################   EXPORTS  ################################
-
-# go paths
-export GOPATH=$HOME/go
-export PATH=$PATH:$GOPATH/bin
-
-# script paths
-export PATH=$PATH:$HOME/.local/scripts
-# In case .local/bin isn't on the path
-export PATH=$PATH:$HOME/.local/bin
-# nvim, if installed from source
-export PATH="$PATH:/opt/nvim-linux64/bin"
-
-# useful local paths
-export GITHUB=$HOME/github
-export DOTFILES=$GITHUB/garrett361/dotfiles
-
-# default editor
-export EDITOR="env PYTHONPATH=$PYTHONPATH:$PWD nvim"
-export VISUAL="$EDITOR"
-
-# rg
-export RIPGREP_CONFIG_PATH="$HOME/.rg"
+source ~/.commonrc
 
 # c/c++
 export CC=clang
@@ -55,54 +34,6 @@ if [ -d "$API_KEY_DIR" ]; then
 fi
 
 
-################################   ALIAS  ################################
-
-# v is also nvim
-alias v="env PYTHONPATH=$PYTHONPATH:$PWD nvim"
-
-# g is git
-alias g="git"
-
-# cd into github
-alias cdg="cd $GITHUB; pwd"
-
-# cd into github
-alias cdgg="cd ${GITHUB}/garrett361; pwd"
-
-# cd into downloads
-alias cdd="cd ${HOME}/Downloads; pwd"
-
-# cd into dotfiles
-alias cddot="cd ${GITHUB}/garrett361/dotfiles; pwd"
-
-# cd into github notes dir
-alias cdn="cd ${GITHUB}/garrett361/notes; pwd"
-
-# cd into jupyter_notebooks
-alias cdj="cd ~/jupyter_notebooks; pwd"
-
-# Show hidden files and details
-export CLICOLOR=1
-export LSCOLORS=ExGxBxDxCxEgEdxbxgxcxd
-alias ll="ls -lhA"
-
-# Move to the parent folder.
-alias ..="cd ..;pwd"
-
-# Move up two parent folders.
-alias ...="cd ../..;pwd"
-
-# Move up three parent folders.
-alias ....="cd ../../..;pwd"
-
-
-# Safer rm -rf
-alias rmrf="rm -rfI"
-
-# tmux helpers
-alias tls="tmux list-sessions"
-alias tks="tmux kill-session -t"
-
 ################################   BINDKEYS  ################################
 
 # Easy tmux session creation
@@ -119,18 +50,6 @@ setopt INC_APPEND_HISTORY
 ################################   FUNCTIONS  ################################
 
 
-# make a directory and cd to it
-function mcd()
-{
-    test -d "$1" || mkdir "$1" && cd "$1"
-}
-
-# create a file and all intervening directories
-function mkfile()
-{
-    mkdir -p "$(dirname "$1")" && touch "$1"
-}
-
 function ais_login()
 {
     # https://console-openshift-console.apps.ais-5.watson.ibm.com/
@@ -138,28 +57,7 @@ function ais_login()
 }
 
 
-# For easier cloning
-function gc()
-{
-    local repo=$(basename $(pwd))
-    git clone git@github.com:$repo/$1
-}
-function gc_ibm()
-{
-    local repo=$(basename $(pwd))
-    git clone git@github.ibm.com:$repo/$1
-}
-
-
-function dotfiles_rebase()
-{
-    cddot && g fa && g r origin/main && cd -
-}
-
 ################################   OTHER  ################################
-
-# Rust
-[ -f ~/.cargo/env ] && source ~/.cargo/env
 
 # FZF
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh

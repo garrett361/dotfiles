@@ -1,0 +1,81 @@
+################################   ALIASES  ################################
+alias g="git"
+
+alias v="env PYTHONPATH=$PYTHONPATH:$PWD nvim"
+
+# Show hidden files and details
+alias ll="ls -lhA"
+
+# Move to the parent folder.
+alias ..="cd ..;pwd"
+
+# Move up two parent folders.
+alias ...="cd ../..;pwd"
+
+# Move up three parent folders.
+alias ....="cd ../../..;pwd"
+
+# cd into dotfiles
+alias cddot="cd ${GITHUB}/garrett361/dotfiles; pwd"
+
+# cd into github
+alias cdgg="cd ${GITHUB}/garrett361; pwd"
+
+# Safer rm -rf
+alias rmrf="rm -rfI"
+
+################################   EXPORTS  ################################
+
+export PATH=$PATH:$HOME/.local/bin
+export PATH=$PATH:$HOME/.local/scripts
+
+export GITHUB=$HOME/github
+export DOTFILES=$GITHUB/garrett361/dotfiles
+
+# Show hidden files and details
+export CLICOLOR=1
+export LSCOLORS=ExGxBxDxCxEgEdxbxgxcxd
+
+# default editor
+export EDITOR="env PYTHONPATH=$PYTHONPATH:$PWD nvim"
+export VISUAL="$EDITOR"
+
+# rg
+export RIPGREP_CONFIG_PATH="$HOME/.rg"
+
+################################   FUNCTIONS  ################################
+
+
+# make a directory and cd to it
+function mcd()
+{
+    test -d "$1" || mkdir "$1" && cd "$1"
+}
+
+# create a file and all intervening directories
+function mkfile()
+{
+    mkdir -p "$(dirname "$1")" && touch "$1"
+}
+
+function dotfiles_rebase()
+{
+    cddot && g fa && g r origin/main && cd -
+}
+
+function gc()
+{
+    local repo=$(basename $(pwd))
+    git clone git@github.com:$repo/$1
+}
+
+function gc_ibm()
+{
+    local repo=$(basename $(pwd))
+    git clone git@github.ibm.com:$repo/$1
+}
+
+
+################################   OTHER  ################################
+
+[ -f ~/.cargo/env ] && source ~/.cargo/env
