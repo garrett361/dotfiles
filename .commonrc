@@ -20,6 +20,7 @@ alias cddot="cd ${GITHUB}/garrett361/dotfiles; pwd"
 
 # cd into github
 alias cdgg="cd ${GITHUB}/garrett361; pwd"
+alias cdgo="cd ${GITHUB}/goon; pwd"
 
 # Safer rm -rf
 alias rmrf="rm -rfI"
