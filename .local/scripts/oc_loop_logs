@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 get_pod_status() {
-    pod_status=$(oc get pods -o wide | rg  $1 | awk '{print $3}')
+    pod_status=$(oc get pods -o wide | rg  "\b${1}\b" | awk '{print $3}')
     echo $pod_status
 }
 
