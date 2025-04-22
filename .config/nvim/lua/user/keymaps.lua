@@ -29,6 +29,9 @@ keymap("n", "Y", "y$", opts)
 keymap("n", "n", "nzzzv", opts)
 keymap("n", "N", "Nzzzv", opts)
 
+-- Comment out line and copy it below
+keymap("n", "ycc", "yygccp", { noremap = false, silent = true })
+
 -- Inserting blank lines, above or below
 keymap("n", "oo", "mpo<Esc>`p", opts)
 keymap("n", "OO", "mpO<Esc>`p", opts)
