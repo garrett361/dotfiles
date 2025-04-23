@@ -31,6 +31,8 @@ keymap("n", "N", "Nzzzv", opts)
 
 -- Comment out line and copy it below
 keymap("n", "ycc", "yygccp", { noremap = false, silent = true })
+-- visual mode version (lines)
+keymap("v", "ycc", "ygvgcc<Esc>gv<Esc>p", { noremap = false, silent = true })
 
 -- Inserting blank lines, above or below
 keymap("n", "oo", "mpo<Esc>`p", opts)
