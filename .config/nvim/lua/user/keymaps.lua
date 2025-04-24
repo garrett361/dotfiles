@@ -100,7 +100,7 @@ end, { noremap = true })
 
 -- Buffer management
 keymap("n", "<leader>x", "<cmd>bdelete<CR>", opts) -- Close buffer
-keymap("n", "<leader>X", "mz<cmd>%bd|e#<CR>'z", opts) -- Close all buffers except current
+keymap("n", "<leader>X", "mp<cmd>%bd|e#<CR>'p", opts) -- Close all buffers except current
 
 -- Write/Quit/etc. The W/w ones are overwritten by the conform/lint plugin, when loaded.
 keymap("n", "<leader>w", "<cmd>w<CR>", opts)
