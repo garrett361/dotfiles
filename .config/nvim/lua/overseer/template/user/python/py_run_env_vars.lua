@@ -29,7 +29,6 @@ return {
 		else
 			env_vars_table = {}
 		end
-		require("nvim_utils").input_print(env_vars_table)
 
 		return {
 			cmd = cmd,
