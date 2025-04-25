@@ -67,8 +67,7 @@ M.config = function()
 		args = function()
 			local args_string = vim.fn.input("Arguments: ")
 			local arg_table = nvim_dap_utils.splitstr(args_string)
-			local last_idx = #arg_table
-			arg_table[last_idx] = "${file}" .. "::" .. arg_table[last_idx]
+			arg_table[1] = "${file}" .. "::" .. arg_table[1]
 			table.insert(arg_table, 1, "--pdb")
 			return arg_table
 		end,
