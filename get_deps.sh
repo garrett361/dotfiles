@@ -78,4 +78,7 @@ else
     brew install git-lfs
     brew install gnupg
     brew install charmbracelet/tap/freeze
+    brew install tree
+    brew install openshift-cli 
+    brew install mac-mouse-fix
 fi
