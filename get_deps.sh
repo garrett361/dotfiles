@@ -81,4 +81,6 @@ else
     brew install tree
     brew install openshift-cli 
     brew install mac-mouse-fix
+    brew install helm 
+
 fi
