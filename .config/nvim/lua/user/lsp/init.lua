@@ -3,7 +3,6 @@
 local servers = {
 	"basedpyright",
 	"ruff",
-	"mypy",
 }
 
 local settings = {
