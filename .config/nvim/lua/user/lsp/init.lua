@@ -1,12 +1,10 @@
 -- Don't force install these to avoid unnecessary perf issues/installs on remote machines
 
--- local servers = {
--- 	"basedpyright",
--- 	"clangd",
--- 	"lua_ls",
--- 	"ruff",
--- 	"texlab",
--- }
+local servers = {
+	"basedpyright",
+	"ruff",
+	"mypy",
+}
 
 local settings = {
 	ui = {
@@ -200,7 +198,7 @@ end
 local mason_lspconfig = require("nvim_utils").prequire("mason-lspconfig")
 
 mason_lspconfig.setup({
-	-- ensure_installed = servers,
+	ensure_installed = servers,
 	automatic_installation = true,
 })
 
