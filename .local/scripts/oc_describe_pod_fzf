@@ -8,10 +8,15 @@ projects=$(oc projects)
 
 resource="pod"
 header="NAME                                      READY   STATUS              RESTARTS   AGE     IP              NODE                                  NOMINATED NODE   READINESS GATES"
-pod_name=$(oc get pods -o wide | rg  ${1:-goon} | fzf  --header="$header" | awk '{print $1}')
+pod_names=$(oc get pods -o wide | rg  ${1:-goon} | fzf -m --header="$header" | awk '{print $1}')
 
-if [[ -z $pod_name ]]; then
+if [[ -z $pod_names ]]; then
 	exit 0
 fi
 
-oc describe $resource $pod_name
+
+if [ $(echo "$pod_names" | wc -w) -gt 1 ]; then
+    for pod in $pod_names; do tmux new-window "oc describe $resource $pod_name"; done
+else
+    oc describe $resource $pod_names
+fi
