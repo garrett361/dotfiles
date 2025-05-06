@@ -68,13 +68,13 @@ function dotfiles_rebase()
 function gc()
 {
     local repo=$(basename $(pwd))
-    git clone git@github.com:$repo/$1
+    git clone git@github.com:$repo/$1 && cd $1
 }
 
 function gc_ibm()
 {
     local repo=$(basename $(pwd))
-    git clone git@github.ibm.com:$repo/$1
+    git clone git@github.ibm.com:$repo/$1 && cd $1
 }
 
 
