@@ -175,6 +175,7 @@ local function config()
 				action = "open",
 				pair = "()",
 				register = { cr = false },
+				neigh_pattern = ".[%s%(%{%[%]%}%)]",
 			},
 			-- Open if next to white space or a bracket on both sides.
 			['"'] = {
