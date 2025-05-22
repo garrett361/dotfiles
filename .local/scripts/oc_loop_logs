@@ -34,6 +34,12 @@ do
             oc logs $1 -f --prefix || sleep 5
             # oc logs $pod_name -f --timestamps --prefix
             ;;
+        "Error")
+            oc logs $1 -f --prefix
+            echo "$1 in state $(get_pod_status $1)! Exiting."
+            printf "Press Enter to continue..." && read dummy
+            exit 0
+            ;;
         *)
         echo "$1 in state $(get_pod_status $1)! Exiting."
         printf "Press Enter to continue..." && read dummy

@@ -77,6 +77,18 @@ function gc_ibm()
     git clone git@github.ibm.com:$repo/$1 && cd $1
 }
 
+function vela1()
+{
+    export KUBECONFIG=~/.kube/config-vela1
+    oc projects
+}
+
+function vela2()
+{
+    export KUBECONFIG=~/.kube/config-vela2
+    oc projects
+}
+
 
 ################################   OTHER  ################################
 
