@@ -34,7 +34,7 @@ local py_method_node = fmta(
     def <>(self<>) ->> <>:
         <>
     ]],
-	{ i(1), c(2, { sn(nil, { t(", "), i(1) }), t("") }), i(3), i(4) }
+	{ i(1), i(2), i(3), i(4) }
 )
 
 local py_method = s(",m", py_method_node)
@@ -61,7 +61,7 @@ local py_class = s(
         def __init__(self<>) ->> None:
             <>
     ]],
-		{ i(1), c(2, { sn(nil, { t(", "), i(1) }), t("") }), i(3) }
+		{ i(1), i(2), i(3) }
 	)
 )
 table.insert(autosnippets, py_class)
@@ -71,7 +71,7 @@ local py_init_node = fmta(
     def __init__(self<>) ->> None:
         <>
     ]],
-	{ c(1, { sn(nil, { t(", "), i(1) }), t("") }), i(2) }
+	{ i(1), i(2) }
 )
 
 local py_init = s(",i", py_init_node)
