@@ -94,8 +94,8 @@ return {
 						},
 						actions = {
 							["enter"] = prequire("fzf-lua.actions").git_checkout,
-							["alt-d"] = diffview_prev,
-							["alt-c"] = diffview_head,
+							["alt-c"] = diffview_prev,
+							["alt-d"] = diffview_head,
 							["alt-r"] = rebase,
 						},
 					}
