@@ -237,7 +237,7 @@ local function pick_session_fzf(sessions)
 	local fzf_table = {}
 	for id, r in pairs(id_to_rank) do
 		if all_ranks_found then
-			key = "[rank = " .. r .. "]"
+			key = "[rank = " .. r .. "] (" .. tostring(id) .. ")"
 		else
 			key = tostring(id)
 		end
