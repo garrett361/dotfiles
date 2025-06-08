@@ -31,7 +31,8 @@ esac
 
 
 if [ $DELETE = "1" ]; then
-    for name in $job_names; do oc delete $resource $name; done
+    for name in $job_names; do oc delete $resource $name & done
+    sleep 1
 else
     echo "Delete aborted!"
 fi
