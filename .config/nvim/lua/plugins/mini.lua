@@ -274,7 +274,7 @@ local function config()
 				local location = mini_statusline.section_location({ trunc_width = 75 })
 
 				local no_format_str = ""
-				if vim.env.FORMAT_OFF_NVIM == "1" then
+				if vim.env.FORMAT_ON_NVIM ~= "1" then
 					no_format_str = "FORMAT OFF"
 				end
 
