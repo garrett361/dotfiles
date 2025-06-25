@@ -1,4 +1,5 @@
 require("user.user_commands.copy_path")
+require("user.user_commands.diff_visible")
 require("user.user_commands.filter")
 require("user.user_commands.format")
 require("user.user_commands.py")
