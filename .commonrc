@@ -38,6 +38,7 @@ alias ....="cd ../../..;pwd"
 alias cddot="cd ${GITHUB}/garrett361/dotfiles; pwd"
 
 # cd into github
+alias cdg="cd ${GITHUB}; pwd"
 alias cdgg="cd ${GITHUB}/garrett361; pwd"
 alias cdgo="cd ${GITHUB}/goon; pwd"
 
