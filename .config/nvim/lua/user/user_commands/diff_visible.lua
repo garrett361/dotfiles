@@ -1,4 +1,8 @@
 vim.api.nvim_create_user_command("D", function(opts)
+    if vim.wo.diff then
+			vim.cmd("diffo!")
+        return
+    end
 	-- Get all currently visible windows
 	-- local windows = vim.api.nvim_list_wins()
 	local buffers = require("nvim_utils").get_visible_buffers()
@@ -10,11 +14,6 @@ vim.api.nvim_create_user_command("D", function(opts)
 		end)
 	end
 end, {
-	desc = "Diff all visible buffers",
+	desc = "Toggle diff mode on all visible buffers.",
 })
 
-vim.api.nvim_create_user_command("Do", function(opts)
-	vim.cmd("diffo!")
-end, {
-	desc = "Turn off diff",
-})
