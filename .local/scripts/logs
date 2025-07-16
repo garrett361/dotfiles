@@ -23,8 +23,8 @@ function handleInt {
 
 
 if [ $(echo "$pod_names" | wc -w) -gt 1 ]; then
-    for pod in $pod_names; do tmux new-window -e "KUBECONFIG=$KUBECONFIG" "oc_loop_logs $pod"; done
+    for pod in $pod_names; do tmux new-window -e "KUBECONFIG=$KUBECONFIG" "loop_logs $pod"; done
 
 else
-    oc_loop_logs $pod_names
+    loop_logs $pod_names
 fi
