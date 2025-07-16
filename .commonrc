@@ -45,6 +45,14 @@ alias cdgo="cd ${GITHUB}/goon; pwd"
 # Safer rm -rf
 alias rmrf="rm -rfI"
 
+# open-shift script aliases
+
+alias l="oc_logs"
+alias d="oc_delete"
+alias de="oc_describe"
+alias dp="oc_describe_pod"
+alias r="oc_rsh"
+
 
 ################################   FUNCTIONS  ################################
 
