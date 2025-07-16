@@ -18,6 +18,7 @@
     bg = bisect good
     br = bisect reset
     bs = bisect start
+    c = commit
     co = checkout
     com = checkout main
     cum = checkout upstream/main
