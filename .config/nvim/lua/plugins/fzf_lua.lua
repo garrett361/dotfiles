@@ -223,6 +223,11 @@ return {
 								vim.cmd("delmarks " .. mark_name)
 							end
 						end,
+						["ctrl-x"] = function()
+							for _, mark in ipairs(require("nvim_utils.marks").get_global_marks()) do
+								vim.cmd("delmarks " .. mark)
+							end
+						end,
 					},
 				})
 			end,
