@@ -190,7 +190,7 @@ return {
 			"<leader>g",
 			function()
 				prequire("fzf-lua").files({
-					cmd = "fd -IH --exclude *.pyc --exclude *.ruff_cache/ --exclude *.mypy_cache/ --exclude *__pycache__/ --exclude *.git/",
+					cmd = "fd -IH --exclude *.pyc --exclude *.venv/ --exclude *.ruff_cache/ --exclude *.mypy_cache/ --exclude *__pycache__/ --exclude *.git/",
 					winopts = { preview = { delay = 0 } },
 				})
 			end,
