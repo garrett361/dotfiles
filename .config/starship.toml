@@ -91,7 +91,7 @@ format = '\[[$ram](fg:yellow)[( | $swap \(swap\))](fg:green)\]'
 format = '\[[$symbol$version]($style)\]'
 
 [python]
-format = '\[[${symbol}${pyenv_prefix}(${version})(\($virtualenv\))]($style)\]'
+format = '\[[${symbol}(\($virtualenv\))]($style)\]'
 
 [ruby]
 format = '\[[$symbol($version)]($style)\]'
