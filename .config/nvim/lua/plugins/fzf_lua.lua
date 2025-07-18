@@ -7,7 +7,8 @@ local function config()
 		winopts = { fullscreen = true },
 		grep = {
 			rg_opts = "--column --line-number --hidden --color=always --no-ignore"
-				.. " --iglob !.git/ --iglob !.ruff_cache/ --iglob !.mypy_cache/ --iglob !build/ --iglob !.pytest_cache/ ",
+				.. " --iglob !.git/ --iglob !.ruff_cache/ --iglob !.mypy_cache/ --iglob !build/ --iglob !.pytest_cache/ "
+				.. " --iglob !.venv/",
 		},
 		oldfiles = { cwd_only = true, include_current_session = true },
 		marks = { marks = "%a", fzf_opts = { ["--multi"] = true } },
