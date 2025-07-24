@@ -41,6 +41,10 @@ bindkey -s ^g "tmux-sessionizer\n"
 # For existing sessions
 bindkey -s ^f "tmux-list-sessionizer\n"
 
+autoload -z edit-command-line
+zle -N edit-command-line
+bindkey "^X^E" edit-command-line
+
 ################################   OPTIONS  ################################
 
 # Immediately append to history, rather than wait for shell exit
