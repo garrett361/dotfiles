@@ -104,9 +104,8 @@ function hist_edit() {
     # Get history and let user select with fzf
     selected_cmd=$(fc -l 1 | fzf --tac --no-sort | sed 's/^[[:space:]]*[0-9]*[[:space:]]*//')
 
-    echo "cmd=$selected_cmd"
     # Exit if no selection made
-    # [[ -z "$selected_cmd" ]] && return
+    [[ -z "$selected_cmd" ]] && return
 
     # Create temp file and edit
     temp_file=$(mktemp)
