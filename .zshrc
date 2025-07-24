@@ -1,9 +1,9 @@
 ################################   EXPORTS  ################################
 source ~/.commonrc
 
-# c/c++
-export CC=clang
-export CXX=clang++
+# # c/c++
+# export CC=clang
+# export CXX=clang++
 
 
 ################################   LARGE/SHARED HISTORY  ################################
