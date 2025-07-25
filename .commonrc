@@ -98,39 +98,6 @@ function vela2()
     oc projects
 }
 
-function hist_edit() {
-    local selected_cmd temp_file edited_cmd
-
-    # Get history and let user select with fzf
-    selected_cmd=$(fc -l 1 | fzf --tac --no-sort | sed 's/^[[:space:]]*[0-9]*[[:space:]]*//')
-
-    # Exit if no selection made
-    [[ -z "$selected_cmd" ]] && return
-
-    # Create temp file and edit
-    temp_file=$(mktemp)
-    echo "$selected_cmd" > "$temp_file"
-    nvim "$temp_file"
-
-    # Read edited command
-    edited_cmd=$(cat "$temp_file")
-    rm "$temp_file"
-
-    # Put command back on CLI (shell-specific)
-    if [[ -n "$ZSH_VERSION" ]]; then
-        print -z "$edited_cmd"
-    elif [[ -n "$BASH_VERSION" ]]; then
-        history -s "$edited_cmd"
-        bind '"\C-x\C-a": "\C-a\C-k'"$edited_cmd"'\n"'
-        bind '"\C-x\C-x": "\C-x\C-a"'
-        read -p "Press Ctrl+X twice to load command: " -n 1
-        echo
-    fi
-}
-
-alias e=hist_edit
-
-
 ################################   OTHER  ################################
 
 [ -f ~/.cargo/env ] && source ~/.cargo/env
