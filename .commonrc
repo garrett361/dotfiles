@@ -60,7 +60,7 @@ alias r="oc_rsh"
 # make a directory and cd to it
 function mcd()
 {
-    test -d "$1" || mkdir "$1" && cd "$1"
+    test -d "$1" || mkdir -p "$1" && cd "$1"
 }
 
 # create a file and all intervening directories
