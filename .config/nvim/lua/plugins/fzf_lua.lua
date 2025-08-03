@@ -189,8 +189,11 @@ return {
 		{
 			"<leader>g",
 			function()
+                -- https://www.reddit.com/r/neovim/comments/1mg3ygb/fzflua_better_file_picker_sorting_small_solution/
 				prequire("fzf-lua").files({
-					cmd = "fd -IH --exclude *.pyc --exclude *.venv/ --exclude *.ruff_cache/ --exclude *.mypy_cache/ --exclude *__pycache__/ --exclude *.git/",
+					-- cmd = "fd -IH --exclude *.pyc --exclude *.venv/ --exclude *.ruff_cache/ --exclude *.mypy_cache/ --exclude *__pycache__/ --exclude *.git/",
+                    cmd = "rg --files --hidden --ignore --glob='!.git' --glob '!*.pyc' --glob '!*.venv/' --glob '!*.ruff_cache/' --glob '!*.mypy_cache/' --glob '!*__pycache__/' --glob '!*.git/' --sortr=modified",
+                    fzf_opts = { ["--scheme"] = "path", ["--tiebreak"] = "index" },
 					winopts = { preview = { delay = 0 } },
 				})
 			end,
