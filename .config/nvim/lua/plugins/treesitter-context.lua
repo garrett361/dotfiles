@@ -2,6 +2,7 @@ local prequire = require("nvim_utils").prequire
 local function config()
 	local ts_context = require("nvim_utils").prequire("treesitter-context")
 	vim.cmd("hi TreesitterContextLineNumberBottom gui=underline guisp=Grey")
+	vim.cmd("hi TreesitterContextBottom gui=underline guisp=Grey")
 
 	ts_context.setup({
 		max_lines = 0,
