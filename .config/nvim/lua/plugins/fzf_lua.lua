@@ -170,8 +170,10 @@ return {
 		{
 			"<leader>d",
 			function()
-				-- https://www.reddit.com/r/neovim/comments/1hgvt7c/comment/m2mofc2/?utm_source=share&utm_medium=mweb3x&utm_name=mweb3xcss&utm_term=1&utm_content=share_button
-				prequire("fzf-lua").oldfiles({ winopts = { preview = { delay = 0 } } })
+                -- live grep only over files which have been globally marked
+				prequire("fzf-lua").live_grep_glob({
+					search_paths = require("nvim_utils.marks").get_global_mark_files(),
+				})
 			end,
 		},
 		{
