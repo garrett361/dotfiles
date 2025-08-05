@@ -51,4 +51,28 @@ M.set_next_avail_global_mark = function()
 	end
 end
 
+-- Returns a list of all unique files which are globally marked
+M.get_global_mark_files = function()
+	local marks = vim.fn.getmarklist()
+	local file_paths = {}
+	local seen_paths = {}
+
+	for _, mark in ipairs(marks) do
+		local mark_name = mark.mark:sub(2) -- Remove the ' prefix
+
+		-- Check if it's a global mark (A-Z)
+		if mark_name:match("^[A-Z]$") and mark.file and mark.file ~= "" then
+			local file_path = vim.fn.fnamemodify(mark.file, ":p") -- Get absolute path
+
+			-- Add to list if not already seen
+			if not seen_paths[file_path] then
+				seen_paths[file_path] = true
+				table.insert(file_paths, file_path)
+			end
+		end
+	end
+
+	return file_paths
+end
+
 return M
