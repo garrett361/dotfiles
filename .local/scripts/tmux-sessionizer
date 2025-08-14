@@ -5,7 +5,7 @@ BASE_DIR=${TMUX_SESSIONIZER_BASE:-$GITHUB}
 if [[ $# -eq 1 ]]; then
 	selected=$1
 else
-	selected=$(find "$BASE_DIR" -mindepth 2 -maxdepth 2 -type d | fzf)
+	selected=$(find $BASE_DIR -mindepth 2 -maxdepth 2 -type d | fzf)
 fi
 
 if [[ -z $selected ]]; then
