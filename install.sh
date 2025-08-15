@@ -7,7 +7,7 @@ for localdir in ".local" ".config"; do
 	ln -sfF $dirpath/* $HOME/$localdir
 done
 
-for localfile in ".commonrc" ".vimrc" ".zshrc" ".gitignore_global" ".stylua.toml" ".rg"; do
+for localfile in ".commonrc" ".vimrc" ".zshrc" ".gitignore_global" ".stylua.toml" ".rg" ".ipython/profile_default/ipython_config.py"; do
     filepath=$(readlink -f $localfile)
 	ln -sfF $filepath $HOME/$localfile
 done
