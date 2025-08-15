@@ -51,28 +51,43 @@ M.set_next_avail_global_mark = function()
 	end
 end
 
--- Returns a list of all unique files which are globally marked
+-- Returns a map from global marks to their file paths.
 M.get_global_mark_files = function()
 	local marks = vim.fn.getmarklist()
-	local file_paths = {}
-	local seen_paths = {}
+	local mark_to_file = {}
 
+	-- Create a map of all available marks first
+	local available_marks = {}
 	for _, mark in ipairs(marks) do
 		local mark_name = mark.mark:sub(2) -- Remove the ' prefix
-
-		-- Check if it's a global mark (A-Z)
 		if mark_name:match("^[A-Z]$") and mark.file and mark.file ~= "" then
-			local file_path = vim.fn.fnamemodify(mark.file, ":p") -- Get absolute path
-
-			-- Add to list if not already seen
-			if not seen_paths[file_path] then
-				seen_paths[file_path] = true
-				table.insert(file_paths, file_path)
-			end
+			available_marks[mark_name] = vim.fn.fnamemodify(mark.file, ":p")
 		end
 	end
 
-	return file_paths
+	-- Build result dictionary in alphabetical order A-Z
+	for i = string.byte("A"), string.byte("Z") do
+		local mark_name = string.char(i)
+		if available_marks[mark_name] then
+			mark_to_file[mark_name] = available_marks[mark_name]
+		end
+	end
+
+	return mark_to_file
+end
+
+M.get_first_global_mark_in_current_file = function()
+	local current_file_path = vim.fn.fnamemodify(vim.fn.expand("%"), ":p")
+	local mark_to_file = M.get_global_mark_files()
+
+	-- Since marks are processed A-Z, first match is alphabetically first
+	for mark_name, file_path in pairs(mark_to_file) do
+		if file_path == current_file_path then
+			return mark_name
+		end
+	end
+
+	return nil
 end
 
 return M
