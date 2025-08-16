@@ -98,6 +98,13 @@ function vela2()
     oc projects
 }
 
+function aiu()
+{
+    export KUBECONFIG=~/.kube/aiu
+    oc projects
+}
+
+
 ################################   OTHER  ################################
 
 [ -f ~/.cargo/env ] && source ~/.cargo/env
