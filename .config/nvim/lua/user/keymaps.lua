@@ -51,13 +51,18 @@ keymap("n", "<C-k>", ":res -3<cr>", opts)
 keymap("n", "<C-l>", ":vertical res -3<cr>", opts)
 
 -- Replacements
+local alt_sep = ";"
 vim.keymap.set("n", "<leader><leader>s", function()
 	local word = vim.fn.expand("<cword>")
 	local move_left = "<Left><Left><Left><Left><Left><Left>"
+	local sep = "/"
 	if word == "" then
 		move_left = move_left .. "<Left>"
+	elseif word:find(sep) then
+		sep = alt_sep
 	end
-	local keys = ":%s/" .. word .. "//gc|up" .. move_left
+	vim.notify(word)
+	local keys = ":%s" .. sep .. word .. sep .. sep .. "gc|up" .. move_left
 	nvim_utils.feedkeys(keys)
 end, { noremap = true })
 
@@ -66,8 +71,12 @@ vim.keymap.set("x", "<leader><leader>s", function()
 	local keys = nil
 	if vim.api.nvim_get_mode().mode == "v" then
 		local delete = "<BS><BS><BS><BS><BS>"
-		local sel_text = require("nvim_utils").get_vis_text()
-		keys = ":" .. delete .. "%s/" .. sel_text .. "//gc|up" .. move_left
+		local word = require("nvim_utils").get_vis_text()
+		local sep = "/"
+		if word:find(sep) then
+			sep = alt_sep
+		end
+		keys = ":" .. delete .. "%s" .. sep .. word .. sep .. sep .. "gc|up" .. move_left
 	else
 		keys = ":s///gc|up" .. move_left .. "<Left>"
 	end
@@ -78,18 +87,27 @@ end, { noremap = true })
 vim.keymap.set("n", "<leader><leader>c", function()
 	local word = vim.fn.expand("<cword>")
 	local move_left = "<Left><Left><Left><Left><Left><Left>"
+	local sep = "/"
 	if word == "" then
 		move_left = move_left .. "<Left>"
+	elseif word:find(sep) then
+		sep = alt_sep
 	end
-	local keys = ":cdo .s/" .. word .. "//gc|up" .. move_left
+	local keys = ":cdo .s" .. sep .. word .. sep .. sep .. "gc|up" .. move_left
 	nvim_utils.feedkeys(keys)
 end, { noremap = true })
 
 vim.keymap.set("v", "<leader><leader>c", function()
-	local sel_text = require("nvim_utils").get_vis_text()
+	local word = require("nvim_utils").get_vis_text()
 	local delete = "<BS><BS><BS><BS><BS>"
 	local move_left = "<Left><Left><Left><Left><Left><Left>"
-	local keys = ":" .. delete .. "cdo .s/" .. sel_text .. "//gc|up" .. move_left
+	local sep = "/"
+	if word == "" then
+		move_left = move_left .. "<Left>"
+	elseif word:find(sep) then
+		sep = alt_sep
+	end
+	local keys = ":" .. delete .. "cdo .s" .. sep .. word .. sep .. sep .. "gc|up" .. move_left
 	nvim_utils.feedkeys(keys)
 end, { noremap = true })
 
