@@ -142,6 +142,12 @@ return {
 			end,
 		},
 		{
+			"<leader>at",
+			function()
+				prequire("fzf-lua").git_tags()
+			end,
+		},
+		{
 			"<leader>b",
 			function()
 				prequire("fzf-lua").buffers()
