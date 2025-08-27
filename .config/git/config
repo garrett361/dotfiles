@@ -41,6 +41,7 @@
     pushf = push --force-with-lease
     r = rebase
     ra = rebase --abort
+    rau = remote add upstream
     rc = rebase --continue
     rh = reset --hard
     ri = rebase --interactive
