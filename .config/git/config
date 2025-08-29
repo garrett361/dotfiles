@@ -59,6 +59,8 @@
 	required = true
 [init]
 	defaultBranch = main
+[pull]
+	rebase = true
 [rebase]
     updateRefs = true
 [submodule]
