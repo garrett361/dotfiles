@@ -1,15 +1,3 @@
-# This is Git's per-user configuration file.
-[user]
-	name = Garrett Goon
-	email = goon@ibm.com
-	signingkey = C535EE1BA19BB68A
-# Please adapt and uncomment the following lines:
-#	name = Garrett Goon
-#	email = garrett@Garretts-MacBook-Pro.local
-[init]
-	defaultBranch = main
-[submodule]
-    recurse = true
 [alias]
     b = branch
     bD = branch -D
@@ -56,16 +44,26 @@
     wt = worktree
     wta = worktree add
     wtr = worktree remove
+[core]
+    excludesfile = ~/.gitignore_global
+[credential]
+	helper = /usr/local/share/gcm-core/git-credential-manager
+[credential "https://dev.azure.com"]
+	useHttpPath = true
+[credential "https://huggingface.co"]
+	provider = generic
 [filter "lfs"]
 	clean = git-lfs clean -- %f
 	smudge = git-lfs smudge -- %f
 	process = git-lfs filter-process
 	required = true
-[credential]
-	helper = /usr/local/share/gcm-core/git-credential-manager
-[credential "https://dev.azure.com"]
-	useHttpPath = true
-[core]
-    excludesfile = ~/.gitignore_global
-[credential "https://huggingface.co"]
-	provider = generic
+[init]
+	defaultBranch = main
+[rebase]
+    updateRefs = true
+[submodule]
+    recurse = true
+[user]
+	name = Garrett Goon
+	email = goon@ibm.com
+	signingkey = C535EE1BA19BB68A
