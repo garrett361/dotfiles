@@ -274,7 +274,7 @@ local function config()
 				local location = mini_statusline.section_location({ trunc_width = 75 })
 
 				local no_format_str = ""
-				if vim.env.FORMAT_ON_NVIM ~= "1" then
+				if vim.env.FORMAT_NVIM ~= "1" then
 					no_format_str = "FORMAT OFF"
 				end
 
@@ -357,7 +357,7 @@ local function config()
 	})
 	vim.api.nvim_create_autocmd({ "BufWritePost" }, {
 		callback = function()
-			if vim.api.nvim_buf_get_option(0, "ma") then
+			if vim.api.nvim_buf_get_option(0, "ma") and os.getenv("FORMAT_NVIM") == "1" then
 				mini_trailspace.trim()
 			end
 		end,
