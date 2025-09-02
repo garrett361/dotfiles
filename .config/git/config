@@ -61,8 +61,8 @@
 	defaultBranch = main
 [pull]
 	rebase = true
-[rebase]
-    updateRefs = true
+#[rebase]
+#    updateRefs = true
 [submodule]
     recurse = true
 [user]
