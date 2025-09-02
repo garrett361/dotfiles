@@ -79,6 +79,7 @@ return {
 			"<leader>cf",
 			function()
 				prequire("conform").format({ bufnr = 0 })
+                prequire("mini.trailspace").trim()
 			end,
 			mode = { "n", "v" },
 		},
