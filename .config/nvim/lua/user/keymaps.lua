@@ -93,7 +93,7 @@ vim.keymap.set("n", "<leader><leader>c", function()
 	elseif word:find(sep) then
 		sep = alt_sep
 	end
-	local keys = ":cdo .s" .. sep .. word .. sep .. sep .. "gc|up" .. move_left
+	local keys = ":cfdo %s" .. sep .. word .. sep .. sep .. "gc|up" .. move_left
 	nvim_utils.feedkeys(keys)
 end, { noremap = true })
 
@@ -107,7 +107,7 @@ vim.keymap.set("v", "<leader><leader>c", function()
 	elseif word:find(sep) then
 		sep = alt_sep
 	end
-	local keys = ":" .. delete .. "cdo .s" .. sep .. word .. sep .. sep .. "gc|up" .. move_left
+	local keys = ":" .. delete .. "cfdo %s" .. sep .. word .. sep .. sep .. "gc|up" .. move_left
 	nvim_utils.feedkeys(keys)
 end, { noremap = true })
 
