@@ -30,6 +30,6 @@ vim.keymap.set("v", "<leader>p", md_url_paste, opts)
 -- vim.bo.wrap = true
 -- vim.bo.textwidth = 100
 
--- Swap slash/backslash for latex
-vim.keymap.set("i", "\\", "/", opts)
-vim.keymap.set("i", "/", "\\", opts)
+-- -- Swap slash/backslash for latex
+-- vim.keymap.set("i", "\\", "/", opts)
+-- vim.keymap.set("i", "/", "\\", opts)
