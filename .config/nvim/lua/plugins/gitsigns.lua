@@ -25,7 +25,7 @@ return {
 
 	"lewis6991/gitsigns.nvim",
 	config = config,
-	lazy = false,
+	event = "VeryLazy",
 	keys = {
 		{
 			"<leader>aa",

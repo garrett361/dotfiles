@@ -418,5 +418,5 @@ return {
 	"echasnovski/mini.nvim",
 	version = false,
 	config = config,
-	lazy = false,
+	event = "VeryLazy",
 }

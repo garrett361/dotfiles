@@ -70,6 +70,7 @@ return {
 
 	"ibhagwan/fzf-lua",
 	config = config,
+	event = "VeryLazy",
 	keys = {
 		-- Git related cmds
 		{

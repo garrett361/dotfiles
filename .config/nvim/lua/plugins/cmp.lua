@@ -189,4 +189,5 @@ return {
 		"hrsh7th/cmp-path",
 	},
 	config = config,
+	event = "VeryLazy",
 }

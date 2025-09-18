@@ -49,7 +49,7 @@ local function config()
 end
 
 return {
-
+	event = "VeryLazy",
 	"nvim-treesitter/nvim-treesitter",
 	config = config,
 }

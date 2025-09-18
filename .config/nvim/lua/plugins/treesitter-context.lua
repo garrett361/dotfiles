@@ -13,7 +13,7 @@ local function config()
 end
 return {
 	"nvim-treesitter/nvim-treesitter-context",
-	lazy = false,
+	event = "VeryLazy",
 	config = config,
 	keys = {
 		{
