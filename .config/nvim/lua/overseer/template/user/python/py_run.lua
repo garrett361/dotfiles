@@ -14,7 +14,13 @@ return {
 		return {
 			cmd = cmd,
 			args = {},
-			components = { { "on_output_quickfix", open = true }, "default" },
+			components = {
+				{
+					"on_output_quickfix",
+					open = true,
+				},
+				"default",
+			},
 		}
 	end,
 	condition = {
