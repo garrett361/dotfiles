@@ -37,6 +37,7 @@ alias ....="cd ../../..;pwd"
 # cd into dotfiles
 alias cddot="cd ${GITHUB}/garrett361/dotfiles; pwd"
 
+
 # cd into github
 alias cdg="cd ${GITHUB}; pwd"
 alias cdgg="cd ${GITHUB}/garrett361; pwd"
@@ -53,6 +54,9 @@ alias de="oc_describe"
 alias dp="oc_describe_pod"
 alias r="oc_rsh"
 
+# tmux
+alias t="tmux"
+alias ts="tmux-sessionizer"
 
 ################################   FUNCTIONS  ################################
 
