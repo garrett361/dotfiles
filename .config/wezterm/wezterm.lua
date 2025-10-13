@@ -4,7 +4,7 @@ local config = wezterm.config_builder()
 
 config.font = wezterm.font("JetBrainsMono Nerd Font")
 config.font_size = 14
-config.max_fps = 201
+config.max_fps = 189
 
 -- config.enable_tab_bar = false
 config.hide_tab_bar_if_only_one_tab = true
