@@ -227,7 +227,7 @@ local function config()
 	local function statusline_diagnostics(args)
 		-- Assumption: there are no attached clients if table
 		-- `vim.lsp.buf_get_clients()` is empty
-		local hasnt_attached_client = next(vim.lsp.buf_get_clients()) == nil
+		local hasnt_attached_client = next(vim.lsp.get_clients()) == nil
 		local not_regular_buffer = vim.bo.buftype ~= ""
 		local dont_show_lsp = mini_statusline.is_truncated(args.trunc_width)
 			or not_regular_buffer
@@ -357,7 +357,7 @@ local function config()
 	})
 	vim.api.nvim_create_autocmd({ "BufWritePost" }, {
 		callback = function()
-			if vim.api.nvim_buf_get_option(0, "ma") and os.getenv("FORMAT_NVIM") == "1" then
+			if os.getenv("FORMAT_NVIM") == "1" and vim.api.nvim_get_option_value("ma", {}) then
 				mini_trailspace.trim()
 			end
 		end,

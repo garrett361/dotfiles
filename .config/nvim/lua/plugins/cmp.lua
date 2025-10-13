@@ -148,7 +148,7 @@ local function config()
 			},
 		},
 		enabled = function()
-			return vim.api.nvim_buf_get_option(0, "buftype") ~= "prompt"
+			return vim.api.nvim_get_option_value("buftype", {}) ~= "prompt"
 				or require("cmp_dap").is_dap_buffer()
 		end,
 	})

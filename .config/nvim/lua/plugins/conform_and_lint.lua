@@ -61,7 +61,7 @@ local function config()
 end
 
 local function maybe_fmt_and_lint()
-	if vim.api.nvim_buf_get_option(0, "ma") and os.getenv("FORMAT_NVIM") == "1" then
+    if os.getenv("FORMAT_NVIM") == "1" and vim.api.nvim_get_option_value("ma") then
 		prequire("conform").format({ bufnr = 0 })
 		prequire("lint").try_lint()
 	end
