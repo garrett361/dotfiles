@@ -24,7 +24,7 @@ if [ $is_linux -eq 1 ]; then
     ln -s "${RG}/rg" .
 
     NVIM=nvim-linux-x86_64
-    curl -LO https://github.com/neovim/neovim/releases/latest/download/${NVIM}.tar.gz
+    curl -LO https://github.com/neovim/neovim/releases/11.0/download/${NVIM}.tar.gz
     tar -xvzf "${NVIM}.tar.gz"
     ln -s "${NVIM}/bin/nvim" .
 
@@ -37,7 +37,6 @@ if [ $is_linux -eq 1 ]; then
     curl -LO "https://github.com/sharkdp/bat/releases/download/v0.25.0/${BAT}.tar.gz"
     tar -xvzf "${BAT}.tar.gz"
     ln -s "${BAT}/bat" .
-
 
     FD=fd-v10.2.0-x86_64-unknown-linux-musl
     curl -LO "https://github.com/sharkdp/fd/releases/download/v10.2.0/${FD}.tar.gz"
