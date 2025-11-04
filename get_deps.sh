@@ -24,7 +24,7 @@ if [ $is_linux -eq 1 ]; then
     ln -s "${RG}/rg" .
 
     NVIM=nvim-linux-x86_64
-    curl -LO "https://github.com/neovim/neovim/releases/11.0/download/${NVIM}.tar.gz"
+    curl -LO "https://github.com/neovim/neovim/releases/v0.11.0/download/${NVIM}.tar.gz"
     tar -xvzf "${NVIM}.tar.gz"
     ln -s "${NVIM}/bin/nvim" .
 
