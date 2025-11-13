@@ -17,6 +17,8 @@
     f = fetch
     fum = fetch upstream main
     fom = fetch origin main
+    fcum = !git fetch upstream main && git checkout upstream/main
+    fcom = !git fetch origin main && git checkout origin/main
     l = log
     m = merge
     ma = merge --abort
