@@ -88,7 +88,7 @@ M.config = function()
 
           local args = {
             '--nproc_per_node=' .. nproc,
-            '--master_port=29500',
+            '--master_port=29501',
             script
           }
 
