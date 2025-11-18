@@ -169,32 +169,32 @@ alt-shift-l = ['join-with right', 'mode main']
 # Multiple monitor placement
 [workspace-to-monitor-force-assignment]
 
-# # Three Monitor
-# 1 = 1
-# 2 = 1
-# 3 = 1
-# 4 = 2
-# 5 = 2
-# 6 = 2
-# 7 = 2
-# 8 = 2
-# 9 = 2
-# 0 = 2
-# A = 3
-# B = 3
-# C = 3
-
-# Two Monitor
+# Three Monitor
 1 = 1
 2 = 1
 3 = 1
-4 = 1
-5 = 1
-6 = 1
-7 = 1
-8 = 1
-9 = 1
-0 = 1
-A = 2
-B = 2
-C = 2
+4 = 2
+5 = 2
+6 = 2
+7 = 2
+8 = 2
+9 = 2
+0 = 2
+A = 3
+B = 3
+C = 3
+
+# # Two Monitor
+# 1 = 1
+# 2 = 1
+# 3 = 1
+# 4 = 1
+# 5 = 1
+# 6 = 1
+# 7 = 1
+# 8 = 1
+# 9 = 1
+# 0 = 1
+# A = 2
+# B = 2
+# C = 2
