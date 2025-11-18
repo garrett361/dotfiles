@@ -75,6 +75,38 @@ M.config = function()
 		subProcess = true,
 		console = "integratedTerminal",
 	})
+	table.insert(nvim_dap.configurations.python, {
+	    type = 'python',
+        request = 'launch',
+        name = 'torchrun',
+        program = vim.fn.exepath('torchrun'),
+        args = function()
+          local nproc = vim.fn.input('Number of processes (default 2): ')
+          if nproc == '' then nproc = '2' end
+          local script = vim.fn.expand('%:p')
+          local script_args = vim.fn.input('Script arguments: ')
+
+          local args = {
+            '--nproc_per_node=' .. nproc,
+            '--master_port=29500',
+            script
+          }
+
+          if script_args ~= '' then
+            for arg in script_args:gmatch('%S+') do
+              table.insert(args, arg)
+            end
+          end
+
+          return args
+        end,
+        cwd = '${workspaceFolder}',
+        console = 'integratedTerminal',
+        -- This tells DAP to debug the launched process directly
+        subProcess = true,
+        -- Automatically stop at entry point
+        stopOnEntry = false,
+    })
 	-- Use pytest by default
 	nvim_dap_python.test_runner = "pytest_pdb"
 end
