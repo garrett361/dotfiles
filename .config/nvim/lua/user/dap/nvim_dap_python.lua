@@ -84,7 +84,7 @@ M.config = function()
           local nproc = vim.fn.input('Number of processes (default 2): ')
           if nproc == '' then nproc = '2' end
           local script = vim.fn.expand('%:p')
-          local script_args = vim.fn.input('Script arguments: ')
+          local script_args = vim.fn.input('Script arguments (' .. script ..'): ')
 
           local args = {
             '--nproc_per_node=' .. nproc,
