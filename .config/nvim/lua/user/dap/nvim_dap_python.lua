@@ -81,8 +81,19 @@ M.config = function()
         name = 'torchrun',
         program = vim.fn.exepath('torchrun'),
         args = function()
-          local nproc = vim.fn.input('Number of processes (default 2): ')
-          if nproc == '' then nproc = '2' end
+          -- Calculate default number of processes based on CUDA_VISIBLE_DEVICES
+          local default_nproc = '2'
+          local cuda_devices = os.getenv('CUDA_VISIBLE_DEVICES')
+          if cuda_devices and cuda_devices ~= '' then
+            local gpu_count = 0
+            for _ in cuda_devices:gmatch('[^,]+') do
+              gpu_count = gpu_count + 1
+            end
+            default_nproc = tostring(gpu_count)
+          end
+
+          local nproc = vim.fn.input('Number of processes (default ' .. default_nproc .. '): ')
+          if nproc == '' then nproc = default_nproc end
           local script = vim.fn.expand('%:p')
           local script_args = vim.fn.input('Script arguments (' .. script ..'): ')
 
@@ -102,7 +113,7 @@ M.config = function()
         end,
         cwd = '${workspaceFolder}',
         console = 'integratedTerminal',
-        -- This tells DAP to debug the launched process directly
+		justMyCode = false,
         subProcess = true,
         -- Automatically stop at entry point
         stopOnEntry = false,
