@@ -76,48 +76,57 @@ M.config = function()
 		console = "integratedTerminal",
 	})
 	table.insert(nvim_dap.configurations.python, {
-	    type = 'python',
-        request = 'launch',
-        name = 'torchrun',
-        program = vim.fn.exepath('torchrun'),
-        args = function()
-          -- Calculate default number of processes based on CUDA_VISIBLE_DEVICES
-          local default_nproc = '2'
-          local cuda_devices = os.getenv('CUDA_VISIBLE_DEVICES')
-          if cuda_devices and cuda_devices ~= '' then
-            local gpu_count = 0
-            for _ in cuda_devices:gmatch('[^,]+') do
-              gpu_count = gpu_count + 1
-            end
-            default_nproc = tostring(gpu_count)
-          end
+		type = "python",
+		request = "launch",
+		name = "torchrun",
+		program = function()
+			local torchrun_path = vim.fn.exepath("torchrun")
+			if torchrun_path == "" then
+				error("torchrun not found in PATH. Ensure PyTorch is installed.")
+			end
+			return torchrun_path
+		end,
+		args = function()
+			-- Calculate default number of processes based on CUDA_VISIBLE_DEVICES
+			local default_nproc = "2"
+			local cuda_devices = os.getenv("CUDA_VISIBLE_DEVICES")
+			if cuda_devices and cuda_devices ~= "" then
+				local gpu_count = 0
+				for _ in cuda_devices:gmatch("[^,]+") do
+					gpu_count = gpu_count + 1
+				end
+				default_nproc = tostring(gpu_count)
+			end
 
-          local nproc = vim.fn.input('Number of processes (default ' .. default_nproc .. '): ')
-          if nproc == '' then nproc = default_nproc end
-          local script = vim.fn.expand('%:p')
-          local script_args = vim.fn.input('Script arguments (' .. script ..'): ')
+			local nproc = vim.fn.input("Number of processes (default " .. default_nproc .. "): ")
+			if nproc == "" then
+				nproc = default_nproc
+			end
+			local script = vim.fn.expand("%:p")
+			local script_args = vim.fn.input("Script arguments (" .. script .. "): ")
 
-          local args = {
-            '--nproc_per_node=' .. nproc,
-            '--master_port=29501',
-            script
-          }
+            local port = math.random(29501, 29600)
+			local args = {
+				"--nproc_per_node=" .. nproc,
+				"--master_port=" .. port,
+				script,
+			}
 
-          if script_args ~= '' then
-            for arg in script_args:gmatch('%S+') do
-              table.insert(args, arg)
-            end
-          end
+			if script_args ~= "" then
+				for arg in script_args:gmatch("%S+") do
+					table.insert(args, arg)
+				end
+			end
 
-          return args
-        end,
-        cwd = '${workspaceFolder}',
-        console = 'integratedTerminal',
+			return args
+		end,
+		cwd = "${workspaceFolder}",
+		console = "integratedTerminal",
 		justMyCode = false,
-        subProcess = true,
-        -- Automatically stop at entry point
-        stopOnEntry = false,
-    })
+		subProcess = true,
+		-- Automatically stop at entry point
+		stopOnEntry = false,
+	})
 	-- Use pytest by default
 	nvim_dap_python.test_runner = "pytest_pdb"
 end
