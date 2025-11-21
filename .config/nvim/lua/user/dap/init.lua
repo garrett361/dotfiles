@@ -751,6 +751,25 @@ M.lazy_keymaps = {
 		silent = true,
 		desc = "Run selected ranks to specific point",
 	},
+	{
+		"<A-D>", -- Debug session states
+		function()
+			local sessions = get_sessions()
+			for id, s in pairs(sessions) do
+				print(
+					string.format(
+						"Session %s: stopped_thread=%s, frame=%s, closed=%s",
+						id,
+						tostring(s.stopped_thread_id),
+						tostring(s.current_frame ~= nil),
+						tostring(s.closed)
+					)
+				)
+			end
+		end,
+		mode = { "n" },
+		desc = "Debug session states",
+	},
 }
 
 return M
