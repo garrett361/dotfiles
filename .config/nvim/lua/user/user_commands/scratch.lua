@@ -1,6 +1,9 @@
 -- https://github.com/nvim-neorocks/nvim-best-practices?tab=readme-ov-file#speaking_head-user-commands
 
 local scratch_dir = vim.fn.stdpath("data") .. "/scratch/"
+if vim.fn.isdirectory(scratch_dir) == 0 then
+	vim.fn.mkdir(scratch_dir, "p")
+end
 
 local open_scratch = function()
 	local fzf = require("fzf-lua")
