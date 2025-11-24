@@ -66,7 +66,7 @@ local env = {
 		)
 	),
 	s(
-		",m",
+		",a",
 		fmta(
 			[[
         $$
@@ -76,21 +76,21 @@ local env = {
 			{ i(1) }
 		)
 	),
-	s("mm", fmta("$<>$", { i(1) })),
-	s("ll", fmta([[\left ]], {})),
-	s("lr(", fmta([[\left ( <> \right ]], { i(1) })),
-	s("lr[", fmta([[\left [ <> \right ]], { i(1) })),
-	s("lr{", fmta([[\left \{ <> \right \]], { i(1) })),
-	s("rr", fmta([[\right ]], {})),
-	s("tt", fmta([[\texttt{<>}]], { i(1) })),
+	s(",,", fmta("$<>$", { i(1) })),
+	s(",ll", fmta([[\left ]], {})),
+	s(",lr(", fmta([[\left ( <> \right ]], { i(1) })),
+	s(",lr[", fmta([[\left [ <> \right ]], { i(1) })),
+	s(",lr{", fmta([[\left \{ <> \right \]], { i(1) })),
+	s(",rr", fmta([[\right ]], {})),
+	s(",tt", fmta([[\texttt{<>}]], { i(1) })),
 }
 
 local math = {
-	s("dd", fmta("_{ <> }", { i(1) })),
-	s("uu", fmta("^{ <> }", { i(1) })),
-	s("ee", fmta("e^{ <> }", { i(1) })),
-	s("ff", fmta("\\frac{ <> }{ <> }", { i(1), i(2) })),
-	s("xx", t([[\exp ]])),
+	s(",dd", fmta("_{ <> }", { i(1) })),
+	s(",uu", fmta("^{ <> }", { i(1) })),
+	s(",ee", fmta("e^{ <> }", { i(1) })),
+	s(",ff", fmta("\\frac{ <> }{ <> }", { i(1), i(2) })),
+	s(",xx", t([[\exp ]])),
 }
 
 local collection = { env, math }
