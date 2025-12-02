@@ -11,7 +11,7 @@ local function config()
 				.. " --iglob !.venv/",
 		},
 		oldfiles = { cwd_only = true, include_current_session = true },
-		marks = { marks = "%a", fzf_opts = { ["--multi"] = true } },
+		-- marks = { marks = "%a", fzf_opts = { ["--multi"] = true } },
 		keymap = {
 			builtin = {
 				-- neovim `:tmap` mappings for the fzf win
@@ -231,6 +231,12 @@ return {
 			"<leader>m",
 			function()
 				prequire("fzf-lua").marks({
+					marks = "%a", -- Preserve the marks filter
+					fzf_opts = {
+						["--multi"] = true,
+						-- For unclear reasons, the below lets my tab-select multiple entries.
+						["--bind"] = "ctrl-t:toggle+down,alt-a:select-all",
+					}, -- Enable multi-select
 					actions = {
 						["ctrl-r"] = function(selected)
 							for _, mark in ipairs(selected) do
