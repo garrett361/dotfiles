@@ -1,4 +1,4 @@
--- FilterBelow passes the visually selected lines to arbitrary external fucntions. E.g. `FilterBelow diagon Math`
+-- FilterBelow passes the visually selected lines to arbitrary external functions. E.g. `FilterBelow diagon Math`
 -- to generate ASCII math from the visual selection. Output is put into the buffer below the visual
 -- selection
 vim.api.nvim_create_user_command("FilterBelow", function(opts)

@@ -1,5 +1,3 @@
-local utils = require("nvim_utils")
-
 local M = {}
 
 --- Returns an array of the capital letters currently used for global marks.
