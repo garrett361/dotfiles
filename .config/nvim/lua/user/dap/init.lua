@@ -175,39 +175,41 @@ local function step_out_all(sessions, opts)
 	end)
 end
 
----Run to cursor in all sessions
----@param sessions dap.Session[] | nil
----@param opts table|nil
-local function run_to_cursor_all(sessions)
-	sessions = sessions or get_sessions_with_frame()
-	local api = vim.api
+---Run to specified point in all sessions. Works by saving current breakpoints in a list, clearing
+---them all, setting a temp breakpoint, running to the spot, and finally restoring old ckpts.
+---@param sessions dap.Session[]
+---@param target_bufnr integer
+---@param target_lnum integer
+local function run_to_point(sessions, target_bufnr, target_lnum)
+	if vim.tbl_isempty(sessions) then
+		vim.notify("No sessions to run", vim.log.levels.WARN)
+		return
+	end
+
 	local breakpoints = prequire("dap.breakpoints")
 	local dap = prequire("dap")
 
 	-- Save current breakpoints, then clear
-	local bps_before = breakpoints.get()
+	local prev_breakpoints = breakpoints.get()
 	breakpoints.clear()
-	local cur_bufnr = api.nvim_get_current_buf()
-	local lnum = api.nvim_win_get_cursor(0)[1]
-	breakpoints.set({}, cur_bufnr, lnum)
 
-	local temp_bps = breakpoints.get(cur_bufnr)
-	for bufnr, _ in pairs(bps_before) do
-		if bufnr ~= cur_bufnr then
-			temp_bps[bufnr] = {}
-		end
-	end
-
-	if bps_before[cur_bufnr] == nil then
-		bps_before[cur_bufnr] = {}
-	end
+	-- Set temporary breakpoint at target location
+	breakpoints.set({}, target_bufnr, target_lnum)
+	local temp_breakpoint = breakpoints.get()
 
 	-- Track which sessions have stopped at cursor
 	local sessions_stopped_at_cursor = {}
 	local total_sessions = vim.tbl_count(sessions)
 
-	local function restore_breakpoints_when_all_stopped()
-		if vim.tbl_count(sessions_stopped_at_cursor) < total_sessions then
+    -- Callback for restoring old breakpoints after we run to new breakpoint at cursor
+    ---@param session dap.Session[] | nil
+	local function restore_prev_breakpoints(session)
+		-- Only track sessions that are part of this operation
+		if sessions[session.id] then
+			sessions_stopped_at_cursor[session.id] = true
+        end
+        local all_procs_stopped_at_cursor = (vim.tbl_count(sessions_stopped_at_cursor) == total_sessions)
+		if not all_procs_stopped_at_cursor then
 			return
 		end
 
@@ -216,41 +218,17 @@ local function run_to_cursor_all(sessions)
 		dap.listeners.before.event_terminated["dap.run_to_cursor"] = nil
 
 		-- Restore original breakpoints
-		breakpoints.clear()
-		for buf, buf_bps in pairs(bps_before) do
-			for _, bp in pairs(buf_bps) do
-				local bp_opts = {
-					condition = bp.condition,
-					log_message = bp.logMessage,
-					hit_condition = bp.hitCondition,
-				}
-				breakpoints.set(bp_opts, buf, bp.line)
-			end
-		end
-
-		-- Set breakpoints for all sessions
 		broadcast(sessions, function(session)
-			session:set_breakpoints(bps_before, nil)
+			session:set_breakpoints(prev_breakpoints, nil)
 		end, false)
 	end
 
-	dap.listeners.before.event_stopped["dap.run_to_cursor"] = function(session)
-		-- Only track sessions that are part of this operation
-		if sessions[session.id] then
-			sessions_stopped_at_cursor[session.id] = true
-			restore_breakpoints_when_all_stopped()
-		end
-	end
+	dap.listeners.before.event_stopped["dap.run_to_cursor"] = restore_prev_breakpoints
+	dap.listeners.before.event_terminated["dap.run_to_cursor"] = restore_prev_breakpoints
 
-	dap.listeners.before.event_terminated["dap.run_to_cursor"] = function(session)
-		if sessions[session.id] then
-			sessions_stopped_at_cursor[session.id] = true
-			restore_breakpoints_when_all_stopped()
-		end
-	end
-
+    -- Set the temp breakpoint and run all procs to it
 	local function set_temp_breakpoint(session)
-		session:set_breakpoints(temp_bps, function()
+		session:set_breakpoints(temp_breakpoint, function()
 			session:_step("continue")
 		end)
 	end
@@ -258,8 +236,22 @@ local function run_to_cursor_all(sessions)
 	broadcast(sessions, set_temp_breakpoint, false)
 end
 
-local cached_ranks = {}
 
+---Run to cursor in all sessions
+---@param sessions dap.Session[] | nil
+---@param opts table|nil
+local function run_to_cursor_all(sessions)
+	sessions = sessions or get_sessions_with_frame()
+	local api = vim.api
+
+	local cur_bufnr = api.nvim_get_current_buf()
+	local lnum = api.nvim_win_get_cursor(0)[1]
+
+	run_to_point(sessions, cur_bufnr, lnum)
+end
+
+
+local cached_ranks = {}
 local function get_rank_cached(session)
 	-- Use cached rank if available and session is still valid
 	if cached_ranks[session.id] then
@@ -493,109 +485,6 @@ local function get_target_location(callback)
 	callback(bufnr, lnum)
 end
 
----Run selected sessions to a specific point
----@param sessions dap.Session[]
----@param target_bufnr integer
----@param target_lnum integer
-local function run_sessions_to_point(sessions, target_bufnr, target_lnum)
-	if vim.tbl_isempty(sessions) then
-		vim.notify("No sessions selected", vim.log.levels.WARN)
-		return
-	end
-
-	local breakpoints = prequire("dap.breakpoints")
-	local dap = prequire("dap")
-
-	-- Save current breakpoints, then clear
-	local bps_before = breakpoints.get()
-	breakpoints.clear()
-
-	-- Set temporary breakpoint at target location
-	breakpoints.set({}, target_bufnr, target_lnum)
-	local temp_bps = breakpoints.get(target_bufnr)
-
-	-- Ensure all other buffers have empty breakpoint tables
-	for bufnr, _ in pairs(bps_before) do
-		if bufnr ~= target_bufnr then
-			temp_bps[bufnr] = {}
-		end
-	end
-
-	if bps_before[target_bufnr] == nil then
-		bps_before[target_bufnr] = {}
-	end
-
-	local sessions_stopped = {}
-	local total_sessions = vim.tbl_count(sessions)
-
-	local function restore_breakpoints()
-		-- Only restore once all selected sessions have stopped
-		if vim.tbl_count(sessions_stopped) < total_sessions then
-			return
-		end
-
-		dap.listeners.before.event_stopped["dap.run_to_point"] = nil
-		dap.listeners.before.event_terminated["dap.run_to_point"] = nil
-
-		breakpoints.clear()
-		for buf, buf_bps in pairs(bps_before) do
-			for _, bp in pairs(buf_bps) do
-				local bp_opts = {
-					condition = bp.condition,
-					log_message = bp.logMessage,
-					hit_condition = bp.hitCondition,
-				}
-				breakpoints.set(bp_opts, buf, bp.line)
-			end
-		end
-
-		-- Restore breakpoints for all sessions (not just selected ones)
-		local all_sessions = get_sessions()
-		for _, session in pairs(all_sessions) do
-			if validate_session(session) then
-				session:set_breakpoints(bps_before, nil)
-			end
-		end
-
-		vim.notify("Selected sessions reached target point", vim.log.levels.INFO)
-	end
-
-	-- Track when each selected session stops
-	dap.listeners.before.event_stopped["dap.run_to_point"] = function(session)
-		if sessions[session.id] then
-			sessions_stopped[session.id] = true
-			restore_breakpoints()
-		end
-	end
-
-	dap.listeners.before.event_terminated["dap.run_to_point"] = function(session)
-		if sessions[session.id] then
-			sessions_stopped[session.id] = true
-			restore_breakpoints()
-		end
-	end
-
-	-- Set temp breakpoint and continue for selected sessions only
-	local function set_temp_breakpoint_and_continue(session)
-		session:set_breakpoints(temp_bps, function()
-			session:_step("continue")
-		end)
-	end
-
-	broadcast(sessions, set_temp_breakpoint_and_continue, false)
-
-	vim.notify(
-		string.format(
-			"Running %d selected sessions to %s:%d",
-			total_sessions,
-			vim.api.nvim_buf_get_name(target_bufnr),
-			target_lnum
-		),
-		vim.log.levels.INFO
-	)
-end
-
----Main function: select sessions and run to point
 local function run_selected_to_point()
 	pick_sessions_multi_fzf(function(selected_sessions)
 		if vim.tbl_isempty(selected_sessions) then
@@ -604,7 +493,7 @@ local function run_selected_to_point()
 		end
 
 		get_target_location(function(bufnr, lnum)
-			run_sessions_to_point(selected_sessions, bufnr, lnum)
+			run_to_point(selected_sessions, bufnr, lnum)
 		end)
 	end)
 end
