@@ -202,37 +202,60 @@ local function run_to_cursor_all(sessions)
 		bps_before[cur_bufnr] = {}
 	end
 
-	local function restore_breakpoints(session)
+	-- Track which sessions have stopped at cursor
+	local sessions_stopped_at_cursor = {}
+	local total_sessions = vim.tbl_count(sessions)
+
+	local function restore_breakpoints_when_all_stopped()
+		if vim.tbl_count(sessions_stopped_at_cursor) < total_sessions then
+			return
+		end
+
+		-- Clean up listeners
 		dap.listeners.before.event_stopped["dap.run_to_cursor"] = nil
 		dap.listeners.before.event_terminated["dap.run_to_cursor"] = nil
+
+		-- Restore original breakpoints
 		breakpoints.clear()
 		for buf, buf_bps in pairs(bps_before) do
 			for _, bp in pairs(buf_bps) do
-				local line = bp.line
 				local bp_opts = {
 					condition = bp.condition,
 					log_message = bp.logMessage,
 					hit_condition = bp.hitCondition,
 				}
-				breakpoints.set(bp_opts, buf, line)
+				breakpoints.set(bp_opts, buf, bp.line)
 			end
 		end
-		session:set_breakpoints(bps_before, nil)
+
+		-- Set breakpoints for all sessions
+		broadcast(sessions, function(session)
+			session:set_breakpoints(bps_before, nil)
+		end, false)
 	end
 
-	local function restore_breakpoints_broadcast()
-		broadcast(sessions, restore_breakpoints, false)
+	dap.listeners.before.event_stopped["dap.run_to_cursor"] = function(session)
+		-- Only track sessions that are part of this operation
+		if sessions[session.id] then
+			sessions_stopped_at_cursor[session.id] = true
+			restore_breakpoints_when_all_stopped()
+		end
 	end
 
-	dap.listeners.before.event_stopped["dap.run_to_cursor"] = restore_breakpoints_broadcast
-	dap.listeners.before.event_terminated["dap.run_to_cursor"] = restore_breakpoints_broadcast
+	dap.listeners.before.event_terminated["dap.run_to_cursor"] = function(session)
+		if sessions[session.id] then
+			sessions_stopped_at_cursor[session.id] = true
+			restore_breakpoints_when_all_stopped()
+		end
+	end
 
 	local function set_temp_breakpoint(session)
 		session:set_breakpoints(temp_bps, function()
 			session:_step("continue")
 		end)
 	end
-	broadcast(sessions, set_temp_breakpoint, true)
+
+	broadcast(sessions, set_temp_breakpoint, false)
 end
 
 local cached_ranks = {}
