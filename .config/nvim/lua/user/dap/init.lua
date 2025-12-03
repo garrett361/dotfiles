@@ -8,6 +8,8 @@ M.config = function()
 	prequire("user.dap.nvim_dap_virtual_text").config()
 end
 
+---@class dap.Session
+
 local default_timeouts = {
 	rank_detection_timeout = 3000,
 	session_wait_timeout = 5000,
@@ -39,13 +41,14 @@ local function get_sessions_with_frame()
 end
 
 ---Wait for all sessions to be stopped, up to a timeout
----@param sessions dap.Sesssion[]
+---@param sessions dap.Session[]
 ---@param timeout_ms integer | nil
 ---@param interval_ms integer | nil
 local function wait_for_sessions(sessions, timeout_ms, interval_ms)
 	timeout_ms = timeout_ms or default_timeouts.session_wait_timeout
 	interval_ms = interval_ms or 10
-	vim.wait(timeout_ms, function()
+
+	local success = vim.wait(timeout_ms, function()
 		for _, s in pairs(sessions) do
 			if s.stopped_thread_id == nil then
 				return false
@@ -53,6 +56,26 @@ local function wait_for_sessions(sessions, timeout_ms, interval_ms)
 		end
 		return true
 	end, interval_ms, false)
+
+	if not success then
+		local session_states = {}
+		for id, s in pairs(sessions) do
+			table.insert(
+				session_states,
+				string.format("Session %s: %s", id, s.stopped_thread_id and "stopped" or "running")
+			)
+		end
+		vim.notify(
+			string.format(
+				"Timeout after %dms waiting for sessions:\n%s",
+				timeout_ms,
+				table.concat(session_states, "\n")
+			),
+			vim.log.levels.WARN
+		)
+	end
+
+	return success
 end
 
 local function validate_session(session)
@@ -83,35 +106,53 @@ local function broadcast(sessions, fn, wait)
 
 	if #errors > 0 then
 		vim.notify("Errors in DAP broadcast:\n" .. table.concat(errors, "\n"), vim.log.levels.ERROR)
+		return false
 	end
 
+	local wait_success = true
 	if wait or wait == nil then
-		wait_for_sessions(sessions)
+		wait_success = wait_for_sessions(sessions)
+		if not wait_success then
+			vim.notify("Some sessions may not have completed the operation", vim.log.levels.WARN)
+		end
 	end
 
 	if validate_session(curr_session) then
 		dap.set_session(curr_session)
 	end
+
+	return wait_success
 end
 
 ---Step over in all sessions
 ---@param sessions dap.Session[] | nil
 ---@param opts table|nil
+---@return boolean success
 local function step_over_all(sessions, opts)
 	sessions = sessions or get_sessions_with_frame()
-	broadcast(sessions, function(s)
+	local success = broadcast(sessions, function(s)
 		s:_step("next", opts)
 	end)
+
+	if not success then
+		vim.notify("Step over operation may have failed on some sessions", vim.log.levels.WARN)
+	end
+	return success
 end
 
 ---Continue in all sessions
 ---@param sessions dap.Session[] | nil
----@param opts table|nil
+---@return boolean success
 local function continue_all(sessions)
 	sessions = sessions or get_sessions_with_frame()
-	broadcast(sessions, function(s)
+	local success = broadcast(sessions, function(s)
 		s:_step("continue")
 	end)
+
+	if not success then
+		vim.notify("Continue operation may have failed on some sessions", vim.log.levels.WARN)
+	end
+	return success
 end
 
 ---Step into in all sessions
@@ -216,9 +257,17 @@ local function get_rank_cached(session)
 		done = true
 	end)
 
-	vim.wait(default_timeouts.evaluation_test_timeout, function()
+	local evaluation_success = vim.wait(default_timeouts.evaluation_test_timeout, function()
 		return done
 	end, 10, false)
+
+	if not evaluation_success then
+		vim.notify(
+			string.format("Evaluation timeout for session %s", session.id),
+			vim.log.levels.DEBUG
+		)
+		return cached_ranks[session.id] or "ERR"
+	end
 
 	if not can_evaluate then
 		return cached_ranks[session.id] or "ERR"
@@ -246,9 +295,17 @@ local function get_rank_cached(session)
 	end)
 
 	-- Wait for the callback to complete
-	vim.wait(default_timeouts.rank_detection_timeout, function()
+	local callback_success = vim.wait(default_timeouts.rank_detection_timeout, function()
 		return done
 	end, 10, false)
+
+	if not callback_success then
+		vim.notify(
+			string.format("Rank detection timeout for session %s", session.id),
+			vim.log.levels.DEBUG
+		)
+		return cached_ranks[session.id] or "ERR"
+	end
 
 	if rank == "'UNK'" then
 		done = false
