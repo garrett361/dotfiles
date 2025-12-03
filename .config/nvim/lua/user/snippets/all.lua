@@ -29,16 +29,16 @@ local ms = ls.multi_snippet
 
 local snippets, autosnippets = {}, {}
 
-local gg_note = s(",GN", t("NOTE: @goon - "))
+local gg_note = s(",N", t("NOTE: @goon - "))
 table.insert(autosnippets, gg_note)
 
-local gg_todo = s(",GT", t("TODO: @goon - "))
+local gg_todo = s(",T", t("TODO: @goon - "))
 table.insert(autosnippets, gg_todo)
 
-local gg_del = s(",GD", t("TODO: @goon - DELETE"))
+local gg_del = s(",D", t("TODO: @goon - DELETE"))
 table.insert(autosnippets, gg_del)
 
-local gg_hack = s(",GH", t("HACK: @goon - "))
+local gg_hack = s(",H", t("HACK: @goon - "))
 table.insert(autosnippets, gg_hack)
 
 return snippets, autosnippets
