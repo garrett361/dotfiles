@@ -201,14 +201,16 @@ local function run_to_point(sessions, target_bufnr, target_lnum)
 	local sessions_stopped_at_cursor = {}
 	local total_sessions = vim.tbl_count(sessions)
 
-    -- Callback for restoring old breakpoints after we run to new breakpoint at cursor
-    ---@param session dap.Session[] | nil
+	-- Callback for restoring old breakpoints after we run to new breakpoint at cursor
+	---@param session dap.Session[] | nil
 	local function restore_prev_breakpoints(session)
 		-- Only track sessions that are part of this operation
 		if sessions[session.id] then
 			sessions_stopped_at_cursor[session.id] = true
-        end
-        local all_procs_stopped_at_cursor = (vim.tbl_count(sessions_stopped_at_cursor) == total_sessions)
+		end
+		local all_procs_stopped_at_cursor = (
+			vim.tbl_count(sessions_stopped_at_cursor) == total_sessions
+		)
 		if not all_procs_stopped_at_cursor then
 			return
 		end
@@ -226,7 +228,7 @@ local function run_to_point(sessions, target_bufnr, target_lnum)
 	dap.listeners.before.event_stopped["dap.run_to_cursor"] = restore_prev_breakpoints
 	dap.listeners.before.event_terminated["dap.run_to_cursor"] = restore_prev_breakpoints
 
-    -- Set the temp breakpoint and run all procs to it
+	-- Set the temp breakpoint and run all procs to it
 	local function set_temp_breakpoint(session)
 		session:set_breakpoints(temp_breakpoint, function()
 			session:_step("continue")
@@ -235,7 +237,6 @@ local function run_to_point(sessions, target_bufnr, target_lnum)
 
 	broadcast(sessions, set_temp_breakpoint, false)
 end
-
 
 ---Run to cursor in all sessions
 ---@param sessions dap.Session[] | nil
@@ -249,7 +250,6 @@ local function run_to_cursor_all(sessions)
 
 	run_to_point(sessions, cur_bufnr, lnum)
 end
-
 
 local cached_ranks = {}
 local function get_rank_cached(session)
