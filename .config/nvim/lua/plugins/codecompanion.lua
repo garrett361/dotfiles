@@ -84,7 +84,6 @@ local function config()
 		local save_file = save_path():joinpath(save_name)
 		local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
 		save_file:write(table.concat(lines, "\n"), "w")
-		-- save_file:write(table.concat(lines, "\n"), "w")
 	end, { nargs = "*" })
 
 	-- Call the setup function to change the default behavior
@@ -92,6 +91,7 @@ local function config()
 		strategies = {
 			chat = {
 				adapter = "anthropic",
+				model = "claude-sonnet-4-5-20250929",
 				keymaps = {
 					close = {
 						modes = {
@@ -112,6 +112,9 @@ local function config()
 			},
 		},
 	})
+
+	-- Auto expand on cmd line: cc --> CodeCompanion
+	vim.cmd([[cab cc CodeCompanion]])
 end
 return {
 	"olimorris/codecompanion.nvim",
@@ -120,19 +123,25 @@ return {
 		"nvim-treesitter/nvim-treesitter",
 	},
 	config = config,
-	lazy = true,
+	lazy = false,
 	keys = {
 		{
-			"<leader>cc",
+			"<leader>za",
 			function()
-				vim.cmd([[CodeCompanionChat Toggle]])
+				vim.cmd([[CodeCompanionActions]])
 			end,
 		},
 		{
-			"<leader>cl",
+			"<leader>zl",
 			function()
 				prequire("codecompanion")
 				vim.cmd([[CodeCompanionLoad]])
+			end,
+		},
+		{
+			"<leader>zz",
+			function()
+				vim.cmd([[CodeCompanionChat Toggle]])
 			end,
 		},
 	},
