@@ -73,14 +73,14 @@ return {
 			end,
 		},
 		{
-			"[h",
+			"<leader>ak",
 			function()
 				prequire("gitsigns").prev_hunk()
 			end,
 			mode = { "n" },
 		},
 		{
-			"]h",
+			"<leader>aj",
 			function()
 				prequire("gitsigns").next_hunk()
 			end,
