@@ -32,12 +32,30 @@ vim.api.nvim_create_autocmd("TextYankPost", {
 -- Auto update global marks
 vim.api.nvim_create_autocmd("BufLeave", {
 	callback = function(args)
-        local maybe_global_mark = mark_utils.get_first_global_mark_in_current_file()
-        if maybe_global_mark then
-            local _, line, col, _ = unpack(vim.fn.getpos("."))
-            vim.api.nvim_buf_set_mark(0, maybe_global_mark, line, col, {})
-            vim.notify("Updated global mark " .. maybe_global_mark)
-        end
+		local maybe_global_mark = mark_utils.get_first_global_mark_in_current_file()
+		if maybe_global_mark then
+			local _, line, col, _ = unpack(vim.fn.getpos("."))
+			vim.api.nvim_buf_set_mark(0, maybe_global_mark, line, col, {})
+			vim.notify("Updated global mark " .. maybe_global_mark)
+		end
 	end,
 	desc = "Update global marks when we leave a file",
+})
+
+-- Wrapping and sensible motions in md files:
+vim.api.nvim_create_autocmd("FileType", {
+	pattern = "markdown",
+	callback = function()
+		vim.opt_local.wrap = true
+		vim.opt_local.linebreak = true
+		vim.opt_local.textwidth = 100
+		vim.opt_local.colorcolumn = "100"
+
+		-- Buffer-local keymaps for visual line navigation
+		local opts = { buffer = true }
+		vim.keymap.set("n", "j", "gj", opts)
+		vim.keymap.set("n", "k", "gk", opts)
+		vim.keymap.set("v", "j", "gj", opts)
+		vim.keymap.set("v", "k", "gk", opts)
+	end,
 })
