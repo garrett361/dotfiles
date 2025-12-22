@@ -178,7 +178,7 @@ return {
 			"<leader>d",
 			function()
 				-- live grep only over files which have been globally marked
-				prequire("fzf-lua").live_grep_glob({
+				prequire("fzf-lua").live_grep({
 					search_paths = vim.tbl_values(
 						require("nvim_utils.marks").get_global_mark_files()
 					),
@@ -188,7 +188,7 @@ return {
 		{
 			"<leader>f",
 			function()
-				prequire("fzf-lua").live_grep_glob()
+				prequire("fzf-lua").live_grep()
 			end,
 		},
 		{
