@@ -29,18 +29,18 @@ vim.api.nvim_create_autocmd("TextYankPost", {
 	end,
 })
 
--- Auto update global marks
-vim.api.nvim_create_autocmd("BufLeave", {
-	callback = function(args)
-		local maybe_global_mark = mark_utils.get_first_global_mark_in_current_file()
-		if maybe_global_mark then
-			local _, line, col, _ = unpack(vim.fn.getpos("."))
-			vim.api.nvim_buf_set_mark(0, maybe_global_mark, line, col, {})
-			vim.notify("Updated global mark " .. maybe_global_mark)
-		end
-	end,
-	desc = "Update global marks when we leave a file",
-})
+-- -- Auto update global marks
+-- vim.api.nvim_create_autocmd("BufLeave", {
+-- 	callback = function(args)
+-- 		local maybe_global_mark = mark_utils.get_first_global_mark_in_current_file()
+-- 		if maybe_global_mark then
+-- 			local _, line, col, _ = unpack(vim.fn.getpos("."))
+-- 			vim.api.nvim_buf_set_mark(0, maybe_global_mark, line, col, {})
+-- 			vim.notify("Updated global mark " .. maybe_global_mark)
+-- 		end
+-- 	end,
+-- 	desc = "Update global marks when we leave a file",
+-- })
 
 -- Wrapping and sensible motions in md files:
 vim.api.nvim_create_autocmd("FileType", {
