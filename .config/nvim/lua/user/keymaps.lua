@@ -138,6 +138,7 @@ keymap("v", ">", ">gv", opts)
 
 -- Retain selection after visual paste
 keymap("v", "p", "P", opts)
+keymap("v", "<C-r>", 'c<C-r>=<C-r>"<cr>', opts)
 
 --------- Visual Block ---------
 
