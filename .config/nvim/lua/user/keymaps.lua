@@ -113,7 +113,7 @@ end, { noremap = true })
 
 -- Auto set next global mark
 vim.keymap.set("n", "<leader><leader>m", function()
-	require("nvim_utils.marks").set_next_avail_global_mark()
+	require("nvim_utils.marks").update_or_set_global_mark()
 end, { noremap = true })
 
 -- Buffer management

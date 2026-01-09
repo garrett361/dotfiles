@@ -88,4 +88,17 @@ M.get_first_global_mark_in_current_file = function()
 	return nil
 end
 
+M.update_or_set_global_mark = function()
+	local existing_mark = M.get_first_global_mark_in_current_file()
+	if existing_mark then
+		-- Update the existing mark to current position
+		local _, line, col, _ = unpack(vim.fn.getpos("."))
+		vim.api.nvim_buf_set_mark(0, existing_mark, line, col, {})
+		vim.notify("Updated global mark " .. existing_mark)
+	else
+		-- No mark exists, create a new one
+		M.set_next_avail_global_mark()
+	end
+end
+
 return M
