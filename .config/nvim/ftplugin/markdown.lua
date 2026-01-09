@@ -26,9 +26,10 @@ local function md_url_paste()
 end
 vim.keymap.set("v", "<leader>p", md_url_paste, opts)
 
--- Use line wrapping for lua
--- vim.bo.wrap = true
--- vim.bo.textwidth = 100
+-- Line wrapping cfg 
+vim.bo.textwidth = 0
+vim.opt_local.formatoptions:remove({ "t" })
+vim.wo.wrap = true  -- Enable visual wrapping (optional)
 
 -- -- Swap slash/backslash for latex
 -- vim.keymap.set("i", "\\", "/", opts)
