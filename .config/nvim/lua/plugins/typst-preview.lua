@@ -1,7 +1,15 @@
+local prequire = require("nvim_utils").prequire
+local function config()
+	local typst_preview = prequire("typst-preview")
+    typst_preview.setup({invert_colors="auto"})
+
+end
 return {
 	"chomosuke/typst-preview.nvim",
 	ft = "typst",
 	version = "1.*",
+    config=config,
+    dependencies_bin = { ['tinymist'] = 'tinymist' },
 	opts = {
 		get_main_file = function(path_of_buffer)
 			local typst_files =
