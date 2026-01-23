@@ -31,7 +31,17 @@ local ms = ls.multi_snippet
 local snippets, autosnippets = {}, {}
 
 local env = {
-	s(",l", fmta("[<>](<>)", { i(1), i(2) })),
+	s(
+		",m",
+		fmta(
+			[[
+        ```math
+        <>
+        ```
+        ]],
+			{ i(1) }
+		)
+	),
 	s(
 		",p",
 		fmta(
@@ -86,8 +96,8 @@ local env = {
 }
 
 local math = {
-	s(",d", fmta("_{ <> }", { i(1) })),
-	s(",u", fmta("^{ <> }", { i(1) })),
+	s({ trig = ",d", wordTrig = false }, fmta("_{ <> }", { i(1) })),
+	s({ trig = ",u", wordTrig = false }, fmta("^{ <> }", { i(1) })),
 	s(",ee", fmta("e^{ <> }", { i(1) })),
 	s(",ff", fmta("\\frac{ <> }{ <> }", { i(1), i(2) })),
 	s(",xx", t([[\exp ]])),

@@ -62,7 +62,8 @@
 
 ### Code Suggestions
 - **Show imports**: Always include necessary imports in code blocks
-- **Add comments**: Include brief inline comments for complex logic
+- **Add comments**: Include brief inline comments for complex logic, but prefer informative function
+  and variable names over using comments at all.
 - **Error handling**: Include try/except for I/O and external API calls
 - **Logging**: Add appropriate logging statements
 - **Testing**: Suggest test cases for new functionality
@@ -80,6 +81,8 @@
 - Don't assume GPU is always available
 - Avoid overengineering simple solutions
 - Skip boilerplate explanations for basic Python/PyTorch concepts
+- Try to keep comments to a minimum. Prefer informative function and variable names.
+- Do not include emojis in code or code comments.
 
 ## Common Tasks
 
