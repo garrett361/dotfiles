@@ -59,6 +59,7 @@ alias t="tmux"
 alias tua="tmux -u a"
 alias ts="tmux-sessionizer"
 
+alias c="claude"
 ################################   FUNCTIONS  ################################
 
 
