@@ -60,6 +60,10 @@
 
 ## Response Preferences
 
+### Critical Thinking
+- Doubt, question, scrutinize, and verify everything I say.
+- Challenge assumptions and look for potential errors or inconsistencies.
+
 ### Code Suggestions
 - **Show imports**: Always include necessary imports in code blocks
 - **Add comments**: Include brief inline comments for complex logic, but prefer informative function
