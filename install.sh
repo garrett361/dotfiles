@@ -3,7 +3,7 @@
 mkdir ~/.config
 is_linux=$(uname -s | grep -iq linux && echo 1 || echo 0)
 # Link all config and script files to their expected locations.
-for localdir in ".local" ".config"; do
+for localdir in ".local" ".config" ".claude"; do
 	dirpath=$(readlink -f $localdir)
 	ln -sfF $dirpath/* $HOME/$localdir
 done
