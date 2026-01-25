@@ -1,10 +1,4 @@
 {
-  "editMode": "vim",
-  "model": "sonnet",
-  "statusLine": {
-    "type": "command",
-    "command": ".claude/statusline.sh"
-  },
   "permissions": {
     "allow": [
       "Bash(gh:*)",
@@ -12,5 +6,10 @@
       "Bash(git diff:*)",
       "Bash(git log:*)"
     ]
-  }
+  },
+  "statusLine": {
+    "type": "command",
+    "command": ".claude/statusline.sh"
+  },
+  "editMode": "vim"
 }
