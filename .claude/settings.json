@@ -1,6 +1,10 @@
 {
   "editMode": "vim",
   "model": "sonnet",
+  "statusLine": {
+    "type": "command",
+    "command": ".claude/statusline.sh"
+  },
   "permissions": {
     "allow": [
       "Bash(gh:*)",
