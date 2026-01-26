@@ -11,5 +11,5 @@ OUTPUT_TOKENS=$(echo "$input" | jq -r '.context_window.total_output_tokens // 0'
 INPUT_K=$(awk "BEGIN {printf \"%.1fk\", $INPUT_TOKENS/1000}")
 OUTPUT_K=$(awk "BEGIN {printf \"%.1fk\", $OUTPUT_TOKENS/1000}")
 
-printf "[%s] Ctx: %.1f%% | In: %s Out: %s | Cost: \$%.3f" \
+printf "\033[90m[%s] Ctx: %.1f%% | In: %s Out: %s | Cost: \$%.3f\033[0m" \
     "$MODEL" "$PERCENT_USED" "$INPUT_K" "$OUTPUT_K" "$TOTAL_COST"
