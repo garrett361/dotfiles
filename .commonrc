@@ -80,16 +80,39 @@ function dotfiles_rebase()
     cddot && g f origin main && g r origin/main && cd -
 }
 
+function _clone_from_host()
+{
+    local host="$1"
+    local repo_name="$2"
+    local org
+    org=$(basename "$(pwd)")
+
+    if [[ -z "$repo_name" ]]; then
+        echo "Usage: gc <repo_name>" >&2
+        return 1
+    fi
+
+    git clone "git@${host}:${org}/${repo_name}" && cd "$repo_name"
+}
+
+function _add_upstream_if_fork()
+{
+    command -v gh &>/dev/null || return 0
+    local upstream
+    upstream=$(gh repo view --json isFork,parent -q 'select(.isFork) | "https://github.com/\(.parent.owner.login)/\(.parent.name).git"' 2>/dev/null)
+    if [[ -n "$upstream" ]]; then
+        git remote add upstream "$upstream" && echo "Added upstream: $upstream"
+    fi
+}
+
 function gc()
 {
-    local repo=$(basename $(pwd))
-    git clone git@github.com:$repo/$1 && cd $1
+    _clone_from_host "github.com" "$1" && _add_upstream_if_fork
 }
 
 function gc_ibm()
 {
-    local repo=$(basename $(pwd))
-    git clone git@github.ibm.com:$repo/$1 && cd $1
+    _clone_from_host "github.ibm.com" "$1" && _add_upstream_if_fork
 }
 
 function vela1()
