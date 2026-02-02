@@ -21,7 +21,7 @@ return {
 				"clang++",
 			},
 			args = args,
-			components = { { "on_output_quickfix", open = true }, "default" },
+			components = { "default" },
 		}
 	end,
 	condition = {

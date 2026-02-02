@@ -34,7 +34,7 @@ return {
 			cmd = cmd,
 			args = {},
 			env = env_vars_table,
-			components = { { "on_output_quickfix", open = true }, "default" },
+			components = { "default" },
 		}
 	end,
 	condition = {
