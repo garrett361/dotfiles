@@ -372,7 +372,7 @@ local function config()
 	local jump_labels = "jkl'fdsam,.vcxyntgb"
 	-- Start-of-word jumping
 	local jump_to_start = {
-		spotter = mini_jump2d.gen_pattern_spotter("[%a%d_]+"),
+		spotter = mini_jump2d.gen_spotter.pattern("[%a%d_]+"),
 		labels = jump_labels,
 		view = {
 			n_steps_ahead = 10,
@@ -388,7 +388,7 @@ local function config()
 
 	-- End-of-delimiter jumping
 	local jump_to_delimiter = {
-		spotter = mini_jump2d.gen_pattern_spotter("[?%]?%)?%}?%$?]"),
+		spotter = mini_jump2d.gen_spotter.pattern("[?%]?%)?%}?%$?]"),
 		labels = jump_labels,
 		view = {
 			n_steps_ahead = 10,
