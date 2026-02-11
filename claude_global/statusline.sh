@@ -4,7 +4,7 @@ input=$(cat)
 
 MODEL=$(echo "$input" | jq -r '.model.display_name // "Unknown"')
 PERCENT_USED=$(echo "$input" | jq -r '.context_window.used_percentage // 0')
-TOTAL_COST=$(echo "$input" | jq -r '.cost.total // 0')
+TOTAL_COST=$(echo "$input" | jq -r '.cost.total_cost_usd // 0')
 INPUT_TOKENS=$(echo "$input" | jq -r '.context_window.total_input_tokens // 0')
 OUTPUT_TOKENS=$(echo "$input" | jq -r '.context_window.total_output_tokens // 0')
 

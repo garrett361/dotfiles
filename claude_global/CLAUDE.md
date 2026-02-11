@@ -138,6 +138,14 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = model.to(device)
 ```
 
+## Repository Exploration Preferences
+
+When answering questions about codebases:
+- Be concise; lead with the answer, then provide supporting details
+- Always reference code locations as `file_path:line_number` (e.g., `src/main.py:42`)
+- Use ASCII diagrams for architecture, data flow, or complex relationships
+- Prefer showing 2-3 key code snippets over exhaustive listings
+
 ---
 
 **Note**: When suggesting code, assume I want production-quality code unless I specify "quick prototype" or "experiment".
