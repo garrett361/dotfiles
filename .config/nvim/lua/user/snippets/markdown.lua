@@ -97,6 +97,7 @@ local env = {
 			{ i(1) }
 		)
 	),
+	s(",B", fmta([[\bar{<>}]], { i(1) })),
 	s(",C", fmta([[\mathcal{<>}]], { i(1) })),
 	s(",,", fmta("$<>$", { i(1) })),
 	s({ trig = ",ll", wordTrig = false }, fmta([[\left ]], {})),
@@ -105,6 +106,7 @@ local env = {
 	s(",lr{", fmta([[\left \{ <> \right \]], { i(1) })),
 	s({ trig = ",rr", wordTrig = false }, fmta([[\right ]], {})),
 	s(",tt", fmta([[\texttt{<>}]], { i(1) })),
+	s(",rm", fmta([[\textrm{<>}]], { i(1) })),
 }
 
 local math = {
@@ -114,6 +116,9 @@ local math = {
 	s(",ff", fmta("\\frac{ <> }{ <> }", { i(1), i(2) })),
 	s(",xx", t([[\exp ]])),
 	s(",~", t([[\sim ]])),
+	s(",->", t([[\longrightarrow ]])),
+	s(",nn", t([[\nonumber\\ ]])),
+	s(",.", t([[\ldots ]])),
 }
 
 local collection = { env, math }

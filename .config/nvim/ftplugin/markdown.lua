@@ -32,5 +32,5 @@ vim.opt_local.formatoptions:remove({ "t" })
 vim.wo.wrap = true  -- Enable visual wrapping (optional)
 
 -- -- Swap slash/backslash for latex
--- vim.keymap.set("i", "\\", "/", opts)
--- vim.keymap.set("i", "/", "\\", opts)
+vim.keymap.set("i", "\\", "/", opts)
+vim.keymap.set("i", "/", "\\", opts)
