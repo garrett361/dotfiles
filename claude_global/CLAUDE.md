@@ -86,6 +86,7 @@
 - Avoid overengineering simple solutions
 - Skip boilerplate explanations for basic Python/PyTorch concepts
 - Try to keep comments to a minimum. Prefer informative function and variable names.
+- Never use decorative section-separator comment headers (e.g., `# ======`, `# ------`, `# ***`). Class names, function names, and variable names should be clear enough on their own. If you feel the need for a section header, refactor the code into smaller modules or classes instead.
 - Do not include emojis in code or code comments.
 
 ## Common Tasks
