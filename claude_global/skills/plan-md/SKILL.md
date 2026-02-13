@@ -9,6 +9,10 @@ Create a structured PLAN.md that breaks complex work into numbered stages for mu
 
 **Core workflow**: After each stage, the Claude Code context is completely cleared. PLAN.md is the *only* thing that carries over between sessions. It must contain everything a fresh session needs to understand the current state and continue work.
 
+**PLAN.md lives in the project root** and is committed to git alongside the code. It gets updated and committed with each stage, so the plan's evolution is tracked in version history just like everything else. Never write it to `~/.claude/plans/` or any other location — always `./PLAN.md` in the repo root.
+
+**Security**: Because PLAN.md is committed to git, it must never contain sensitive information. Use relative paths (never absolute paths like `/home/user/...` or `/proj/...`). Never include API keys, tokens, passwords, internal hostnames/URLs, or other credentials. Reference environment variables by name (e.g., `$OPENENV_URL`) instead of their values.
+
 ## EXECUTE THESE STEPS NOW
 
 When this skill is invoked, you MUST execute these steps immediately.
@@ -48,7 +52,7 @@ For each stage, determine:
 
 ### Step 4: Write PLAN.md
 
-Write `./PLAN.md` in the project root (or working directory) using this template:
+Write `./PLAN.md` in the **project root** (the git repository root). PLAN.md is always committed to git — it is a tracked file, not a temporary artifact. Using this template:
 
 ```markdown
 # Plan: <Title>
@@ -71,8 +75,8 @@ Write `./PLAN.md` in the project root (or working directory) using this template
 After finishing a stage, the context will be completely cleared. PLAN.md is the
 sole bridge to the next session. You MUST update it thoroughly before stopping.
 
-1. Verify all Definition of Done checkboxes are checked
-2. Run the verification commands listed for that stage
+1. Run the verification commands listed for that stage
+2. **Check off every Definition of Done checkbox in PLAN.md** — edit each `- [ ]` to `- [x]` as you confirm it. If a criterion wasn't met or changed during implementation, update the checkbox text to reflect what actually happened. The checkboxes in the file must accurately reflect reality.
 3. **Update the completed stage** — add these sections under the stage heading:
    - **What Was Built**: Concrete summary of what was implemented (files, classes, functions)
    - **Key Implementation Details**: Decisions made, patterns used, gotchas, anything a fresh session needs to know to avoid re-discovering or contradicting
@@ -83,7 +87,7 @@ sole bridge to the next session. You MUST update it thoroughly before stopping.
    - Update the File Structure tree to reflect reality
    - Update Critical Files if new important files were created
 5. Update the Progress Tracker table
-6. Add a row to the Session Log
+6. **Add a row to the Session Log** — this is NOT optional. Every completed stage MUST have a corresponding Session Log entry recording the date, stage number, what was done, and any notes. The Session Log is the audit trail of the plan's execution.
 
 The goal: a fresh Claude Code session that reads only this file should be able to
 pick up exactly where you left off with zero ambiguity.
@@ -108,6 +112,7 @@ if needed.
 - **One stage per session** — after completing a stage, STOP. Update PLAN.md, then wait for the user to review changes and give the go-ahead before proceeding. Do NOT automatically start the next stage.
 - **Commit after each stage** — the user will review and commit (or ask you to commit) after each stage. This keeps git history clean with one commit per stage.
 - **Reset context between stages** — after reviewing and committing, the user will clear context (`/clear` or new session) before starting the next stage. This ensures each stage starts fresh with only PLAN.md as context.
+- **Session Log is mandatory** — every completed stage must have a Session Log entry. No exceptions.
 - **PLAN.md is the single source of truth** — after each stage, review and update the *entire* document, not just the completed stage
 - When updating, ask: "If I lost all context and only had this file, could I continue?" If not, add what's missing
 
