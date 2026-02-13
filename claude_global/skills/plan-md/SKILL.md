@@ -186,6 +186,8 @@ if needed.
 
 Adapt the template to the specific task — add or remove sections as appropriate. The template is a guide, not a rigid format. Smaller tasks may need fewer sections; larger tasks may need additional context sections.
 
+**Code style in generated code**: When stage specifications include example code or when implementing stages, follow the user's global CLAUDE.md preferences. In particular: never use decorative section-separator comment headers (`# ====`, `# ----`, `# ***`, etc.) in generated code — class names, function names, and variable names should be self-documenting.
+
 ### Step 5: Exit Plan Mode
 
 Use ExitPlanMode so the user can review and approve the PLAN.md.
