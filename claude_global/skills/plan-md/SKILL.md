@@ -88,9 +88,26 @@ sole bridge to the next session. You MUST update it thoroughly before stopping.
 The goal: a fresh Claude Code session that reads only this file should be able to
 pick up exactly where you left off with zero ambiguity.
 
+### After Completing a Stage — STOP
+
+After updating PLAN.md, **stop and present a summary to the user**. Do NOT
+start the next stage. The user will:
+
+1. **Review** the changes (e.g., `git diff`, read modified files, run tests)
+2. **Commit** — either manually or by asking Claude to commit (e.g., `/commit`)
+3. **Clear context** (`/clear` or start a new session)
+4. **Continue** by saying "Read @PLAN.md and complete the next stage."
+
+Each stage runs in its own fresh Claude Code session. Committing after each
+stage keeps the git history clean and makes it easy to revert a single stage
+if needed.
+
 ### Rules
 - Complete stages in order — do not skip ahead
 - Each stage must pass its own tests before moving on
+- **One stage per session** — after completing a stage, STOP. Update PLAN.md, then wait for the user to review changes and give the go-ahead before proceeding. Do NOT automatically start the next stage.
+- **Commit after each stage** — the user will review and commit (or ask you to commit) after each stage. This keeps git history clean with one commit per stage.
+- **Reset context between stages** — after reviewing and committing, the user will clear context (`/clear` or new session) before starting the next stage. This ensures each stage starts fresh with only PLAN.md as context.
 - **PLAN.md is the single source of truth** — after each stage, review and update the *entire* document, not just the completed stage
 - When updating, ask: "If I lost all context and only had this file, could I continue?" If not, add what's missing
 
@@ -178,8 +195,12 @@ After approval, tell the user:
 > PLAN.md is ready. The workflow from here:
 > 1. Clear context (`/clear` or start a new session)
 > 2. Say: "Read @PLAN.md and complete the next stage."
-> 3. After the stage is done, **update the entire PLAN.md** (not just the completed stage — review everything for staleness)
-> 4. Clear context again and repeat until all stages are complete
+> 3. After the stage is done, I will update PLAN.md and then **stop and wait for your review**
+> 4. Review the changes (e.g., `git diff`, read modified files, run tests yourself)
+> 5. Commit the stage (manually or ask me to `/commit`)
+> 6. Clear context (`/clear` or new session) and repeat from step 2
+>
+> **Important**: Each stage runs in a fresh context. I will NOT continue to the next stage automatically — you always get a review + commit checkpoint between stages.
 
 ---
 
