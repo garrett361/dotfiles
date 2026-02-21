@@ -1,0 +1,181 @@
+**/.claude/settings.local.json
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+
+# Distribution / packaging
+.Python
+env/
+build/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+pip-wheel-metadata/
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# All log files
+*.log
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# dotenv / secrets
+.env
+.env.*
+!.env.example
+
+# virtualenv
+.venv
+venv/
+ENV/
+
+# mypy
+.mypy_cache/
+
+# ruff
+.ruff_cache/
+
+# Python wheels
+*.whl
+
+# PEP 582 local packages
+__pypackages__/
+
+# ML model artifacts / serialized data
+wandb/
+*.pt
+*.pth
+*.onnx
+*.safetensors
+*.pkl
+*.pickle
+*.hdf5
+*.h5
+
+# direnv
+.direnv/
+
+# Node modules
+node_modules/
+
+# VSCode
+.vscode/
+
+# JetBrains IDEs
+.idea/
+
+# macOS system files
+*.DS_Store
+.dccache
+
+# Singularity images
+*.sif
+
+# LaTeX
+*-tikzDictionary
+*.aux
+*.bcf
+*.blg
+*.brf
+*.cb
+*.cb2
+*.fdb_latexmk
+*.fls
+*.fmt
+*.fot
+*.lb
+*.lof
+*.lot
+*.out
+*.pdfsync
+*.synctex
+*.synctex(busy)
+*.synctex.gz
+*.synctex.gz(busy)
+*.toc
+*.bbl
+_minted*
+
+# Neovim plugin files (e.g. rsync.nvim)
+.nvim/
+
+# C/C++ prerequisites
+*.d
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# Temps
+*.ii
+*.bc
+*.s
+
+# Debug files
+*.dSYM/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+
+# Docker
+*.pid
+
+# uv
+uv.lock

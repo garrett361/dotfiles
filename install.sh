@@ -12,7 +12,7 @@ done
 dirpath=$(readlink -f $localdir)
 ln -sfF $(readlink -f claude_global)/* ${HOME}/.claude
 
-for localfile in ".commonrc" ".vimrc" ".bashrc" ".zshrc" ".gitignore_global" ".stylua.toml" ".rg" ".ipython/profile_default/ipython_config.py"; do
+for localfile in ".commonrc" ".vimrc" ".bashrc" ".zshrc" ".stylua.toml" ".rg" ".ipython/profile_default/ipython_config.py"; do
     filepath=$(readlink -f $localfile)
 	ln -sfF $filepath $HOME/$localfile
 done

@@ -23,7 +23,7 @@ The `install.sh` script symlinks files from this repository to `$HOME`, creating
 - `.config/*` → `$HOME/.config/`
 - `.local/*` → `$HOME/.local/`
 - `.claude/*` → `$HOME/.claude/`
-- Individual dotfiles (`.commonrc`, `.vimrc`, `.bashrc`, `.zshrc`, `.gitignore_global`, `.stylua.toml`, `.rg`)
+- Individual dotfiles (`.commonrc`, `.vimrc`, `.bashrc`, `.zshrc`, `.stylua.toml`, `.rg`)
 
 ### Minimal Neovim Config
 Set `export NVIM_APPNAME=nvim_min` to use the minimal nvim config located at `.config/nvim_min/`.
