@@ -38,6 +38,7 @@
     ria = rebase --interactive --autosquash
     rom = rebase origin/main
     rum = rebase upstream/main
+    rv = remote -v
     s = stash
     sa = stash apply
     sc = stash clear
@@ -47,7 +48,6 @@
     wta = worktree add
     wtr = worktree remove
 [core]
-    excludesfile = ~/.gitignore_global
 [credential]
 	helper = /usr/local/share/gcm-core/git-credential-manager
 [credential "https://dev.azure.com"]
