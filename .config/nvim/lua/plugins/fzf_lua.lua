@@ -55,6 +55,20 @@ local function rebase(selected)
 	vim.cmd("G rebase -i " .. commit_hash .. "^")
 end
 
+local git_show_preview = {
+	type = "cmd",
+	fn = function(items)
+		local commit_hash = string.match(items[1], "^%S+")
+		return "git show " .. commit_hash .. " | delta --line-numbers"
+	end,
+}
+
+local git_commit_actions = {
+	["alt-p"] = diffview_prev,
+	["alt-d"] = diffview_head,
+	["alt-r"] = rebase,
+}
+
 ---Extract info from a line from :marks (capital marks only)
 ---@param mark string
 ---@return [string?, string?, string?, string?]
@@ -87,19 +101,10 @@ return {
 					{
 						prompt = "Git Code History Search> ",
 						previewer = false,
-						preview = {
-							type = "cmd",
-							fn = function(items)
-								local commit_hash = string.match(items[1], "^%S+")
-								return "git show " .. commit_hash .. " | delta --line-numbers"
-							end,
-						},
-						actions = {
+						preview = git_show_preview,
+						actions = vim.tbl_extend("force", git_commit_actions, {
 							["enter"] = prequire("fzf-lua.actions").git_checkout,
-							["alt-c"] = diffview_prev,
-							["alt-d"] = diffview_head,
-							["alt-r"] = rebase,
-						},
+						}),
 					}
 				)
 			end,
@@ -112,19 +117,10 @@ return {
 					{
 						prompt = "Git Commit Msg History Search> ",
 						previewer = false,
-						preview = {
-							type = "cmd",
-							fn = function(items)
-								local commit_hash = string.match(items[1], "^%S+")
-								return "git show " .. commit_hash .. " | delta --line-numbers"
-							end,
-						},
-						actions = {
+						preview = git_show_preview,
+						actions = vim.tbl_extend("force", git_commit_actions, {
 							["enter"] = prequire("fzf-lua.actions").git_checkout,
-							["alt-c"] = diffview_prev,
-							["alt-d"] = diffview_head,
-							["alt-r"] = rebase,
-						},
+						}),
 					}
 				)
 			end,
@@ -133,12 +129,7 @@ return {
 			"<leader>al",
 			function()
 				prequire("fzf-lua").git_commits({
-
-					actions = {
-						["alt-c"] = diffview_prev,
-						["alt-d"] = diffview_head,
-						["alt-r"] = rebase,
-					},
+					actions = git_commit_actions,
 				})
 			end,
 		},
