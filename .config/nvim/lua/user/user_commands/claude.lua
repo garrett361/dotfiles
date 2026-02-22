@@ -7,7 +7,7 @@ vim.api.nvim_create_user_command("C", function(opts)
 	local first, rest = args:match("^(%S+)%s*(.*)")
 	local expansion = aliases[first]
 	local prompt = expansion and (expansion .. " " .. rest):gsub("%s+$", "") or args
-	vim.notify("Running claude...", vim.log.levels.INFO)
+	vim.notify("claude -p " .. vim.fn.shellescape(prompt), vim.log.levels.INFO)
 	vim.system({ "claude", "-p", prompt }, { text = true }, function(obj)
 		vim.schedule(function()
 			if obj.code == 0 then
