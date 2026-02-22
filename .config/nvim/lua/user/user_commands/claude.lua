@@ -1,14 +1,24 @@
 local aliases = {
-	cs = "/commit-staged",
+	cs = { prompt = "/commit-staged", flags = { "--model", "haiku" } },
 }
 
 vim.api.nvim_create_user_command("C", function(opts)
 	local args = opts.args
 	local first, rest = args:match("^(%S+)%s*(.*)")
-	local expansion = aliases[first]
-	local prompt = expansion and (expansion .. " " .. rest):gsub("%s+$", "") or args
-	vim.notify("claude -p " .. vim.fn.shellescape(prompt), vim.log.levels.INFO)
-	vim.system({ "claude", "-p", prompt }, { text = true }, function(obj)
+	local alias = aliases[first]
+
+	local cmd = { "claude", "-p" }
+	local prompt
+	if alias then
+		vim.list_extend(cmd, alias.flags or {})
+		prompt = (alias.prompt .. " " .. rest):gsub("%s+$", "")
+	else
+		prompt = args
+	end
+	table.insert(cmd, prompt)
+
+	vim.notify(table.concat(cmd, " "), vim.log.levels.INFO)
+	vim.system(cmd, { text = true }, function(obj)
 		vim.schedule(function()
 			if obj.code == 0 then
 				vim.notify(obj.stdout, vim.log.levels.INFO)
