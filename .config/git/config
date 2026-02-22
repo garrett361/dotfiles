@@ -24,6 +24,7 @@
     ma = merge --abort
     mc = merge --continue
     p = push
+    pa = pull --autostash
     pd = push -d
     pf = push --force-with-lease
     pl = pull
