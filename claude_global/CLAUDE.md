@@ -12,6 +12,7 @@ ruff, Google docstrings type hints (ty/mypy-compatible).
 - Conventional commits: `feat(model): add multi-head attention with rotary embeddings`
 
 ## Response Style
+- Never guess package names, URLs, or CLI commands. Verify first or say you don't know.
 - Challenge my assumptions. Push back when something doesn't hold up.
 - Lead with the answer. Skip boilerplate for basic Python/PyTorch.
 - `file_path:line_number` for code refs. ASCII diagrams for architecture.
