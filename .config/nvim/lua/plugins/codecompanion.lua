@@ -86,12 +86,28 @@ local function config()
 		save_file:write(table.concat(lines, "\n"), "w")
 	end, { nargs = "*" })
 
+	local has_oauth = vim.env.CLAUDE_CODE_OAUTH_TOKEN ~= nil
+	local default_adapter = has_oauth and "claude_code" or "anthropic"
+
 	-- Call the setup function to change the default behavior
 	codecompanion.setup({
+		adapters = {
+			acp = {
+				claude_code = function()
+					return require("codecompanion.adapters").extend("claude_code", {
+						commands = {
+							default = { "claude-agent-acp" },
+						},
+						env = {
+							CLAUDE_CODE_OAUTH_TOKEN = vim.env.CLAUDE_CODE_OAUTH_TOKEN,
+						},
+					})
+				end,
+			},
+		},
 		strategies = {
 			chat = {
-				adapter = "anthropic",
-				model = "claude-sonnet-4-5-20250929",
+				adapter = default_adapter,
 				keymaps = {
 					close = {
 						modes = {
@@ -105,10 +121,10 @@ local function config()
 				},
 			},
 			inline = {
-				adapter = "anthropic",
+				adapter = default_adapter,
 			},
 			agent = {
-				adapter = "anthropic",
+				adapter = default_adapter,
 			},
 		},
 	})
