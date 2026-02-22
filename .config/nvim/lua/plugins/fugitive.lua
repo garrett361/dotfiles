@@ -11,4 +11,12 @@ return {
 			"<cmd>Git blame<cr>",
 		},
 	},
+	config = function()
+		vim.api.nvim_create_autocmd("FocusGained", {
+			pattern = "*",
+			callback = function()
+				vim.cmd("silent! doautoall fugitive BufReadPost")
+			end,
+		})
+	end,
 }
