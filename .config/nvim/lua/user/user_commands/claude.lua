@@ -25,7 +25,7 @@ vim.api.nvim_create_user_command("C", function(opts)
 			else
 				vim.notify(obj.stderr, vim.log.levels.ERROR)
 			end
-			vim.cmd("silent! doautoall fugitive BufReadPost")
+
 		end)
 	end)
 end, {
