@@ -127,6 +127,11 @@ M.config = function()
 		-- Automatically stop at entry point
 		stopOnEntry = false,
 	})
+	for _, config in ipairs(nvim_dap.configurations.python) do
+		config.pythonArgs = config.pythonArgs or {}
+		table.insert(config.pythonArgs, "-Xfrozen_modules=off")
+	end
+
 	-- Use pytest by default
 	nvim_dap_python.test_runner = "pytest_pdb"
 end
