@@ -3,7 +3,6 @@ local function config()
 	local overseer = prequire("overseer")
 
 	overseer.setup({
-		template_dirs = { "overseer/template/user" },
 		component_aliases = {
 			default = {
 				{ "open_output", on_start = "always" },
