@@ -20,6 +20,14 @@ local function config()
 			local has_task = vim.b[args.buf].overseer_task ~= nil
 			if ft == "OverseerList" or has_task then
 				vim.keymap.set("n", "q", "<cmd>OverseerClose<CR>", { buffer = args.buf })
+				vim.keymap.set("n", "<A-x>", function()
+					local tasks = overseer.list_tasks({ recent_first = true, status = "RUNNING" })
+					if vim.tbl_isempty(tasks) then
+						vim.notify("No running tasks", vim.log.levels.WARN)
+					else
+						tasks[1]:stop()
+					end
+				end, { buffer = args.buf })
 			end
 		end,
 	})
