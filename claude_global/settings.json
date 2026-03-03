@@ -12,6 +12,7 @@
       "Bash(ty:*)",
       "Bash(mypy:*)",
       "Bash(pytest:*)",
+      "Bash(python -m pytest:*)",
       "Bash(black:*)",
       "Bash(isort:*)"
     ]
