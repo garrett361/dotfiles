@@ -5,7 +5,13 @@
       "Bash(gh:*)",
       "Bash(git status)",
       "Bash(git diff:*)",
-      "Bash(git log:*)"
+      "Bash(git log:*)",
+      "Bash(ruff:*)",
+      "Bash(ty:*)",
+      "Bash(mypy:*)",
+      "Bash(pytest:*)",
+      "Bash(black:*)",
+      "Bash(isort:*)"
     ]
   },
   "statusLine": {
