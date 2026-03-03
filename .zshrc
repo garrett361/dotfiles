@@ -29,7 +29,7 @@ API_KEY_DIR=$DOTFILES/API_KEYS
 if [ -d "$API_KEY_DIR" ]; then
     for file in "$API_KEY_DIR"/*; do
         stem=$(basename "$file")
-        export "$stem=$(cat $file)"
+        export "$stem=$(cat $file | xargs)"
     done
 fi
 
