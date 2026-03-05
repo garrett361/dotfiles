@@ -11,6 +11,7 @@ ruff, Google docstrings type hints (ty/mypy-compatible).
 - `pathlib.Path`, `logging` (not print), try/except at I/O boundaries, descriptive assertions.
 - Conventional commits: `feat(model): add multi-head attention with rotary embeddings`
 - pytest: prefer `--tb=short -q` to reduce noise; consider `-x` only for surgical single-failure debugging.
+- Tests must assert behavior, not existence. Bad: `assert hasattr(obj, 'x')`. Good: assert outputs, state changes, raised exceptions, or side effects under meaningful conditions.
 
 ## Response Style
 - Never guess package names, URLs, or CLI commands. Verify first or say you don't know.
