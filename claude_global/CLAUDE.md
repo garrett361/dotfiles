@@ -10,6 +10,7 @@ ruff, Google docstrings type hints (ty/mypy-compatible).
 - Names over comments. Comment only the *why*, never the *what*.
 - `pathlib.Path`, `logging` (not print), try/except at I/O boundaries, descriptive assertions.
 - Conventional commits: `feat(model): add multi-head attention with rotary embeddings`
+- pytest: prefer `--tb=short -q` to reduce noise; consider `-x` only for surgical single-failure debugging.
 
 ## Response Style
 - Never guess package names, URLs, or CLI commands. Verify first or say you don't know.
