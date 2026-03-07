@@ -3,6 +3,8 @@
     "allow": [
       "Read(~/.claude/**)",
       "WebFetch(https://arxiv.org*)",
+      "WebFetch(https://github.com*)",
+      "WebFetch(https://raw.githubusercontent.com*)",
       "WebSearch(arxiv.org*)",
       "Bash(gh:*)",
       "Bash(git status)",
