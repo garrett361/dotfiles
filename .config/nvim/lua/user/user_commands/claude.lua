@@ -18,8 +18,12 @@ vim.api.nvim_create_user_command("C", function(opts)
 	end
 	table.insert(cmd, prompt)
 
+	-- Run from git root of current buffer (like Fugitive)
+	local buf_dir = vim.fn.expand("%:p:h")
+	local git_root = vim.fs.root(buf_dir, ".git") or buf_dir
+
 	vim.notify(table.concat(cmd, " "), vim.log.levels.INFO)
-	vim.system(cmd, { text = true }, function(obj)
+	vim.system(cmd, { text = true, cwd = git_root }, function(obj)
 		vim.schedule(function()
 			if obj.code == 0 then
 				vim.notify(obj.stdout, vim.log.levels.INFO)
