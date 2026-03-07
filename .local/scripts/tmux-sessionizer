@@ -1,40 +1,101 @@
-#!/usr/bin/env bash
+#!/usr/bin/env zsh
+#
+# tmux-sessionizer: Create or switch to tmux sessions for project directories.
+#
+# Usage:
+#   tmux-sessionizer           # Interactive: select directory with fzf
+#   tmux-sessionizer /path     # Direct: use specified directory
+#
+# Configuration:
+#   Create ~/.config/tmux-sessionizer-dirs with one pattern per line:
+#
+#     .git:$GITHUB/*/*              # Git repos under $GITHUB (2 levels deep)
+#     /proj/work/*                  # All directories under /proj/work
+#     pyproject.toml:/proj/python/* # Python projects with pyproject.toml
+#
+#   Pattern syntax:
+#     - "glob"         Include all directories matching the glob
+#     - "filter:glob"  Include only directories where filter path exists
+#
+#   Environment variables (like $GITHUB) are expanded. Lines starting with #
+#   are ignored.
+#
+# Session naming:
+#   Full path with slashes/dots replaced: /a/b/c/project -> a_b_c_project
 
-BASE_DIR=${TMUX_SESSIONIZER_BASE:-$GITHUB}
-# counts the number of arguments passed to the script, -eq 1 check if it equals 1.
+CONFIG_FILE="$HOME/.config/tmux-sessionizer-dirs"
+
+# --- Directory selection ---
+
 if [[ $# -eq 1 ]]; then
-	selected=$1
+    selected=$1
 else
-	selected=$(find $BASE_DIR -mindepth 2 -maxdepth 2 -type d | fzf)
+    # Build list of directories from config file
+    dirs=()
+
+    if [[ -f "$CONFIG_FILE" ]]; then
+        while IFS= read -r line; do
+            # Skip empty lines and comments
+            [[ -z "$line" || "$line" == \#* ]] && continue
+
+            # Expand environment variables (but not globs)
+            # ${(e)var} performs parameter expansion without globbing
+            entry="${(e)line}"
+
+            filter=""
+            pattern="$entry"
+
+            # Parse "filter:pattern" syntax
+            if [[ "$entry" == *:* ]]; then
+                filter="${entry%%:*}"
+                pattern="${entry#*:}"
+            fi
+
+            # Expand glob and filter directories
+            for dir in $~pattern(N); do
+                [[ -d "$dir" ]] || continue
+
+                if [[ -n "$filter" ]]; then
+                    [[ -e "$dir/$filter" ]] && dirs+=("$dir")
+                else
+                    dirs+=("$dir")
+                fi
+            done
+        done < "$CONFIG_FILE"
+    else
+        # Fallback: all directories under $GITHUB (2 levels deep)
+        for dir in $~GITHUB/*/*(N); do
+            [[ -d "$dir" ]] && dirs+=("$dir")
+        done
+    fi
+
+    selected=$(printf '%s\n' "${dirs[@]}" | fzf)
 fi
 
-if [[ -z $selected ]]; then
-	exit 0
-fi
+[[ -z "$selected" ]] && exit 0
 
-# Clean up the name to make it a short and valid tmux name
-selected_name=$(echo "$selected" | sed s:"$BASE_DIR"/:: | tr / _ | tr . _)
+# --- Session naming ---
+
+# Use full path: /a/b/c/dir -> a_b_c_dir
+# Replace slashes and dots with underscores for valid tmux session names
+selected_name=$(echo "$selected" | sed 's:^/::' | tr '/.' '_')
+
+# --- Session creation/attachment ---
+
 tmux_running=$(pgrep tmux)
 
-# If tmux isn't running, create the session.
-# Check if tmux is not running (empty string checks). TMUX is defined if currently a tmux
-# environment
 if [[ -z $TMUX ]] && [[ -z $tmux_running ]]; then
-	# Specify session name (-s) and start dir (-c)
-	tmux -u new-session -s $selected_name -c $selected
-	exit 0
+    tmux -u new-session -s "$selected_name" -c "$selected"
+    exit 0
 fi
 
-# If tmux is running, but the session doesn't exist, create it.
-if ! tmux has-session -t=$selected_name 2>/dev/null; then
-    # -d flag detaches first, avoiding nested tmux instances
-	tmux -u new-session -ds $selected_name -c $selected
+if ! tmux has-session -t="$selected_name" 2>/dev/null; then
+    tmux -u new-session -ds "$selected_name" -c "$selected"
 fi
 
-# Attach if tmux isn't running the current process, otherwise switch
 clients=$(tmux list-clients)
 if [[ -z $TMUX ]] || [[ -z $clients ]]; then
-  tmux attach-session -t "$selected_name"
+    tmux attach-session -t "$selected_name"
 else
-  tmux switch-client -t "$selected_name"
+    tmux switch-client -t "$selected_name"
 fi
