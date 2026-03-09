@@ -14,6 +14,9 @@ fi
 git clone --depth 1 https://github.com/junegunn/fzf.git ~/.fzf
 ~/.fzf/install
 
+# Claude Code
+curl -fsSL https://claude.ai/install.sh | bash
+
 # rg
 if [ $is_linux -eq 1 ]; then
 
