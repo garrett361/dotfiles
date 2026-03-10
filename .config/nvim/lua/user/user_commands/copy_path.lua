@@ -12,3 +12,4 @@ vim.api.nvim_create_user_command("CopyPathFullLoc", function(opts)
         or path .. ":" .. opts.line1 .. "-" .. opts.line2
     vim.fn.setreg("+", result)
 end, { range = true })
+vim.keymap.set({ "n", "v" }, "<leader>zy", ":CopyPathFullLoc<CR>", { desc = "Copy path:line to clipboard" })
