@@ -35,10 +35,13 @@ This skill runs non-interactively (typically via `claude -p`). Never ask questio
    **Guidelines**:
    - Lead with what changed and why, not how
    - Imperative mood ("add", "fix", "update")
-   - First line under 72 characters
    - Most commits need only the subject line. A body is the exception, not the norm — add one only when the subject alone would leave a reader genuinely confused about *why* the change was made. When included, keep it as short as possible.
    - If multiple logical changes are staged, summarize the primary intent
    - Match tone and style of recent commits in the repo
+
+
+   **IMPORTANT**: Keep the first line under 72 characters
+
 
    **Examples**:
    ```
