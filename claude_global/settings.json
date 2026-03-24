@@ -2,9 +2,9 @@
   "permissions": {
     "allow": [
       "Read(~/.claude/**)",
-      "WebFetch(https://arxiv.org*)",
-      "WebFetch(https://github.com*)",
-      "WebFetch(https://raw.githubusercontent.com*)",
+      "WebFetch(domain:arxiv.org)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(gh:*)",
       "Bash(git status)",
       "Bash(git diff:*)",
