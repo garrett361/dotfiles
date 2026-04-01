@@ -1,6 +1,7 @@
 local aliases = {
-	c = { prompt = "/commit-staged", flags = { "--model", "haiku" } },
-	r = { prompt = "/reword-commit", flags = { "--model", "haiku" } },
+	c  = { prompt = "/commit-staged", flags = { "--model", "haiku" } },
+	rc  = { prompt = "/reword-commit", flags = { "--model", "haiku" } },
+	rs = { prompt = "/review-staged", flags = { "--model", "sonnet" } },
 }
 
 vim.api.nvim_create_user_command("C", function(opts)
