@@ -149,4 +149,15 @@ function aiu()
 
 ################################   OTHER  ################################
 
+function rc() {
+    if [ -n "$ZSH_VERSION" ]; then
+        source ~/.zshrc
+    elif [ -n "$BASH_VERSION" ]; then
+        source ~/.bashrc
+    else
+        echo "Unknown shell" >&2
+        return 1
+    fi
+}
+
 [ -f ~/.cargo/env ] && source ~/.cargo/env
