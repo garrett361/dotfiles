@@ -17,6 +17,12 @@ git clone --depth 1 https://github.com/junegunn/fzf.git ~/.fzf
 # Claude Code
 curl -fsSL https://claude.ai/install.sh | bash
 
+# uv 
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# uv 
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
 # rg
 if [ $is_linux -eq 1 ]; then
 
