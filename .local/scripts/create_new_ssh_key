@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+read -rp "Email address: " email
+[[ -z "$email" ]] && { echo "Email required."; exit 1; }
+
+printf "Algorithm [ed25519/rsa] (default: ed25519): "
+read -r algo
+algo=${algo:-ed25519}
+[[ "$algo" != "ed25519" && "$algo" != "rsa" ]] && { echo "Unknown algorithm: $algo"; exit 1; }
+
+default_name="id_${algo}"
+printf "Key filename (default: %s): " "$default_name"
+read -r key_name
+key_name=${key_name:-$default_name}
+key_file="$HOME/.ssh/$key_name"
+
+mkdir -p "$HOME/.ssh"
+
+if [[ -f "$key_file" ]]; then
+    printf "Key %s already exists. Overwrite? [y/N]: " "$key_file"
+    read -r confirm
+    [[ "$confirm" != "y" && "$confirm" != "Y" ]] && { echo "Aborted."; exit 1; }
+fi
+
+if [[ "$algo" == "ed25519" ]]; then
+    ssh-keygen -t ed25519 -f "$key_file" -C "$email"
+else
+    ssh-keygen -t rsa -b 4096 -f "$key_file" -C "$email"
+fi
+
+eval "$(ssh-agent -s)"
+
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    ssh-add --apple-use-keychain "$key_file"
+else
+    ssh-add "$key_file"
+fi
+
+echo ""
+echo "Public key to add to GitHub (Settings → SSH keys):"
+cat "${key_file}.pub"
+echo ""
+echo "Note: this ssh-agent session won't persist to your shell."
+echo "To connect your shell: eval \"\$(ssh-agent -s)\" && ssh-add $key_file"
