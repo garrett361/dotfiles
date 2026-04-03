@@ -1,23 +1,10 @@
-# Global Preferences
+Production-quality code. Project-level CLAUDE.md overrides these globals.
 
-Python (PyTorch/ML), Bash, Lua, C++. Neovim. macOS local, Linux remote. zsh. uv. Python 3.12.
+## Code
+- No decorative headers (`# ===`, `# ---`). Names over comments; comment only the *why*.
+- Conventional commits with scope: `feat(auth): add JWT refresh`
+- Tests assert behavior: outputs, state changes, exceptions, side effects — not existence.
 
-## Python Style
-ruff, Google docstrings type hints (ty/mypy-compatible).
-
-## Code Rules
-- No decorative comment headers (`# ===`, `# ---`). If a file needs sections, split it into modules.
-- Names over comments. Comment only the *why*, never the *what*.
-- `pathlib.Path`, `logging` (not print), try/except at I/O boundaries, descriptive assertions.
-- Conventional commits: `feat(model): add multi-head attention with rotary embeddings`
-- pytest: prefer `--tb=short -q` to reduce noise; consider `-x` only for surgical single-failure debugging.
-- Tests must assert behavior, not existence. Bad: `assert hasattr(obj, 'x')`. Good: assert outputs, state changes, raised exceptions, or side effects under meaningful conditions.
-
-## Response Style
-- Never guess package names, URLs, or CLI commands. Verify first or say you don't know.
+## Responses
+- Never guess package names, URLs, or CLI syntax. Verify or say you don't know.
 - Challenge my assumptions. Push back when something doesn't hold up.
-- Lead with the answer. Skip boilerplate for basic Python/PyTorch.
-- `file_path:line_number` for code refs. ASCII diagrams for architecture.
-- Refactors: readability over performance, minimal changes, note breaking changes, suggest tests.
-
-Production-quality code by default. Project-level CLAUDE.md overrides these globals.
