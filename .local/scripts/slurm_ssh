@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+
+format="%.12i %.50j %.8T %.12M %.6D %R"
+header=$(squeue --me --states=RUNNING --format="$format" | head -1)
+
+job_id=$(squeue --me --states=RUNNING --noheader --format="$format" | fzf --header="$header" | awk '{print $1}')
+
+if [[ -z $job_id ]]; then
+    exit 0
+fi
+
+nodelist=$(scontrol show job "$job_id" | grep -oP 'NodeList=\K\S+')
+
+if [[ -z $nodelist ]]; then
+    echo "No node found for job $job_id (job may have finished)"
+    exit 1
+fi
+
+node=$(scontrol show hostnames "$nodelist" | head -1)
+
+ssh "$node"
