@@ -1,4 +1,4 @@
-Production-quality code. Project-level CLAUDE.md overrides these globals.
+Production-quality code. Project-level instructions override these globals.
 
 ## Code
 - No decorative headers (`# ===`, `# ---`). Names over comments; comment only the *why*.

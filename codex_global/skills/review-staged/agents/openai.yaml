@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review Staged"
+  short_description: "Review staged git changes before commit"
+  default_prompt: "Use $review-staged to review the currently staged git changes for bugs and risky regressions."

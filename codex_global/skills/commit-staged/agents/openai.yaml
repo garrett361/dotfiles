@@ -1,0 +1,4 @@
+interface:
+  display_name: "Commit Staged"
+  short_description: "Commit staged changes with a conventional message"
+  default_prompt: "Use $commit-staged to write a conventional commit message and commit the currently staged changes."

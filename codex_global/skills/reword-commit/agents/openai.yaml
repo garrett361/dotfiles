@@ -1,0 +1,4 @@
+interface:
+  display_name: "Reword Commit"
+  short_description: "Rewrite the last commit message only"
+  default_prompt: "Use $reword-commit to rewrite the last commit message without changing the commit contents."
