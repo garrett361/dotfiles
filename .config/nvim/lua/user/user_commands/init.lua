@@ -1,4 +1,5 @@
 require("user.user_commands.claude")
+require("user.user_commands.codex")
 require("user.user_commands.copy_path")
 require("user.user_commands.diff_visible")
 require("user.user_commands.filter")
