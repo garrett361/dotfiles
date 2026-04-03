@@ -20,9 +20,6 @@ curl -fsSL https://claude.ai/install.sh | bash
 # uv 
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# uv 
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
 # rg
 if [ $is_linux -eq 1 ]; then
 
