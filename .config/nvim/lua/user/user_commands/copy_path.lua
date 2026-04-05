@@ -14,6 +14,7 @@ local function copy_path_with_loc(path_expr)
 	local result = start_line == end_line and path .. ":" .. start_line
 		or path .. ":" .. start_line .. "-" .. end_line
 	vim.fn.setreg("+", result)
+	vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "n", false)
 end
 
 -- Copy relative path to system clipboard
