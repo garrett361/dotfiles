@@ -34,16 +34,16 @@ vim.api.nvim_create_user_command(
 	{}
 )
 
-vim.keymap.set("n", "<leader>yy", function()
+vim.keymap.set("n", "<leader>y", function()
 	copy_path("%:.")
 end, { desc = "Copy relative path to clipboard" })
-vim.keymap.set("x", "<leader>yy", function()
+vim.keymap.set("x", "<leader>y", function()
 	copy_path_with_loc("%:.")
 end, { desc = "Copy relative path with lines to clipboard" })
-vim.keymap.set("n", "<leader>yp", ":CopyPathPy<CR>", { desc = "Copy Python path to clipboard" })
-vim.keymap.set("n", "<leader>yf", function()
+vim.keymap.set("n", "<leader>Y", function()
 	copy_path("%:p")
 end, { desc = "Copy absolute path to clipboard" })
-vim.keymap.set("x", "<leader>yf", function()
+
+vim.keymap.set("x", "<leader>Y", function()
 	copy_path_with_loc("%:p")
 end, { desc = "Copy absolute path with lines to clipboard" })
