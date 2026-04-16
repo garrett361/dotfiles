@@ -99,6 +99,7 @@ local env = {
 	),
 	s(",B", fmta([[\bar{<>}]], { i(1) })),
 	s(",C", fmta([[\mathcal{<>}]], { i(1) })),
+	s(",O", fmta([[\mathcal{O}(<>)]], { i(1) })),
 	s(",,", fmta("$<>$", { i(1) })),
 	s({ trig = ",ll", wordTrig = false }, fmta([[\left ]], {})),
 	s({ trig = ",rr", wordTrig = false }, fmta([[\right ]], {})),
