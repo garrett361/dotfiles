@@ -176,6 +176,3 @@ _minted*
 
 # Docker
 *.pid
-
-# uv
-uv.lock
