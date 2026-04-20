@@ -1,4 +1,4 @@
-#!/usr/bin/env zsh
+#!/usr/bin/env bash
 #
 # tmux-sessionizer: Create or switch to tmux sessions for project directories.
 #
@@ -35,26 +35,25 @@ else
 
     if [[ -f "$CONFIG_FILE" ]]; then
         while IFS= read -r line; do
-            # Skip empty lines and comments
             [[ -z "$line" || "$line" == \#* ]] && continue
 
-            # Expand environment variables (but not globs)
-            # ${(e)var} performs parameter expansion without globbing
-            entry="${(e)line}"
+            # Expand env vars without glob expansion
+            entry=$(eval "echo \"$line\"")
 
             filter=""
             pattern="$entry"
 
-            # Parse "filter:pattern" syntax
             if [[ "$entry" == *:* ]]; then
                 filter="${entry%%:*}"
                 pattern="${entry#*:}"
             fi
 
-            # Expand glob and filter directories
-            for dir in $~pattern(N); do
-                [[ -d "$dir" ]] || continue
+            shopt -s nullglob
+            matched=($pattern)
+            shopt -u nullglob
 
+            for dir in "${matched[@]}"; do
+                [[ -d "$dir" ]] || continue
                 if [[ -n "$filter" ]]; then
                     [[ -e "$dir/$filter" ]] && dirs+=("$dir")
                 else
@@ -63,8 +62,10 @@ else
             done
         done < "$CONFIG_FILE"
     else
-        # Fallback: all directories under $GITHUB (2 levels deep)
-        for dir in $~GITHUB/*/*(N); do
+        shopt -s nullglob
+        matched=($GITHUB/*/*)
+        shopt -u nullglob
+        for dir in "${matched[@]}"; do
             [[ -d "$dir" ]] && dirs+=("$dir")
         done
     fi
