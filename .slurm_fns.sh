@@ -63,8 +63,8 @@ slurm_logs() {
         return 1
     fi
 
-    stdout_path=$(printf '%s\n' "$job_info" | sed -n 's/.*StdOut=\([^ ]*\).*/\1/p')
-    stderr_path=$(printf '%s\n' "$job_info" | sed -n 's/.*StdErr=\([^ ]*\).*/\1/p')
+    stdout_path=$(printf '%s\n' "$job_info" | sed -n 's/.* StdOut=\([^ ]*\).*/\1/p' | head -1)
+    stderr_path=$(printf '%s\n' "$job_info" | sed -n 's/.* StdErr=\([^ ]*\).*/\1/p' | head -1)
 
     local -a cands=()
     [ -f "$stdout_path" ] && cands+=("$stdout_path")
@@ -132,7 +132,7 @@ slurm_attach() {
     [ -z "$jobid" ] && return 0
 
     local nodelist
-    nodelist=$(scontrol show job "$jobid" | sed -n 's/.*NodeList=\([^ ]*\).*/\1/p')
+    nodelist=$(scontrol show job "$jobid" | sed -n 's/.* NodeList=\([^ ]*\).*/\1/p' | head -1)
 
     if [ -z "$nodelist" ] || [ "$nodelist" = "(null)" ]; then
         echo "No node found for job $jobid (job may not be running)"
@@ -145,14 +145,14 @@ slurm_attach() {
     local node_count
     node_count=$(echo "$hostnames" | grep -c .)
 
-    local node
-    node=$(echo "$hostnames" | head -1)
-
     if [ "$node_count" -le 1 ]; then
-        ssh "$node"
+        srun --jobid="$jobid" --overlap --pty "$SHELL"
     else
-        node=$(echo "$hostnames" | fzf --header="Select node ($jobid)")
-        [ -n "$node" ] && ssh "$node"
+        local node
+        node=$(echo "$hostnames" | awk 'NR==1 {print $0 " (head)"} NR>1 {print}' \
+            | fzf --header="Select node ($jobid)" \
+            | sed 's/ (head)$//')
+        [ -n "$node" ] && srun --jobid="$jobid" --overlap --nodelist="$node" --ntasks=1 --pty "$SHELL"
     fi
 }
 
