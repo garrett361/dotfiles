@@ -28,7 +28,7 @@ for skilldir in codex_global/skills/*/; do
 	ln -snf "$(readlink -f "$skilldir")" "$skilltarget"
 done
 
-for localfile in ".commonrc" ".vimrc" ".bashrc" ".zshrc" ".stylua.toml" ".rg" ".ipython/profile_default/ipython_config.py"; do
+for localfile in ".commonrc" ".vimrc" ".bashrc" ".zshrc" ".profile" ".zprofile" ".stylua.toml" ".rg" ".ipython/profile_default/ipython_config.py" ".slurm_fns.sh" ".lsf_fns.sh"; do
     filepath=$(readlink -f $localfile)
 	ln -sfF $filepath $HOME/$localfile
 done

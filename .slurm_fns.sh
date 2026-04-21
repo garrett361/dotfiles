@@ -1,0 +1,183 @@
+_slurm_jobs() {
+    local query="" state=""
+    local -a fzf_opts=()
+
+    while [ $# -gt 0 ]; do
+        case $1 in
+            --multi)
+                fzf_opts+=(-m --bind ctrl-a:select-all)
+                shift
+                ;;
+            --state=*)
+                state="${1#--state=}"
+                shift
+                ;;
+            *)
+                query="$1"
+                shift
+                ;;
+        esac
+    done
+
+    local -a sq_args=(--me --noheader)
+    [ -n "$state" ] && sq_args+=(--states="$state")
+
+    local format="%.12i %.50j %.10u %.8T %.15P %.20N %.12M %.6D"
+    local header
+    header=$(squeue --me --format="$format" | head -1)
+
+    local selected
+    if [ -n "$query" ]; then
+        selected=$(squeue "${sq_args[@]}" --format="$format" \
+            | rg "$query" \
+            | fzf "${fzf_opts[@]}" --header="$header")
+    else
+        selected=$(squeue "${sq_args[@]}" --format="$format" \
+            | fzf "${fzf_opts[@]}" --header="$header")
+    fi
+
+    [ -n "$selected" ] && echo "$selected" | awk '{print $1}'
+}
+
+slurm_info() {
+    local jobid
+    jobid=$(_slurm_jobs "$@")
+    [ -n "$jobid" ] && scontrol show job "$jobid"
+}
+
+slurm_logs() {
+    if [ -z "$TMUX" ]; then
+        echo "slurm_logs requires a tmux session"
+        return 1
+    fi
+
+    local jobid
+    jobid=$(_slurm_jobs "$@")
+    [ -z "$jobid" ] && return 0
+
+    local job_info stdout_path stderr_path
+    job_info=$(scontrol show job "$jobid")
+
+    if [ -z "$job_info" ]; then
+        echo "Could not retrieve job info for $jobid (job may have finished)"
+        return 1
+    fi
+
+    stdout_path=$(printf '%s\n' "$job_info" | sed -n 's/.*StdOut=\([^ ]*\).*/\1/p')
+    stderr_path=$(printf '%s\n' "$job_info" | sed -n 's/.*StdErr=\([^ ]*\).*/\1/p')
+
+    local -a cands=()
+    [ -f "$stdout_path" ] && cands+=("$stdout_path")
+    if [ -n "$stderr_path" ] && [ "$stderr_path" != "$stdout_path" ] && [ -f "$stderr_path" ]; then
+        cands+=("$stderr_path")
+    fi
+
+    if [ ${#cands[@]} -eq 0 ]; then
+        echo "No log files exist yet for job $jobid"
+        echo "  StdOut: $stdout_path"
+        [ -n "$stderr_path" ] && [ "$stderr_path" != "$stdout_path" ] && echo "  StdErr: $stderr_path"
+        return 1
+    fi
+
+    local selected_files
+    selected_files=$(printf '%s\n' "${cands[@]}" \
+        | fzf -m --bind ctrl-a:select-all \
+        --header="Select log files for job $jobid (Tab=multi-select, Ctrl-A=all)" \
+        --preview="echo '{}'; echo; tail -50 -- '{}'" \
+        --preview-window=down)
+    [ -z "$selected_files" ] && return 0
+
+    _open_logs_in_panes "$selected_files"
+}
+
+slurm_logs_all() {
+    if [ -z "$TMUX" ]; then
+        echo "slurm_logs_all requires a tmux session"
+        return 1
+    fi
+
+    if [ -z "$LOG_DIR" ]; then
+        echo "LOG_DIR environment variable is not set"
+        return 1
+    fi
+
+    if [ ! -d "$LOG_DIR" ]; then
+        echo "Log directory does not exist: $LOG_DIR"
+        return 1
+    fi
+
+    local query="${1:-}"
+    local selected_files
+    selected_files=$(cd "$LOG_DIR" && find . -type f \( \
+        -name "*.out" -o -name "*.err" -o -name "*.log" \
+    \) -printf '%T@ %p\n' 2>/dev/null | sort -rn | cut -d' ' -f2- | sed 's|^\./||' \
+        | if [ -n "$query" ]; then rg "$query"; else cat; fi \
+        | fzf -m --bind ctrl-a:select-all \
+        --header="Select log files from $LOG_DIR (Tab=multi-select, Ctrl-A=all)" \
+        --preview="echo '$LOG_DIR/{}'; echo; tail -50 -- '$LOG_DIR/{}'" \
+        --preview-window=down)
+    [ -z "$selected_files" ] && return 0
+
+    local abs_files
+    abs_files=$(while IFS= read -r f; do
+        [ -n "$f" ] && printf '%s/%s\n' "$LOG_DIR" "$f"
+    done <<< "$selected_files")
+
+    _open_logs_in_panes "$abs_files"
+}
+
+slurm_attach() {
+    local jobid
+    jobid=$(_slurm_jobs --state=RUNNING "$@")
+    [ -z "$jobid" ] && return 0
+
+    local nodelist
+    nodelist=$(scontrol show job "$jobid" | sed -n 's/.*NodeList=\([^ ]*\).*/\1/p')
+
+    if [ -z "$nodelist" ] || [ "$nodelist" = "(null)" ]; then
+        echo "No node found for job $jobid (job may not be running)"
+        return 1
+    fi
+
+    local hostnames
+    hostnames=$(scontrol show hostnames "$nodelist")
+
+    local node_count
+    node_count=$(echo "$hostnames" | grep -c .)
+
+    local node
+    node=$(echo "$hostnames" | head -1)
+
+    if [ "$node_count" -le 1 ]; then
+        ssh "$node"
+    else
+        node=$(echo "$hostnames" | fzf --header="Select node ($jobid)")
+        [ -n "$node" ] && ssh "$node"
+    fi
+}
+
+slurm_kill() {
+    local job_ids_str
+    job_ids_str=$(_slurm_jobs --multi "$@")
+    [ -z "$job_ids_str" ] && return 0
+
+    echo "Delete these jobs? [y/N]"
+    while IFS= read -r id; do
+        [ -n "$id" ] && echo "  $id"
+    done <<< "$job_ids_str"
+
+    read -r response
+    case "$response" in
+        [yY][eE][sS]|[yY])
+            while IFS= read -r id; do
+                if [ -n "$id" ]; then
+                    scancel "$id"
+                    echo "Cancelled $id"
+                fi
+            done <<< "$job_ids_str"
+            ;;
+        *)
+            echo "Delete aborted!"
+            ;;
+    esac
+}
