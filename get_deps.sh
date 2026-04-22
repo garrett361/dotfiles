@@ -12,7 +12,7 @@ fi
 
 
 # fzf: clone to arch-specific dir; --bin skips generating ~/.fzf.bash/zsh (we source directly)
-git clone --depth 1 https://github.com/junegunn/fzf.git "$HOME/.fzf-$arch"
+[ -d "$HOME/.fzf-$arch" ] || git clone --depth 1 https://github.com/junegunn/fzf.git "$HOME/.fzf-$arch"
 "$HOME/.fzf-$arch/install" --bin
 
 # Claude Code
