@@ -54,9 +54,8 @@ _fzf_dir="$HOME/.fzf-$(uname -m)"
 [ -f "$_fzf_dir/shell/key-bindings.zsh" ] && source "$_fzf_dir/shell/key-bindings.zsh"
 unset _fzf_dir
 
-# starship
-if command -v starship &> /dev/null
-then
+# starship (guard against arch mismatch in containers)
+if command -v starship &>/dev/null && starship --version &>/dev/null; then
     eval "$(starship init zsh)"
 fi
 

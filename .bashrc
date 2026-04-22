@@ -11,7 +11,10 @@ HISTCONTROL=ignorespace:erasedups
 shopt -s histverify
 
 # FZF
-[ -f ~/.fzf.bash ] && source ~/.fzf.bash
+_fzf_dir="$HOME/.fzf-$(uname -m)"
+[[ $- == *i* ]] && [ -f "$_fzf_dir/shell/completion.bash" ] && source "$_fzf_dir/shell/completion.bash"
+[ -f "$_fzf_dir/shell/key-bindings.bash" ] && source "$_fzf_dir/shell/key-bindings.bash"
+unset _fzf_dir
 
 # API key loading
 API_KEY_DIR=$DOTFILES/API_KEYS
@@ -27,9 +30,8 @@ bind '"\C-g": "tmux-sessionizer\n"'
 bind '"\C-f": "tmux-list-sessionizer\n"'
 bind '"\C-x\C-e": edit-and-execute-command'
 
-# starship
-if command -v starship &> /dev/null
-then
+# starship (guard against arch mismatch in containers)
+if command -v starship &>/dev/null && starship --version &>/dev/null; then
     eval "$(starship init bash)"
 fi
 
