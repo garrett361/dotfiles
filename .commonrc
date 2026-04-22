@@ -1,6 +1,6 @@
 ################################   EXPORTS  ################################
 
-export PATH=$PATH:$HOME/.local/bin
+export PATH=$HOME/.fzf-$(uname -m)/bin:$HOME/.local/bin/$(uname -m):$HOME/.local/bin:$PATH
 export PATH=$PATH:$HOME/.local/scripts
 
 export GITHUB=$HOME/github
@@ -195,6 +195,8 @@ function rc() {
     fi
 }
 
-[ -f ~/.cargo/env ] && source ~/.cargo/env
+export RUSTUP_HOME="$HOME/.rustup-$(uname -m)"
+[ -f "$HOME/.cargo-$(uname -m)/env" ] && source "$HOME/.cargo-$(uname -m)/env"
+[ "$(uname -m)" = "x86_64" ] && [ -f "$HOME/x86/bin/env" ] && . "$HOME/x86/bin/env"
 [ -f "$HOME/.slurm_fns.sh" ] && source "$HOME/.slurm_fns.sh"
 [ -f "$HOME/.lsf_fns.sh" ]   && source "$HOME/.lsf_fns.sh"
