@@ -66,29 +66,41 @@ if [ $is_linux -eq 1 ]; then
     esac
 
     cd "$bin_dir"
-    curl -LO "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/${RG}.tar.gz"
-    tar -xvzf "${RG}.tar.gz"
-    ln -s "${RG}/rg" .
+    if [ ! -d "${RG}" ]; then
+        curl -LO "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/${RG}.tar.gz"
+        tar -xvzf "${RG}.tar.gz"
+    fi
+    ln -sf "${RG}/rg" .
 
-    curl -LO "https://github.com/neovim/neovim/releases/download/v0.11.0/${NVIM}.tar.gz"
-    tar -xvzf "${NVIM}.tar.gz"
-    ln -s "${NVIM}/bin/nvim" .
+    if [ ! -d "${NVIM}" ]; then
+        curl -LO "https://github.com/neovim/neovim/releases/download/v0.11.0/${NVIM}.tar.gz"
+        tar -xvzf "${NVIM}.tar.gz"
+    fi
+    ln -sf "${NVIM}/bin/nvim" .
 
-    curl -LO "https://github.com/dandavison/delta/releases/download/0.18.2/${DELTA}.tar.gz"
-    tar -xvzf "${DELTA}.tar.gz"
-    ln -s "${DELTA}/delta" .
+    if [ ! -d "${DELTA}" ]; then
+        curl -LO "https://github.com/dandavison/delta/releases/download/0.18.2/${DELTA}.tar.gz"
+        tar -xvzf "${DELTA}.tar.gz"
+    fi
+    ln -sf "${DELTA}/delta" .
 
-    curl -LO "https://github.com/sharkdp/bat/releases/download/v0.25.0/${BAT}.tar.gz"
-    tar -xvzf "${BAT}.tar.gz"
-    ln -s "${BAT}/bat" .
+    if [ ! -d "${BAT}" ]; then
+        curl -LO "https://github.com/sharkdp/bat/releases/download/v0.25.0/${BAT}.tar.gz"
+        tar -xvzf "${BAT}.tar.gz"
+    fi
+    ln -sf "${BAT}/bat" .
 
-    curl -LO "https://github.com/sharkdp/fd/releases/download/v10.2.0/${FD}.tar.gz"
-    tar -xvzf "${FD}.tar.gz"
-    ln -s "${FD}/fd" .
+    if [ ! -d "${FD}" ]; then
+        curl -LO "https://github.com/sharkdp/fd/releases/download/v10.2.0/${FD}.tar.gz"
+        tar -xvzf "${FD}.tar.gz"
+    fi
+    ln -sf "${FD}/fd" .
 
-    curl -LO "https://github.com/cli/cli/releases/download/v2.68.1/${GH}.tar.gz"
-    tar -xvzf "${GH}.tar.gz"
-    ln -s "${GH}/bin/gh" .
+    if [ ! -d "${GH}" ]; then
+        curl -LO "https://github.com/cli/cli/releases/download/v2.68.1/${GH}.tar.gz"
+        tar -xvzf "${GH}.tar.gz"
+    fi
+    ln -sf "${GH}/bin/gh" .
 
 
     export CARGO_HOME="$HOME/.cargo-$arch"
