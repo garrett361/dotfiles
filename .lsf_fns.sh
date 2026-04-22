@@ -148,7 +148,10 @@ lsf_attach() {
     fi
 
     local -a nodes=()
-    IFS=':' read -ra nodes <<< "$exec_host"
+    local _ifs="$IFS"
+    IFS=':'
+    nodes=($exec_host)
+    IFS="$_ifs"
     local node_count=${#nodes[@]}
 
     if [ "$node_count" -le 1 ]; then
