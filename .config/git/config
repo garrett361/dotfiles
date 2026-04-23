@@ -44,7 +44,7 @@
     sa = stash apply
     sc = stash clear
     sp = stash pop
-    stack = "!python $DOTFILES/gitstack/gitstack.py"
+    stack = !python3 $HOME/.local/share/gitstack.py
     wt = worktree
     wta = worktree add
     wtr = worktree remove

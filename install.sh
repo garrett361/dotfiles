@@ -33,6 +33,10 @@ for localfile in ".commonrc" ".vimrc" ".bashrc" ".zshrc" ".profile" ".zprofile" 
 	ln -sfF $filepath $HOME/$localfile
 done
 
+# gitstack: symlink script (alias is in .config/git/config, installed above)
+mkdir -p "$HOME/.local/share"
+ln -sf "$(cd gitstack && pwd)/gitstack.py" "$HOME/.local/share/gitstack.py"
+
 vscode_settings=$(readlink -f settings.json)
 if [ $is_linux -eq 1 ]; then
     echo "linux"

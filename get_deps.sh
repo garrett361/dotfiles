@@ -3,6 +3,8 @@
 is_linux=$(uname -s | grep -iq linux && echo 1 || echo 0)
 arch=$(uname -m)
 
+git -C "$(cd "$(dirname "$0")" && pwd)" submodule update --init
+
 # Arch-specific bin dir so x86 and ARM installs don't collide on a shared home
 bin_dir=$HOME/.local/bin/$arch
 
