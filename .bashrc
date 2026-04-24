@@ -6,7 +6,6 @@ export HISTFILESIZE=$HISTSIZE
 
 # History: immediate append + deduplication + verify
 shopt -s histappend
-PROMPT_COMMAND="history -a;$PROMPT_COMMAND"
 HISTCONTROL=ignorespace:erasedups
 shopt -s histverify
 
@@ -34,4 +33,5 @@ bind '"\C-x\C-e": edit-and-execute-command'
 if command -v starship &>/dev/null && starship --version &>/dev/null; then
     eval "$(starship init bash)"
 fi
+PROMPT_COMMAND="history -a; history -n; ${PROMPT_COMMAND}"
 
