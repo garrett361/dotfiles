@@ -107,8 +107,8 @@ if [ $is_linux -eq 1 ]; then
     export RUSTUP_HOME="$HOME/.rustup-$arch"
     curl https://sh.rustup.rs -sSf | sh -s -- -y --no-modify-path
     source "$CARGO_HOME/env"
-    cargo install tree-sitter-cli
-    cargo install starship
+    cargo install tree-sitter-cli --locked
+    cargo install starship --locked
 
 else
     # Install brew
