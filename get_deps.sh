@@ -3,6 +3,13 @@
 is_linux=$(uname -s | grep -iq linux && echo 1 || echo 0)
 arch=$(uname -m)
 
+force=0
+for arg in "$@"; do
+    case "$arg" in
+        -f|--force) force=1 ;;
+    esac
+done
+
 git -C "$(cd "$(dirname "$0")" && pwd)" submodule update --init
 
 # Arch-specific bin dir so x86 and ARM installs don't collide on a shared home
@@ -14,7 +21,10 @@ fi
 
 
 # fzf: clone to arch-specific dir; --bin skips generating ~/.fzf.bash/zsh (we source directly)
-[ -d "$HOME/.fzf-$arch" ] || git clone --depth 1 https://github.com/junegunn/fzf.git "$HOME/.fzf-$arch"
+if [ "$force" -eq 1 ] || [ ! -d "$HOME/.fzf-$arch" ]; then
+    rm -rf "$HOME/.fzf-$arch"
+    git clone --depth 1 https://github.com/junegunn/fzf.git "$HOME/.fzf-$arch"
+fi
 "$HOME/.fzf-$arch/install" --bin
 
 # Claude Code
@@ -68,37 +78,43 @@ if [ $is_linux -eq 1 ]; then
     esac
 
     cd "$bin_dir"
-    if [ ! -d "${RG}" ]; then
+    if [ "$force" -eq 1 ] || [ ! -d "${RG}" ]; then
+        rm -rf "${RG}"
         curl -LO "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/${RG}.tar.gz"
         tar -xvzf "${RG}.tar.gz"
     fi
     ln -sf "${RG}/rg" .
 
-    if [ ! -d "${NVIM}" ]; then
+    if [ "$force" -eq 1 ] || [ ! -d "${NVIM}" ]; then
+        rm -rf "${NVIM}"
         curl -LO "https://github.com/neovim/neovim/releases/download/v0.11.0/${NVIM}.tar.gz"
         tar -xvzf "${NVIM}.tar.gz"
     fi
     ln -sf "${NVIM}/bin/nvim" .
 
-    if [ ! -d "${DELTA}" ]; then
+    if [ "$force" -eq 1 ] || [ ! -d "${DELTA}" ]; then
+        rm -rf "${DELTA}"
         curl -LO "https://github.com/dandavison/delta/releases/download/0.18.2/${DELTA}.tar.gz"
         tar -xvzf "${DELTA}.tar.gz"
     fi
     ln -sf "${DELTA}/delta" .
 
-    if [ ! -d "${BAT}" ]; then
+    if [ "$force" -eq 1 ] || [ ! -d "${BAT}" ]; then
+        rm -rf "${BAT}"
         curl -LO "https://github.com/sharkdp/bat/releases/download/v0.25.0/${BAT}.tar.gz"
         tar -xvzf "${BAT}.tar.gz"
     fi
     ln -sf "${BAT}/bat" .
 
-    if [ ! -d "${FD}" ]; then
+    if [ "$force" -eq 1 ] || [ ! -d "${FD}" ]; then
+        rm -rf "${FD}"
         curl -LO "https://github.com/sharkdp/fd/releases/download/v10.2.0/${FD}.tar.gz"
         tar -xvzf "${FD}.tar.gz"
     fi
     ln -sf "${FD}/fd" .
 
-    if [ ! -d "${GH}" ]; then
+    if [ "$force" -eq 1 ] || [ ! -d "${GH}" ]; then
+        rm -rf "${GH}"
         curl -LO "https://github.com/cli/cli/releases/download/v2.68.1/${GH}.tar.gz"
         tar -xvzf "${GH}.tar.gz"
     fi
@@ -107,7 +123,9 @@ if [ $is_linux -eq 1 ]; then
 
     export CARGO_HOME="$HOME/.cargo-$arch"
     export RUSTUP_HOME="$HOME/.rustup-$arch"
-    curl https://sh.rustup.rs -sSf | sh -s -- -y --no-modify-path
+    if [ "$force" -eq 1 ] || [ ! -f "$CARGO_HOME/bin/rustup" ]; then
+        curl https://sh.rustup.rs -sSf | sh -s -- -y --no-modify-path
+    fi
     source "$CARGO_HOME/env"
     cargo install tree-sitter-cli --locked
     cargo install starship --locked
