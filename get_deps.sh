@@ -63,6 +63,10 @@ if [ $is_linux -eq 1 ]; then
             BAT="bat-v0.25.0-x86_64-unknown-linux-musl"
             FD="fd-v10.2.0-x86_64-unknown-linux-musl"
             GH="gh_2.68.1_linux_amd64"
+            TREE_SITTER="tree-sitter-0.26.8-linux-x64"
+            TREE_SITTER_ASSET="tree-sitter-linux-x64.gz"
+            STARSHIP="starship-1.25.0-x86_64-unknown-linux-gnu"
+            STARSHIP_ASSET="starship-x86_64-unknown-linux-gnu.tar.gz"
             ;;
         aarch64)
             RG="ripgrep-14.1.1-aarch64-unknown-linux-gnu"
@@ -71,6 +75,10 @@ if [ $is_linux -eq 1 ]; then
             BAT="bat-v0.25.0-aarch64-unknown-linux-musl"
             FD="fd-v10.2.0-aarch64-unknown-linux-musl"
             GH="gh_2.68.1_linux_arm64"
+            TREE_SITTER="tree-sitter-0.26.8-linux-arm64"
+            TREE_SITTER_ASSET="tree-sitter-linux-arm64.gz"
+            STARSHIP="starship-1.25.0-aarch64-unknown-linux-musl"
+            STARSHIP_ASSET="starship-aarch64-unknown-linux-musl.tar.gz"
             ;;
         *)
             echo "Unsupported arch: $arch"; exit 1
@@ -120,15 +128,24 @@ if [ $is_linux -eq 1 ]; then
     fi
     ln -sf "${GH}/bin/gh" .
 
-
-    export CARGO_HOME="$HOME/.cargo-$arch"
-    export RUSTUP_HOME="$HOME/.rustup-$arch"
-    if [ "$force" -eq 1 ] || [ ! -f "$CARGO_HOME/bin/rustup" ]; then
-        curl https://sh.rustup.rs -sSf | sh -s -- -y --no-modify-path
+    # tree-sitter ships as a single gzipped binary, not a tarball
+    if [ "$force" -eq 1 ] || [ ! -f "${TREE_SITTER}" ]; then
+        rm -f "${TREE_SITTER}" "${TREE_SITTER_ASSET}"
+        curl -LO "https://github.com/tree-sitter/tree-sitter/releases/download/v0.26.8/${TREE_SITTER_ASSET}"
+        gunzip -f "${TREE_SITTER_ASSET}"
+        mv "${TREE_SITTER_ASSET%.gz}" "${TREE_SITTER}"
+        chmod +x "${TREE_SITTER}"
     fi
-    source "$CARGO_HOME/env"
-    cargo install tree-sitter-cli --locked
-    cargo install starship --locked
+    ln -sf "${TREE_SITTER}" tree-sitter
+
+    # starship tarball contains a bare `starship` binary, so extract into a versioned dir
+    if [ "$force" -eq 1 ] || [ ! -d "${STARSHIP}" ]; then
+        rm -rf "${STARSHIP}"
+        curl -LO "https://github.com/starship/starship/releases/download/v1.25.0/${STARSHIP_ASSET}"
+        mkdir -p "${STARSHIP}"
+        tar -xzf "${STARSHIP_ASSET}" -C "${STARSHIP}"
+    fi
+    ln -sf "${STARSHIP}/starship" .
 
 else
     # Install brew
