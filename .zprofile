@@ -1,3 +1,6 @@
+# Homebrew (macOS only)
+[ "$(uname -s)" = "Darwin" ] && [ -x /opt/homebrew/bin/brew ] && eval "$(/opt/homebrew/bin/brew shellenv)"
+
 _arch=$(uname -m)
 
 [ -d "$HOME/.local/bin" ] && PATH="$HOME/.local/bin/$_arch:$HOME/.local/bin:$PATH"
