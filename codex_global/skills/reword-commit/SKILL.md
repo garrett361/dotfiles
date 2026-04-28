@@ -32,6 +32,7 @@ Rewrite the most recent commit message based on what the commit actually changed
 - Use imperative mood
 - Keep the first line under 72 characters
 - Match the repo's recent commit tone when practical
+- When a body is included, use GitHub Markdown: backticks for file paths, flags, function names, and identifiers; bullet lists for multi-point rationale
 
 ## Rules
 
