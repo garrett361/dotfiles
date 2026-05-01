@@ -55,29 +55,38 @@ fi
 # rg
 if [ $is_linux -eq 1 ]; then
 
+    RG_VERSION="14.1.1"
+    NVIM_VERSION="0.11.0"
+    DELTA_VERSION="0.18.2"
+    BAT_VERSION="0.25.0"
+    FD_VERSION="10.2.0"
+    GH_VERSION="2.68.1"
+    TREE_SITTER_VERSION="0.25.10"
+    STARSHIP_VERSION="1.25.0"
+
     case "$arch" in
         x86_64)
-            RG="ripgrep-14.1.1-x86_64-unknown-linux-musl"
+            RG="ripgrep-${RG_VERSION}-x86_64-unknown-linux-musl"
             NVIM="nvim-linux-x86_64"
-            DELTA="delta-0.18.2-x86_64-unknown-linux-musl"
-            BAT="bat-v0.25.0-x86_64-unknown-linux-musl"
-            FD="fd-v10.2.0-x86_64-unknown-linux-musl"
-            GH="gh_2.68.1_linux_amd64"
-            TREE_SITTER="tree-sitter-0.26.8-linux-x64"
+            DELTA="delta-${DELTA_VERSION}-x86_64-unknown-linux-musl"
+            BAT="bat-v${BAT_VERSION}-x86_64-unknown-linux-musl"
+            FD="fd-v${FD_VERSION}-x86_64-unknown-linux-musl"
+            GH="gh_${GH_VERSION}_linux_amd64"
+            TREE_SITTER="tree-sitter-${TREE_SITTER_VERSION}-linux-x64"
             TREE_SITTER_ASSET="tree-sitter-linux-x64.gz"
-            STARSHIP="starship-1.25.0-x86_64-unknown-linux-gnu"
+            STARSHIP="starship-${STARSHIP_VERSION}-x86_64-unknown-linux-gnu"
             STARSHIP_ASSET="starship-x86_64-unknown-linux-gnu.tar.gz"
             ;;
         aarch64)
-            RG="ripgrep-14.1.1-aarch64-unknown-linux-gnu"
+            RG="ripgrep-${RG_VERSION}-aarch64-unknown-linux-gnu"
             NVIM="nvim-linux-arm64"
-            DELTA="delta-0.18.2-aarch64-unknown-linux-gnu"
-            BAT="bat-v0.25.0-aarch64-unknown-linux-musl"
-            FD="fd-v10.2.0-aarch64-unknown-linux-musl"
-            GH="gh_2.68.1_linux_arm64"
-            TREE_SITTER="tree-sitter-0.26.8-linux-arm64"
+            DELTA="delta-${DELTA_VERSION}-aarch64-unknown-linux-gnu"
+            BAT="bat-v${BAT_VERSION}-aarch64-unknown-linux-musl"
+            FD="fd-v${FD_VERSION}-aarch64-unknown-linux-musl"
+            GH="gh_${GH_VERSION}_linux_arm64"
+            TREE_SITTER="tree-sitter-${TREE_SITTER_VERSION}-linux-arm64"
             TREE_SITTER_ASSET="tree-sitter-linux-arm64.gz"
-            STARSHIP="starship-1.25.0-aarch64-unknown-linux-musl"
+            STARSHIP="starship-${STARSHIP_VERSION}-aarch64-unknown-linux-musl"
             STARSHIP_ASSET="starship-aarch64-unknown-linux-musl.tar.gz"
             ;;
         *)
@@ -88,42 +97,42 @@ if [ $is_linux -eq 1 ]; then
     cd "$bin_dir"
     if [ "$force" -eq 1 ] || [ ! -d "${RG}" ]; then
         rm -rf "${RG}"
-        curl -LO "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/${RG}.tar.gz"
+        curl -LO "https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/${RG}.tar.gz"
         tar -xvzf "${RG}.tar.gz"
     fi
     ln -sf "${RG}/rg" .
 
     if [ "$force" -eq 1 ] || [ ! -d "${NVIM}" ]; then
         rm -rf "${NVIM}"
-        curl -LO "https://github.com/neovim/neovim/releases/download/v0.11.0/${NVIM}.tar.gz"
+        curl -LO "https://github.com/neovim/neovim/releases/download/v${NVIM_VERSION}/${NVIM}.tar.gz"
         tar -xvzf "${NVIM}.tar.gz"
     fi
     ln -sf "${NVIM}/bin/nvim" .
 
     if [ "$force" -eq 1 ] || [ ! -d "${DELTA}" ]; then
         rm -rf "${DELTA}"
-        curl -LO "https://github.com/dandavison/delta/releases/download/0.18.2/${DELTA}.tar.gz"
+        curl -LO "https://github.com/dandavison/delta/releases/download/${DELTA_VERSION}/${DELTA}.tar.gz"
         tar -xvzf "${DELTA}.tar.gz"
     fi
     ln -sf "${DELTA}/delta" .
 
     if [ "$force" -eq 1 ] || [ ! -d "${BAT}" ]; then
         rm -rf "${BAT}"
-        curl -LO "https://github.com/sharkdp/bat/releases/download/v0.25.0/${BAT}.tar.gz"
+        curl -LO "https://github.com/sharkdp/bat/releases/download/v${BAT_VERSION}/${BAT}.tar.gz"
         tar -xvzf "${BAT}.tar.gz"
     fi
     ln -sf "${BAT}/bat" .
 
     if [ "$force" -eq 1 ] || [ ! -d "${FD}" ]; then
         rm -rf "${FD}"
-        curl -LO "https://github.com/sharkdp/fd/releases/download/v10.2.0/${FD}.tar.gz"
+        curl -LO "https://github.com/sharkdp/fd/releases/download/v${FD_VERSION}/${FD}.tar.gz"
         tar -xvzf "${FD}.tar.gz"
     fi
     ln -sf "${FD}/fd" .
 
     if [ "$force" -eq 1 ] || [ ! -d "${GH}" ]; then
         rm -rf "${GH}"
-        curl -LO "https://github.com/cli/cli/releases/download/v2.68.1/${GH}.tar.gz"
+        curl -LO "https://github.com/cli/cli/releases/download/v${GH_VERSION}/${GH}.tar.gz"
         tar -xvzf "${GH}.tar.gz"
     fi
     ln -sf "${GH}/bin/gh" .
@@ -131,7 +140,7 @@ if [ $is_linux -eq 1 ]; then
     # tree-sitter ships as a single gzipped binary, not a tarball
     if [ "$force" -eq 1 ] || [ ! -f "${TREE_SITTER}" ]; then
         rm -f "${TREE_SITTER}" "${TREE_SITTER_ASSET}"
-        curl -LO "https://github.com/tree-sitter/tree-sitter/releases/download/v0.26.8/${TREE_SITTER_ASSET}"
+        curl -LO "https://github.com/tree-sitter/tree-sitter/releases/download/v${TREE_SITTER_VERSION}/${TREE_SITTER_ASSET}"
         gunzip -f "${TREE_SITTER_ASSET}"
         mv "${TREE_SITTER_ASSET%.gz}" "${TREE_SITTER}"
         chmod +x "${TREE_SITTER}"
@@ -141,7 +150,7 @@ if [ $is_linux -eq 1 ]; then
     # starship tarball contains a bare `starship` binary, so extract into a versioned dir
     if [ "$force" -eq 1 ] || [ ! -d "${STARSHIP}" ]; then
         rm -rf "${STARSHIP}"
-        curl -LO "https://github.com/starship/starship/releases/download/v1.25.0/${STARSHIP_ASSET}"
+        curl -LO "https://github.com/starship/starship/releases/download/v${STARSHIP_VERSION}/${STARSHIP_ASSET}"
         mkdir -p "${STARSHIP}"
         tar -xzf "${STARSHIP_ASSET}" -C "${STARSHIP}"
     fi
