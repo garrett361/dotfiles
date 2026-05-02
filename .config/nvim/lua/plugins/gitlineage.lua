@@ -2,7 +2,7 @@ return {
     "lionyxml/gitlineage.nvim",
 	lazy = true,
     dependencies = {
-        "sindrets/diffview.nvim", -- optional, for open_diff feature
+        "dlyongemallo/diffview.nvim", -- optional, for open_diff feature
     },
     config = function()
         require("gitlineage").setup({keymap="<leader>aL"})

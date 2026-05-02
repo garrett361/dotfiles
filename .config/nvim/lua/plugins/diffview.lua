@@ -34,7 +34,7 @@ local function config()
 end
 
 return {
-	"sindrets/diffview.nvim",
+	"dlyongemallo/diffview.nvim",
 	lazy = true,
 	config = config,
 	cmd = "DiffviewOpen",
