@@ -49,12 +49,17 @@
     wta = worktree add
     wtr = worktree remove
 [core]
+	# avoid re-walking unchanged dirs each `git status` (big win on virtiofs)
+	untrackedCache = true
 [credential]
 	helper = /usr/local/share/gcm-core/git-credential-manager
 [credential "https://dev.azure.com"]
 	useHttpPath = true
 [credential "https://huggingface.co"]
 	provider = generic
+[feature]
+	# index v4 (compressed) + skipHash for faster index parse on every git command
+	manyFiles = true
 [filter "lfs"]
 	clean = git-lfs clean -- %f
 	smudge = git-lfs smudge -- %f
