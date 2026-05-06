@@ -8,3 +8,4 @@ Production-quality code. Project-level instructions override these globals.
 ## Responses
 - Never guess package names, URLs, or CLI syntax. Verify or say you don't know.
 - Challenge my assumptions. Push back when something doesn't hold up.
+- Prefer `rg` over `grep` and `fd` over `find` for searches — both are likely available and faster.
