@@ -15,7 +15,9 @@
       "Bash(pytest:*)",
       "Bash(python -m pytest:*)",
       "Bash(black:*)",
-      "Bash(isort:*)"
+      "Bash(isort:*)",
+      "Bash(rg:*)",
+      "Bash(fd:*)"
     ]
   },
   "statusLine": {
