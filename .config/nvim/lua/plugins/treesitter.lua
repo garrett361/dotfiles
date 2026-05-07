@@ -1,5 +1,9 @@
 -- https://www.reddit.com/r/neovim/comments/1pndf9e/my_new_nvimtreesitter_configuration_for_the_main/
+local arch = vim.uv.os_uname().machine
+local install_dir = vim.fn.stdpath("data") .. "/treesitter-" .. arch
+
 local function config()
+	require("nvim-treesitter.config").setup({ install_dir = install_dir })
 	local ts = require("nvim-treesitter")
 
 	-- State tracking for async parser loading
