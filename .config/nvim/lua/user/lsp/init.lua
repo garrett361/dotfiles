@@ -135,6 +135,16 @@ vim.lsp.config.ruff = {
 	end,
 }
 
+vim.lsp.config.ty = {
+	cmd = { "ty", "server" },
+	filetypes = { "python" },
+	root_dir = vim.fs.root(0, { "pyproject.toml", "ty.toml", ".ty.toml", ".git" }),
+	capabilities = capabilities,
+	on_attach = function(client, bufnr)
+		setup_inlay_hints(client, bufnr)
+	end,
+}
+
 vim.lsp.config.tinymist = {
 	cmd = { "tinymist" },
 	root_dir = vim.fs.root(0, { ".git" }),
@@ -151,6 +161,8 @@ vim.lsp.config.tinymist = {
 -- Auto-call vim.lsp.enable for all mason-installed lsps
 local mason_lspconfig = require("nvim_utils").prequire("mason-lspconfig")
 mason_lspconfig.setup()
+
+vim.lsp.enable({ "ruff", "ty" })
 
 -- Configuring signs and other visuals
 
