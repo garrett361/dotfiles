@@ -55,3 +55,4 @@ luac.out
 
 # API keys
 API_KEYS/
+.secrets
