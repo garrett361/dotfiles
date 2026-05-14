@@ -15,15 +15,6 @@ _fzf_dir="$HOME/.fzf-$(uname -m)"
 [ -f "$_fzf_dir/shell/key-bindings.bash" ] && source "$_fzf_dir/shell/key-bindings.bash"
 unset _fzf_dir
 
-# API key loading
-API_KEY_DIR=$DOTFILES/API_KEYS
-if [ -d "$API_KEY_DIR" ]; then
-    for file in "$API_KEY_DIR"/*; do
-        stem=$(basename "$file")
-        export "$stem=$(cat "$file" | xargs)"
-    done
-fi
-
 # Key bindings
 bind '"\C-g": "tmux-sessionizer\n"'
 bind '"\C-f": "tmux-list-sessionizer\n"'

@@ -18,17 +18,6 @@ setopt HIST_REDUCE_BLANKS        # Remove superfluous blanks before recording en
 setopt HIST_VERIFY               # Don't execute immediately upon history expansion.
 setopt HIST_BEEP                 # Beep when accessing nonexistent history.
 
-################################   TOKENS  ################################
-
-API_KEY_DIR=$DOTFILES/API_KEYS
-if [ -d "$API_KEY_DIR" ]; then
-    for file in "$API_KEY_DIR"/*; do
-        stem=$(basename "$file")
-        export "$stem=$(cat $file | xargs)"
-    done
-fi
-
-
 ################################   BINDKEYS  ################################
 
 # Easy tmux session creation
