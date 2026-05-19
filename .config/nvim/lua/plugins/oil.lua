@@ -23,7 +23,7 @@ local function config()
 			["g?"] = "actions.show_help",
 			["<CR>"] = "actions.select",
 			["<M-a>"] = "actions.send_to_qflist",
-			["<M-q>"] = "actions.add_to_qflist",
+			["<M-q>"] = { callback = "actions.send_to_qflist", opts = { action = "a" } },
 			["<C-c>"] = "actions.close",
 			["<C-h>"] = "actions.select_split",
 			["<C-l>"] = "actions.refresh",
