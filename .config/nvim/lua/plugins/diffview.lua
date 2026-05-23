@@ -48,6 +48,10 @@ return {
 			":DiffviewOpen ",
 		},
 		{
+			"<leader>aS",
+			":DiffviewOpen --staged<cr>",
+		},
+		{
 			"<leader>ah",
 			"<cmd>DiffviewFileHistory %<cr>",
 		},
