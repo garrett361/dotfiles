@@ -23,12 +23,12 @@
     m = merge
     ma = merge --abort
     mc = merge --continue
-    p = push
+    p = push --recurse-submodules=no
     pa = pull --autostash
     pd = push -d
     pf = push --force-with-lease
     pl = pull
-    ps = push --set-upstream
+    ps = push --set-upstream --recurse-submodules=no
     pushf = push --force-with-lease
     r = rebase
     ra = rebase --abort
