@@ -64,6 +64,10 @@ alias ts="tmux-sessionizer"
 
 alias c="claude"
 alias x="codex"
+
+# tail/follow from beginnin
+alias tf="tail -n +1 -F"
+
 ################################   FUNCTIONS  ################################
 
 _open_logs_in_panes() {
