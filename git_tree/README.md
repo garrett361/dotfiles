@@ -7,10 +7,10 @@ When you work with stacked branches (A → B → C), adding commits to A means B
 ## Install
 
 ```sh
-uv pip install -e .
+uv tool install -e /path/to/dotfiles/git_tree
 ```
 
-This installs `git-tree` as a console script. Git auto-discovers it as `git tree`.
+This creates an isolated venv, installs `git-tree` in editable mode, and symlinks the executable to `~/.local/bin/git-tree`. Git auto-discovers it as `git tree`. The dotfiles `install.sh` handles this automatically.
 
 ## Usage
 

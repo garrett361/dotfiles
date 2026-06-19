@@ -37,6 +37,11 @@ done
 mkdir -p "$HOME/.local/share"
 ln -sf "$(cd gitstack && pwd)/gitstack.py" "$HOME/.local/share/gitstack.py"
 
+# git-tree: install as uv tool (editable, auto-discovered by git as `git tree`)
+if command -v uv &>/dev/null; then
+    uv tool install -e "$(cd git_tree && pwd)" 2>/dev/null || true
+fi
+
 vscode_settings=$(readlink -f settings.json)
 if [ $is_linux -eq 1 ]; then
     echo "linux"

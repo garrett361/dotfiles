@@ -2,6 +2,14 @@
 
 Cascading rebase tool for branch dependency chains. Manages branches that form trees (A → B → C) and automates propagating changes downstream.
 
+## Install
+
+```sh
+uv tool install -e /path/to/dotfiles/git_tree   # editable, on PATH as git-tree
+```
+
+Handled by `dotfiles/install.sh`. No git alias needed — git auto-discovers `git-tree` on PATH as `git tree`.
+
 ## Dev commands
 
 ```sh
