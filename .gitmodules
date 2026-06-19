@@ -1,4 +1,0 @@
-[submodule "gitstack"]
-	path = gitstack
-	url = git@github.com:garrett361/gitstack
-	branch = main

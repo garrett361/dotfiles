@@ -33,10 +33,6 @@ for localfile in ".commonrc" ".vimrc" ".bashrc" ".zshrc" ".profile" ".zprofile" 
 	ln -sfF $filepath $HOME/$localfile
 done
 
-# gitstack: symlink script (alias is in .config/git/config, installed above)
-mkdir -p "$HOME/.local/share"
-ln -sf "$(cd gitstack && pwd)/gitstack.py" "$HOME/.local/share/gitstack.py"
-
 # git-tree: install as uv tool (editable, auto-discovered by git as `git tree`)
 if command -v uv &>/dev/null; then
     uv tool install -e "$(cd git_tree && pwd)" 2>/dev/null || true
