@@ -1,6 +1,9 @@
 ################################   EXPORTS  ################################
 source ~/.commonrc
 
+# Enable programmable completions (git, ssh, etc.)
+autoload -Uz compinit && compinit
+
 ################################   LARGE/SHARED HISTORY  ################################
 # https://unix.stackexchange.com/a/273863
 export HISTFILE="$HOME/.zsh_history"

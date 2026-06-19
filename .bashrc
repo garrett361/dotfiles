@@ -1,5 +1,7 @@
 source ~/.commonrc
 
+[[ -f /usr/share/bash-completion/bash_completion ]] && source /usr/share/bash-completion/bash_completion
+
 # History: large size
 export HISTSIZE=10000000
 export HISTFILESIZE=$HISTSIZE
