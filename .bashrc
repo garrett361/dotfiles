@@ -26,3 +26,6 @@ if command -v starship &>/dev/null && starship --version &>/dev/null; then
 fi
 PROMPT_COMMAND="history -a; history -n; ${PROMPT_COMMAND}"
 
+# git-tree completions
+command -v git-tree &>/dev/null && eval "$(git-tree completions bash)"
+

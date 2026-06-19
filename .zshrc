@@ -48,3 +48,6 @@ if command -v starship &>/dev/null && starship --version &>/dev/null; then
     eval "$(starship init zsh)"
 fi
 
+
+# git-tree completions
+command -v git-tree &>/dev/null && eval "$(git-tree completions zsh)"
