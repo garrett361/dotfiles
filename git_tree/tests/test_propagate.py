@@ -5,10 +5,10 @@ from git_tree.cli import cmd_propagate
 from .conftest import RepoHelper
 
 
-def _ns() -> object:
+def _ns(*, dry: bool = False) -> object:
     import argparse
 
-    return argparse.Namespace()
+    return argparse.Namespace(dry=dry)
 
 
 class TestPropagate:
@@ -95,3 +95,18 @@ class TestPropagate:
 
         assert (wt_path / "uncommitted.txt").exists()
         assert (wt_path / "uncommitted.txt").read_text() == "dirty content"
+
+    def test_dry_does_not_modify(self, repo: RepoHelper, capsys) -> None:
+        repo.commit("a1.txt", "a1", "base for b")
+        repo.branch("b", parent="main")
+        repo.checkout("b")
+        repo.commit("b1.txt", "b1", "on b")
+        repo.checkout("main")
+        repo.commit("a2.txt", "a2", "advance main")
+
+        b_tip_before = repo.git("rev-parse", "b")
+        cmd_propagate(_ns(dry=True))
+
+        assert repo.git("rev-parse", "b") == b_tip_before
+        out = capsys.readouterr().out
+        assert "Propagating from" in out

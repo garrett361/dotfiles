@@ -8,7 +8,7 @@ from .conftest import RepoHelper
 def _ns(target: str) -> object:
     import argparse
 
-    return argparse.Namespace(command="rebase", target=target)
+    return argparse.Namespace(command="rebase", target=target, dry=False)
 
 
 class TestRebase:
@@ -106,6 +106,20 @@ class TestRebase:
         cmd_rebase(_ns(target="main"))
 
         assert repo.head == head_before
+
+    def test_dry_does_not_modify(self, repo: RepoHelper, capsys) -> None:
+        repo.branch("feature", parent="main")
+        repo.checkout("feature")
+        repo.commit("f1.txt", "f1", "feature commit")
+        head_before = repo.head
+
+        import argparse
+
+        cmd_rebase(argparse.Namespace(command="rebase", target="main", dry=True))
+
+        assert repo.head == head_before
+        out = capsys.readouterr().out
+        assert "Rebasing onto" in out
 
     def test_conflict_aborts(self, repo: RepoHelper, monkeypatch) -> None:
         repo.commit("shared.txt", "original", "base")

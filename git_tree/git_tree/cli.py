@@ -310,7 +310,7 @@ def cmd_detach(_args: argparse.Namespace) -> None:
     print(f"Detached {branch} (was child of {parent})")
 
 
-def cmd_propagate(_args: argparse.Namespace) -> None:
+def cmd_propagate(args: argparse.Namespace) -> None:
     branch = current_branch()
     graph = discover()
 
@@ -325,7 +325,7 @@ def cmd_propagate(_args: argparse.Namespace) -> None:
         print(line)
     print()
 
-    if not confirm("Proceed?"):
+    if getattr(args, "dry", False) or not confirm("Proceed?"):
         return
 
     results: list[tuple[str, str]] = []
@@ -411,7 +411,7 @@ def cmd_rebase(args: argparse.Namespace) -> None:
             print(f"  {s}")
 
     print()
-    if not confirm("Proceed?"):
+    if args.dry or not confirm("Proceed?"):
         return
 
     rebase_ok = git_ok("rebase", "--onto", target, fork_point, branch)
@@ -426,7 +426,6 @@ def cmd_rebase(args: argparse.Namespace) -> None:
     if descendants:
         print()
         print("Cascading to descendants...")
-        # Re-discover after rebase changed refs
         cmd_propagate(args)
 
 
@@ -484,7 +483,7 @@ def cmd_split(_args: argparse.Namespace) -> None:
     print(f"  {branch} ({len(remaining)} commits) → now child of {parent_name}")
 
 
-def cmd_push(_args: argparse.Namespace) -> None:
+def cmd_push(args: argparse.Namespace) -> None:
     branch = current_branch()
     graph = discover()
 
@@ -528,7 +527,7 @@ def cmd_push(_args: argparse.Namespace) -> None:
             print(f"  {b}  [{ahead.get(b, 0)} ahead]")
     print()
 
-    if not confirm("Proceed?"):
+    if args.dry or not confirm("Proceed?"):
         return
 
     results: list[tuple[str, str]] = []
@@ -548,6 +547,97 @@ def cmd_push(_args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+_ZSH_COMPLETION = """\
+#compdef git-tree
+
+_git-tree() {
+    local -a subcmds
+    subcmds=(
+        'propagate:Propagate changes to all descendants'
+        'rebase:Rebase current branch + descendants onto new base'
+        'branch:Create a child branch'
+        'attach:Attach current branch to tree'
+        'detach:Remove current branch from tree'
+        'split:Split current branch into parent + child'
+        'push:Push current branch + descendants'
+        'completions:Emit shell completion script'
+    )
+
+    if (( CURRENT == 2 )); then
+        _describe 'subcommand' subcmds
+        return
+    fi
+
+    case $words[2] in
+        propagate|push)
+            _arguments '--dry[Show what would be done]'
+            ;;
+        rebase)
+            _arguments '--dry[Show what would be done]' ':target:__git_heads'
+            ;;
+        branch)
+            _arguments ':name:' '--path[Create worktree at this path]:path:_directories'
+            ;;
+        attach)
+            _arguments ':parent:__git_heads'
+            ;;
+        completions)
+            _arguments ':shell:(zsh bash)'
+            ;;
+    esac
+}
+
+_git-tree "$@"
+"""
+
+_BASH_COMPLETION = """\
+_git_tree() {
+    local cur prev subcmds
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+    subcmds="propagate rebase branch attach detach split push completions"
+
+    if [[ $COMP_CWORD -eq 1 ]]; then
+        COMPREPLY=($(compgen -W "$subcmds" -- "$cur"))
+        return
+    fi
+
+    case "${COMP_WORDS[1]}" in
+        propagate|push)
+            COMPREPLY=($(compgen -W "--dry" -- "$cur"))
+            ;;
+        rebase)
+            if [[ "$cur" == -* ]]; then
+                COMPREPLY=($(compgen -W "--dry" -- "$cur"))
+            else
+                local branches=$(git for-each-ref --format='%(refname:short)' refs/heads/)
+                COMPREPLY=($(compgen -W "$branches" -- "$cur"))
+            fi
+            ;;
+        branch)
+            COMPREPLY=($(compgen -W "--path" -- "$cur"))
+            ;;
+        attach)
+            local branches=$(git for-each-ref --format='%(refname:short)' refs/heads/)
+            COMPREPLY=($(compgen -W "$branches" -- "$cur"))
+            ;;
+        completions)
+            COMPREPLY=($(compgen -W "zsh bash" -- "$cur"))
+            ;;
+    esac
+}
+
+complete -F _git_tree git-tree
+"""
+
+
+def cmd_completions(args: argparse.Namespace) -> None:
+    if args.shell == "zsh":
+        print(_ZSH_COMPLETION)
+    else:
+        print(_BASH_COMPLETION)
 
 
 def _is_descendant_of(branch: str, ancestor: str, graph: Graph) -> bool:
@@ -572,10 +662,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="git-tree", description=__doc__)
     sub = parser.add_subparsers(dest="command")
 
-    sub.add_parser("propagate", help="Propagate changes to all descendants")
+    propagate_p = sub.add_parser("propagate", help="Propagate changes to all descendants")
+    propagate_p.add_argument("--dry", action="store_true", help="Show what would be done")
 
     rebase_p = sub.add_parser("rebase", help="Rebase current branch + descendants onto new base")
     rebase_p.add_argument("target", help="Branch or ref to rebase onto")
+    rebase_p.add_argument("--dry", action="store_true", help="Show what would be done")
 
     branch_p = sub.add_parser("branch", help="Create a child branch")
     branch_p.add_argument("name", help="Name for the new branch")
@@ -588,7 +680,11 @@ def main() -> None:
 
     sub.add_parser("split", help="Split current branch into parent + child")
 
-    sub.add_parser("push", help="Push current branch + descendants")
+    push_p = sub.add_parser("push", help="Push current branch + descendants")
+    push_p.add_argument("--dry", action="store_true", help="Show what would be done")
+
+    completions_p = sub.add_parser("completions", help="Emit shell completion script")
+    completions_p.add_argument("shell", choices=["zsh", "bash"], help="Shell type")
 
     args = parser.parse_args()
 
@@ -601,6 +697,7 @@ def main() -> None:
         "detach": cmd_detach,
         "split": cmd_split,
         "push": cmd_push,
+        "completions": cmd_completions,
     }
 
     handler = commands.get(args.command, cmd_tree)

@@ -8,7 +8,7 @@ from .conftest import RepoHelper
 def _ns() -> object:
     import argparse
 
-    return argparse.Namespace()
+    return argparse.Namespace(dry=False)
 
 
 class TestPush:
@@ -59,3 +59,17 @@ class TestPush:
 
         out = capsys.readouterr().out
         assert "stale" in out.lower()
+
+    def test_dry_does_not_push(self, repo: RepoHelper, capsys) -> None:
+        repo.branch("feature", parent="main")
+        repo.checkout("feature")
+        repo.commit("f1.txt", "f1", "feature commit")
+
+        import argparse
+
+        cmd_push(argparse.Namespace(dry=True))
+
+        remote_branches = repo.git("ls-remote", "--heads", str(repo.origin))
+        assert "refs/heads/feature" not in remote_branches
+        out = capsys.readouterr().out
+        assert "Pushing" in out
