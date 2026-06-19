@@ -250,6 +250,8 @@ def _fallback_select(items: list[str], *, multi: bool) -> list[str]:
 def cmd_tree(_args: argparse.Namespace) -> None:
     graph = discover()
     print(format_tree(graph))
+    if not graph.parent_of:
+        print("  (no branches registered — use `git tree attach` or `git tree branch`)")
 
 
 def cmd_branch(args: argparse.Namespace) -> None:
