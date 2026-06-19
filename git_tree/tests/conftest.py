@@ -70,6 +70,10 @@ class RepoHelper:
     def push(self, branch: str) -> None:
         self.git("push", "-u", "origin", branch)
 
+    def enable_rerere(self) -> None:
+        self.git("config", "rerere.enabled", "true")
+        self.git("config", "core.editor", "true")
+
 
 @pytest.fixture
 def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RepoHelper:

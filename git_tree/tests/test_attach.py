@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import argparse
 import subprocess
+
+import pytest
 
 from git_tree.cli import cmd_attach, cmd_detach, discover
 
@@ -8,8 +11,6 @@ from .conftest import RepoHelper
 
 
 def _ns(**kwargs) -> object:
-    import argparse
-
     return argparse.Namespace(**kwargs)
 
 
@@ -61,10 +62,22 @@ class TestDetach:
         )
         assert result.returncode != 0
 
+    def test_detach_by_name_from_different_branch(self, repo: RepoHelper) -> None:
+        repo.branch("feature", parent="main")
+        repo.checkout("main")
+        cmd_detach(_ns(branch="feature"))
+        result = subprocess.run(
+            ["git", "config", "branch.feature.tree-parent"],
+            cwd=repo.work,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode != 0
+
     def test_detach_not_in_tree_exits(self, repo: RepoHelper) -> None:
         repo.git("branch", "orphan")
         repo.checkout("orphan")
-        import pytest
 
         with pytest.raises(SystemExit):
             cmd_detach(_ns())

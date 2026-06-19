@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import argparse
+
+import pytest
+
 from git_tree.cli import cmd_rebase, discover
 
 from .conftest import RepoHelper
 
 
 def _ns(target: str) -> object:
-    import argparse
-
-    return argparse.Namespace(command="rebase", target=target, dry=False)
+    return argparse.Namespace(command="rebase", target=target, dry=False, no_auto_rerere=False)
 
 
 class TestRebase:
@@ -113,9 +115,7 @@ class TestRebase:
         repo.commit("f1.txt", "f1", "feature commit")
         head_before = repo.head
 
-        import argparse
-
-        cmd_rebase(argparse.Namespace(command="rebase", target="main", dry=True))
+        cmd_rebase(argparse.Namespace(command="rebase", target="main", dry=True, no_auto_rerere=False))
 
         assert repo.head == head_before
         out = capsys.readouterr().out
@@ -132,8 +132,6 @@ class TestRebase:
 
         repo.checkout("feature")
         monkeypatch.setattr("builtins.input", lambda _: "y")
-
-        import pytest
 
         with pytest.raises(SystemExit):
             cmd_rebase(_ns(target="main"))

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -18,6 +19,7 @@ def _run(
     check: bool = True,
     capture: bool = True,
     cwd: Path | str | None = None,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         args,
@@ -25,11 +27,17 @@ def _run(
         capture_output=capture,
         text=True,
         cwd=cwd,
+        env={**os.environ, **env} if env else None,
     )
 
 
-def git(*args: str, cwd: Path | str | None = None, check: bool = True) -> str:
-    result = _run("git", *args, cwd=cwd, check=check)
+def git(
+    *args: str,
+    cwd: Path | str | None = None,
+    check: bool = True,
+    env: dict[str, str] | None = None,
+) -> str:
+    result = _run("git", *args, cwd=cwd, check=check, env=env)
     return result.stdout.strip()
 
 
@@ -38,8 +46,8 @@ def git_lines(*args: str, cwd: Path | str | None = None) -> list[str]:
     return out.splitlines() if out else []
 
 
-def git_ok(*args: str, cwd: Path | str | None = None) -> bool:
-    result = _run("git", *args, check=False, cwd=cwd)
+def git_ok(*args: str, cwd: Path | str | None = None, env: dict[str, str] | None = None) -> bool:
+    result = _run("git", *args, check=False, cwd=cwd, env=env)
     return result.returncode == 0
 
 
@@ -89,7 +97,12 @@ class Graph:
 
 
 def current_branch() -> str:
-    return git("rev-parse", "--abbrev-ref", "HEAD")
+    proc = _run("git", "rev-parse", "--abbrev-ref", "HEAD", check=False)
+    if proc.returncode != 0:
+        msg = proc.stderr.strip() if proc.stderr else "not on a branch"
+        print(f"fatal: {msg}", file=sys.stderr)
+        sys.exit(1)
+    return proc.stdout.strip()
 
 
 def main_branch() -> str:
@@ -105,12 +118,15 @@ def discover() -> Graph:
     worktree_map: dict[str, Path] = {}
     porcelain = git("worktree", "list", "--porcelain")
     current_path: Path | None = None
+    worktree_count = 0
     for line in porcelain.splitlines():
         if line.startswith("worktree "):
             current_path = Path(line.split(" ", 1)[1])
+            worktree_count += 1
         elif line.startswith("branch refs/heads/"):
             branch_name = line.removeprefix("branch refs/heads/")
-            if current_path is not None:
+            # Skip the main worktree (first entry) — only track added worktrees
+            if current_path is not None and worktree_count > 1:
                 worktree_map[branch_name] = current_path
 
     all_branches = git_lines("for-each-ref", "--format=%(refname:short)", "refs/heads/")
@@ -144,17 +160,40 @@ BOX_SPACE = "   "
 BOX_PIPE_SPACE = "│  "
 
 
-def format_tree(graph: Graph, root: str | None = None) -> str:
+def _pending_count(parent: str, child: str) -> int:
+    """Count commits on parent that child hasn't incorporated yet."""
+    base = git("merge-base", parent, child, check=False)
+    if not base:
+        return 0
+    out = git("rev-list", "--count", f"{base}..{parent}")
+    return int(out) if out else 0
+
+
+def format_tree(
+    graph: Graph,
+    root: str | None = None,
+    show_counts: bool = False,
+    current: str | None = None,
+) -> str:
     if root is None:
         root = main_branch()
 
-    lines: list[str] = [root]
+    marker = "* " if current == root else ""
+    lines: list[str] = [f"{marker}{root}"]
     children = graph.children_of.get(root, [])
-    _format_subtree(graph, children, "", lines)
+    _format_subtree(graph, children, "", lines, show_counts=show_counts, current=current)
     return "\n".join(lines)
 
 
-def _format_subtree(graph: Graph, children: list[str], prefix: str, lines: list[str]) -> None:
+def _format_subtree(
+    graph: Graph,
+    children: list[str],
+    prefix: str,
+    lines: list[str],
+    *,
+    show_counts: bool = False,
+    current: str | None = None,
+) -> None:
     for i, child in enumerate(children):
         is_last = i == len(children) - 1
         connector = BOX_ELBOW if is_last else BOX_TEE
@@ -168,12 +207,23 @@ def _format_subtree(graph: Graph, children: list[str], prefix: str, lines: list[
         elif info:
             annotation = "  (no worktree)"
 
-        lines.append(f"{prefix}{connector} {child}{annotation}")
+        if show_counts:
+            parent = graph.parent_of.get(child, "")
+            if parent:
+                n = _pending_count(parent, child)
+                if n > 0:
+                    annotation += f"  [{n} new]"
+
+        marker = "* " if current == child else ""
+        lines.append(f"{prefix}{connector} {marker}{child}{annotation}")
 
         grandchildren = graph.children_of.get(child, [])
         if grandchildren:
             next_prefix = prefix + (BOX_SPACE if is_last else BOX_PIPE_SPACE)
-            _format_subtree(graph, grandchildren, next_prefix, lines)
+            _format_subtree(
+                graph, grandchildren, next_prefix, lines,
+                show_counts=show_counts, current=current,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -249,7 +299,8 @@ def _fallback_select(items: list[str], *, multi: bool) -> list[str]:
 
 def cmd_tree(_args: argparse.Namespace) -> None:
     graph = discover()
-    print(format_tree(graph))
+    current = git("rev-parse", "--abbrev-ref", "HEAD", check=False) or None
+    print(format_tree(graph, current=current))
     if not graph.parent_of:
         print("  (no branches registered — use `git tree attach` or `git tree branch`)")
 
@@ -299,8 +350,8 @@ def cmd_attach(args: argparse.Namespace) -> None:
     print(f"Attached {branch} to {parent}")
 
 
-def cmd_detach(_args: argparse.Namespace) -> None:
-    branch = current_branch()
+def cmd_detach(args: argparse.Namespace) -> None:
+    branch = getattr(args, "branch", None) or current_branch()
     parent = git("config", f"branch.{branch}.tree-parent", check=False)
     if not parent:
         print(f"{branch} is not in the tree.", file=sys.stderr)
@@ -310,8 +361,64 @@ def cmd_detach(_args: argparse.Namespace) -> None:
     print(f"Detached {branch} (was child of {parent})")
 
 
+def _rebase_onto(
+    child: str,
+    parent: str,
+    fork_point: str,
+    cwd: Path | None,
+    auto_rerere: bool,
+    stashed: bool,
+) -> str:
+    """Attempt rebase of child onto parent. Returns status or exits on unresolved conflict."""
+    if cwd:
+        rebase_ok = git_ok("rebase", "--onto", parent, fork_point, cwd=cwd)
+    else:
+        rebase_ok = git_ok("rebase", "--onto", parent, fork_point, child)
+
+    if rebase_ok:
+        return "ok"
+
+    if not auto_rerere:
+        _conflict_exit(child, parent, cwd, stashed)
+
+    while True:
+        git("rerere", cwd=cwd, check=False)
+
+        remaining = git("rerere", "remaining", cwd=cwd, check=False)
+        if remaining.strip():
+            _conflict_exit(child, parent, cwd, stashed)
+
+        git("add", "-u", cwd=cwd)
+
+        continued = git_ok("rebase", "--continue", cwd=cwd, env={"GIT_EDITOR": "true"})
+        if continued:
+            return "ok (rerere)"
+
+        # --continue stopped again — is it a new conflict or a non-conflict failure?
+        new_remaining = git("rerere", "remaining", cwd=cwd, check=False)
+        unmerged = git("ls-files", "--unmerged", cwd=cwd, check=False)
+        if not unmerged.strip() and not new_remaining.strip():
+            print("rebase --continue failed for a non-conflict reason", file=sys.stderr)
+            sys.exit(1)
+
+
+def _conflict_exit(child: str, parent: str, cwd: Path | None, stashed: bool) -> None:
+    print()
+    print(f"CONFLICT while rebasing {child} onto {parent}")
+    if cwd:
+        print(f"Resolve conflicts in {cwd}, then run: git rebase --continue")
+    else:
+        print("Resolve conflicts, then run: git rebase --continue")
+    if stashed:
+        if cwd:
+            print(f"Note: dirty worktree was stashed — run: cd {cwd} && git stash pop")
+        else:
+            print("Note: dirty worktree was stashed — run `git stash pop` after resolving")
+    sys.exit(1)
+
+
 def cmd_propagate(args: argparse.Namespace) -> None:
-    branch = current_branch()
+    branch = getattr(args, "branch", None) or current_branch()
     graph = discover()
 
     descendants = graph.downstream_from(branch)
@@ -320,7 +427,7 @@ def cmd_propagate(args: argparse.Namespace) -> None:
         return
 
     print(f"Propagating from {branch}:")
-    subtree_lines = format_tree(graph, root=branch).splitlines()[1:]
+    subtree_lines = format_tree(graph, root=branch, show_counts=True).splitlines()[1:]
     for line in subtree_lines:
         print(line)
     print()
@@ -328,15 +435,11 @@ def cmd_propagate(args: argparse.Namespace) -> None:
     if getattr(args, "dry", False) or not confirm("Proceed?"):
         return
 
+    auto_rerere = not getattr(args, "no_auto_rerere", False)
     results: list[tuple[str, str]] = []
-    skipped_subtrees: set[str] = set()
 
     for child in descendants:
         parent_of_child = graph.parent_of[child]
-
-        if any(_is_descendant_of(child, s, graph) for s in skipped_subtrees):
-            results.append((child, "skipped (ancestor failed)"))
-            continue
 
         info = graph.branches.get(child)
         stashed = False
@@ -346,16 +449,9 @@ def cmd_propagate(args: argparse.Namespace) -> None:
             stashed = True
 
         fork_point = git("merge-base", parent_of_child, child)
+        wt_cwd = info.worktree if info and info.worktree else None
 
-        rebase_ok = git_ok("rebase", "--onto", parent_of_child, fork_point, child)
-
-        if not rebase_ok:
-            git("rebase", "--abort", check=False)
-            if stashed and info and info.worktree:
-                git("stash", "pop", cwd=info.worktree, check=False)
-            results.append((child, "CONFLICT"))
-            skipped_subtrees.add(child)
-            continue
+        status = _rebase_onto(child, parent_of_child, fork_point, wt_cwd, auto_rerere, stashed)
 
         if stashed and info and info.worktree:
             pop_ok = git_ok("stash", "pop", cwd=info.worktree)
@@ -363,7 +459,7 @@ def cmd_propagate(args: argparse.Namespace) -> None:
                 results.append((child, "rebased (stash pop conflict - resolve manually)"))
                 continue
 
-        results.append((child, "ok"))
+        results.append((child, status))
 
     print()
     print("Results:")
@@ -414,11 +510,8 @@ def cmd_rebase(args: argparse.Namespace) -> None:
     if args.dry or not confirm("Proceed?"):
         return
 
-    rebase_ok = git_ok("rebase", "--onto", target, fork_point, branch)
-    if not rebase_ok:
-        git("rebase", "--abort", check=False)
-        print(f"Rebase of {branch} onto {target} failed (conflict).", file=sys.stderr)
-        sys.exit(1)
+    auto_rerere = not getattr(args, "no_auto_rerere", False)
+    _rebase_onto(branch, target, fork_point, cwd=None, auto_rerere=auto_rerere, stashed=False)
 
     git("config", f"branch.{branch}.tree-parent", target)
     print(f"Rebased {branch} onto {target}")
@@ -559,7 +652,7 @@ _git-tree() {
         'rebase:Rebase current branch + descendants onto new base'
         'branch:Create a child branch'
         'attach:Attach current branch to tree'
-        'detach:Remove current branch from tree'
+        'detach:Remove a branch from tree'
         'split:Split current branch into parent + child'
         'push:Push current branch + descendants'
         'completions:Emit shell completion script'
@@ -571,17 +664,20 @@ _git-tree() {
     fi
 
     case $words[2] in
-        propagate|push)
+        propagate)
+            _arguments '--dry[Show what would be done]' '--no-auto-rerere[Disable auto-continue via rerere]' ':branch:__git_heads'
+            ;;
+        push)
             _arguments '--dry[Show what would be done]'
             ;;
         rebase)
-            _arguments '--dry[Show what would be done]' ':target:__git_heads'
+            _arguments '--dry[Show what would be done]' '--no-auto-rerere[Disable auto-continue via rerere]' ':target:__git_heads'
             ;;
         branch)
             _arguments ':name:' '--path[Create worktree at this path]:path:_directories'
             ;;
-        attach)
-            _arguments ':parent:__git_heads'
+        attach|detach)
+            _arguments ':branch:__git_heads'
             ;;
         completions)
             _arguments ':shell:(zsh bash)'
@@ -605,12 +701,20 @@ _git_tree() {
     fi
 
     case "${COMP_WORDS[1]}" in
-        propagate|push)
+        propagate)
+            if [[ "$cur" == -* ]]; then
+                COMPREPLY=($(compgen -W "--dry --no-auto-rerere" -- "$cur"))
+            else
+                local branches=$(git for-each-ref --format='%(refname:short)' refs/heads/)
+                COMPREPLY=($(compgen -W "$branches" -- "$cur"))
+            fi
+            ;;
+        push)
             COMPREPLY=($(compgen -W "--dry" -- "$cur"))
             ;;
         rebase)
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "--dry" -- "$cur"))
+                COMPREPLY=($(compgen -W "--dry --no-auto-rerere" -- "$cur"))
             else
                 local branches=$(git for-each-ref --format='%(refname:short)' refs/heads/)
                 COMPREPLY=($(compgen -W "$branches" -- "$cur"))
@@ -619,7 +723,7 @@ _git_tree() {
         branch)
             COMPREPLY=($(compgen -W "--path" -- "$cur"))
             ;;
-        attach)
+        attach|detach)
             local branches=$(git for-each-ref --format='%(refname:short)' refs/heads/)
             COMPREPLY=($(compgen -W "$branches" -- "$cur"))
             ;;
@@ -663,11 +767,18 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command")
 
     propagate_p = sub.add_parser("propagate", help="Propagate changes to all descendants")
+    propagate_p.add_argument("branch", nargs="?", help="Branch to propagate from (default: current)")
     propagate_p.add_argument("--dry", action="store_true", help="Show what would be done")
+    propagate_p.add_argument(
+        "--no-auto-rerere", action="store_true", help="Disable auto-continue via rerere"
+    )
 
     rebase_p = sub.add_parser("rebase", help="Rebase current branch + descendants onto new base")
     rebase_p.add_argument("target", help="Branch or ref to rebase onto")
     rebase_p.add_argument("--dry", action="store_true", help="Show what would be done")
+    rebase_p.add_argument(
+        "--no-auto-rerere", action="store_true", help="Disable auto-continue via rerere"
+    )
 
     branch_p = sub.add_parser("branch", help="Create a child branch")
     branch_p.add_argument("name", help="Name for the new branch")
@@ -676,7 +787,8 @@ def main() -> None:
     attach_p = sub.add_parser("attach", help="Attach current branch to tree")
     attach_p.add_argument("parent", nargs="?", help="Parent branch (fzf if omitted)")
 
-    sub.add_parser("detach", help="Remove current branch from tree")
+    detach_p = sub.add_parser("detach", help="Remove a branch from tree")
+    detach_p.add_argument("branch", nargs="?", help="Branch to detach (default: current)")
 
     sub.add_parser("split", help="Split current branch into parent + child")
 

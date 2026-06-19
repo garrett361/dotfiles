@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import subprocess
 
 from git_tree.cli import cmd_branch, discover
@@ -8,10 +9,7 @@ from .conftest import RepoHelper
 
 
 def _ns(command: str = "branch", **kwargs: str) -> object:
-    import argparse
-
-    ns = argparse.Namespace(command=command, **kwargs)
-    return ns
+    return argparse.Namespace(command=command, **kwargs)
 
 
 class TestBranch:

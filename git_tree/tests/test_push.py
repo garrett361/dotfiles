@@ -1,13 +1,13 @@
 from __future__ import annotations
 
+import argparse
+
 from git_tree.cli import cmd_push
 
 from .conftest import RepoHelper
 
 
 def _ns() -> object:
-    import argparse
-
     return argparse.Namespace(dry=False)
 
 
@@ -64,8 +64,6 @@ class TestPush:
         repo.branch("feature", parent="main")
         repo.checkout("feature")
         repo.commit("f1.txt", "f1", "feature commit")
-
-        import argparse
 
         cmd_push(argparse.Namespace(dry=True))
 
