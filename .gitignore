@@ -53,6 +53,12 @@ luac.out
 .fzf.bash
 .fzf.zsh
 
+# Python
+__pycache__/
+*.egg-info/
+.venv/
+.pytest_cache/
+
 # API keys
 API_KEYS/
 .secrets

@@ -33,3 +33,4 @@ Real git operations against isolated repos (no mocking). The `repo` fixture (`te
 - ruff for lint+format (line-length 100, select E/F/I/UP/B/SIM/TCH, TCH ignored in tests)
 - ty for type checking
 - Tests assert behavior, not implementation details
+- Commits use conventional format with `(git_tree)` scope: `feat(git_tree): ...`, `fix(git_tree): ...`, `test(git_tree): ...`
