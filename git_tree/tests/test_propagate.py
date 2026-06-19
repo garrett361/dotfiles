@@ -60,15 +60,60 @@ class TestPropagate:
         with pytest.raises(SystemExit):
             cmd_propagate(_ns())
 
-        out = capsys.readouterr().out
-        assert "CONFLICT" in out
+        err = capsys.readouterr().err
+        assert "CONFLICT" in err
 
     def test_already_up_to_date(self, repo: RepoHelper, monkeypatch, capsys) -> None:
         repo.branch("b", parent="main")
         monkeypatch.setattr("builtins.input", lambda _: "y")
         cmd_propagate(_ns())
         out = capsys.readouterr().out
-        assert "No descendants" not in out or "ok" in out.lower()
+        assert "b" in out
+
+    def test_child_no_unique_commits(self, repo: RepoHelper, monkeypatch, capsys) -> None:
+        """Branch with no unique commits beyond parent still propagates cleanly."""
+        repo.branch("b", parent="main")
+        repo.checkout("main")
+        repo.commit("m2.txt", "m2", "advance main past b fork")
+
+        monkeypatch.setattr("builtins.input", lambda _: "y")
+        cmd_propagate(_ns())
+
+        b_log = repo.git("log", "--oneline", "b")
+        assert "advance main past b fork" in b_log
+
+    def test_grandchild_no_unique_commits_cascades(self, repo: RepoHelper, monkeypatch) -> None:
+        repo.branch("b", parent="main")
+        repo.branch("c", parent="b")
+        repo.checkout("main")
+        repo.commit("m2.txt", "m2", "advance main")
+
+        monkeypatch.setattr("builtins.input", lambda _: "y")
+        cmd_propagate(_ns())
+
+        b_log = repo.git("log", "--oneline", "b")
+        assert "advance main" in b_log
+        c_log = repo.git("log", "--oneline", "c")
+        assert "advance main" in c_log
+
+    def test_grandchild_in_worktree_no_unique_commits(
+        self, repo: RepoHelper, monkeypatch, tmp_path
+    ) -> None:
+        """Worktree-based grandchild with no unique commits propagates cleanly."""
+        repo.branch("b", parent="main")
+        repo.worktree("b", str(tmp_path / "wt-b"))
+        repo.branch("c", parent="b")
+        repo.worktree("c", str(tmp_path / "wt-c"))
+        repo.checkout("main")
+        repo.commit("m2.txt", "m2", "advance main")
+
+        monkeypatch.setattr("builtins.input", lambda _: "y")
+        cmd_propagate(_ns())
+
+        b_log = repo.git("log", "--oneline", "b")
+        assert "advance main" in b_log
+        c_log = repo.git("log", "--oneline", "c")
+        assert "advance main" in c_log
 
     def test_confirmation_decline_is_noop(self, repo: RepoHelper, monkeypatch) -> None:
         repo.branch("b", parent="main")

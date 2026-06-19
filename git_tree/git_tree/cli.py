@@ -8,6 +8,15 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import NoReturn
+
+class TreeError(SystemExit):
+    """Raised by helpers to exit with a user-facing message."""
+
+    def __init__(self, msg: str):
+        print(msg, file=sys.stderr)
+        super().__init__(1)
+
 
 # ---------------------------------------------------------------------------
 # Git helpers
@@ -100,8 +109,7 @@ def current_branch() -> str:
     proc = _run("git", "rev-parse", "--abbrev-ref", "HEAD", check=False)
     if proc.returncode != 0:
         msg = proc.stderr.strip() if proc.stderr else "not on a branch"
-        print(f"fatal: {msg}", file=sys.stderr)
-        sys.exit(1)
+        raise TreeError(f"fatal: {msg}")
     return proc.stdout.strip()
 
 
@@ -299,7 +307,8 @@ def _fallback_select(items: list[str], *, multi: bool) -> list[str]:
 
 def cmd_tree(_args: argparse.Namespace) -> None:
     graph = discover()
-    current = git("rev-parse", "--abbrev-ref", "HEAD", check=False) or None
+    raw = git("rev-parse", "--abbrev-ref", "HEAD", check=False)
+    current = None if (not raw or raw == "HEAD") else raw
     print(format_tree(graph, current=current))
     if not graph.parent_of:
         print("  (no branches registered — use `git tree attach` or `git tree branch`)")
@@ -333,11 +342,10 @@ def cmd_attach(args: argparse.Namespace) -> None:
         all_branches = git_lines("for-each-ref", "--format=%(refname:short)", "refs/heads/")
         candidates = [b for b in all_branches if b != branch]
         if not candidates:
-            print("No other branches available.", file=sys.stderr)
-            sys.exit(1)
+            raise TreeError("No other branches available.")
         selected = fzf_select(candidates, prompt="Select parent> ", header="Choose parent branch")
         if not selected:
-            sys.exit(1)
+            raise SystemExit(1)
         parent = selected[0]
 
     if not git_ok("merge-base", "--is-ancestor", parent, branch):
@@ -354,11 +362,42 @@ def cmd_detach(args: argparse.Namespace) -> None:
     branch = getattr(args, "branch", None) or current_branch()
     parent = git("config", f"branch.{branch}.tree-parent", check=False)
     if not parent:
-        print(f"{branch} is not in the tree.", file=sys.stderr)
-        sys.exit(1)
+        raise TreeError(f"{branch} is not in the tree.")
 
     git("config", "--unset", f"branch.{branch}.tree-parent")
     print(f"Detached {branch} (was child of {parent})")
+
+
+# [empty-patch handling]
+#
+# git rebase --onto can exit non-zero without producing merge conflicts.
+# Two distinct cases:
+#
+# 1. No rebase started (REBASE_HEAD absent): git determined there was nothing
+#    to replay and exited. The branch ref may already be updated. Return "ok".
+#
+# 2. Rebase started but stopped on an empty patch (REBASE_HEAD present, no
+#    unmerged files): a commit's changes are already in the target. Common when
+#    cascading through branches with no unique commits. Loop --skip until done
+#    or a real conflict appears. Must loop — multi-commit branches can have
+#    several empty patches in sequence.
+
+
+def _rebase_in_progress(cwd: Path | None) -> bool:
+    return git_ok("rev-parse", "--verify", "REBASE_HEAD", cwd=cwd)
+
+
+def _skip_empty_commits(child: str, parent: str, cwd: Path | None) -> str | None:
+    """Loop --skip until rebase finishes or a real conflict appears. Returns None if
+    a real conflict was hit (rebase still in progress for user to resolve)."""
+    while _rebase_in_progress(cwd):
+        unmerged = git("ls-files", "--unmerged", cwd=cwd, check=False)
+        if unmerged.strip():
+            return None
+        if not git_ok("rebase", "--skip", cwd=cwd):
+            git("rebase", "--abort", cwd=cwd, check=False)
+            raise TreeError(f"rebase of {child} onto {parent}: --skip failed unexpectedly")
+    return "ok (skipped empty)"
 
 
 def _rebase_onto(
@@ -371,12 +410,22 @@ def _rebase_onto(
 ) -> str:
     """Attempt rebase of child onto parent. Returns status or exits on unresolved conflict."""
     if cwd:
-        rebase_ok = git_ok("rebase", "--onto", parent, fork_point, cwd=cwd)
+        result = _run("git", "rebase", "--onto", parent, fork_point, cwd=cwd, check=False)
     else:
-        rebase_ok = git_ok("rebase", "--onto", parent, fork_point, child)
+        result = _run("git", "rebase", "--onto", parent, fork_point, child, check=False)
 
-    if rebase_ok:
+    if result.returncode == 0:
         return "ok"
+
+    if not _rebase_in_progress(cwd):
+        return "ok"
+
+    unmerged = git("ls-files", "--unmerged", cwd=cwd, check=False)
+    if not unmerged.strip():
+        status = _skip_empty_commits(child, parent, cwd)
+        if status is not None:
+            return status
+        _conflict_exit(child, parent, cwd, stashed)
 
     if not auto_rerere:
         _conflict_exit(child, parent, cwd, stashed)
@@ -394,27 +443,27 @@ def _rebase_onto(
         if continued:
             return "ok (rerere)"
 
-        # --continue stopped again — is it a new conflict or a non-conflict failure?
-        new_remaining = git("rerere", "remaining", cwd=cwd, check=False)
-        unmerged = git("ls-files", "--unmerged", cwd=cwd, check=False)
-        if not unmerged.strip() and not new_remaining.strip():
-            print("rebase --continue failed for a non-conflict reason", file=sys.stderr)
-            sys.exit(1)
+        # --continue stopped again — new conflict or empty patch?
+        new_unmerged = git("ls-files", "--unmerged", cwd=cwd, check=False)
+        if not new_unmerged.strip():
+            status = _skip_empty_commits(child, parent, cwd)
+            if status is not None:
+                return "ok (rerere)"
+            _conflict_exit(child, parent, cwd, stashed)
 
 
-def _conflict_exit(child: str, parent: str, cwd: Path | None, stashed: bool) -> None:
-    print()
-    print(f"CONFLICT while rebasing {child} onto {parent}")
+def _conflict_exit(child: str, parent: str, cwd: Path | None, stashed: bool) -> NoReturn:
+    lines = [f"\nCONFLICT while rebasing {child} onto {parent}"]
     if cwd:
-        print(f"Resolve conflicts in {cwd}, then run: git rebase --continue")
+        lines.append(f"Resolve conflicts in {cwd}, then run: git rebase --continue")
     else:
-        print("Resolve conflicts, then run: git rebase --continue")
+        lines.append("Resolve conflicts, then run: git rebase --continue")
     if stashed:
         if cwd:
-            print(f"Note: dirty worktree was stashed — run: cd {cwd} && git stash pop")
+            lines.append(f"Note: dirty worktree was stashed — run: cd {cwd} && git stash pop")
         else:
-            print("Note: dirty worktree was stashed — run `git stash pop` after resolving")
-    sys.exit(1)
+            lines.append("Note: dirty worktree was stashed — run `git stash pop` after resolving")
+    raise TreeError("\n".join(lines))
 
 
 def cmd_propagate(args: argparse.Namespace) -> None:
@@ -476,12 +525,10 @@ def cmd_rebase(args: argparse.Namespace) -> None:
     if not old_parent:
         old_parent = git("config", f"branch.{branch}.tree-parent", check=False)
     if not old_parent:
-        print(f"{branch} has no tree-parent configured.", file=sys.stderr)
-        sys.exit(1)
+        raise TreeError(f"{branch} has no tree-parent configured.")
 
     if not git_ok("rev-parse", "--verify", old_parent):
-        print(f"Old parent {old_parent} does not exist.", file=sys.stderr)
-        sys.exit(1)
+        raise TreeError(f"Old parent {old_parent} does not exist.")
 
     fork_point = git("rev-parse", old_parent)
     commit_count = len(git_lines("rev-list", f"{fork_point}..{branch}"))
@@ -530,8 +577,7 @@ def cmd_split(_args: argparse.Namespace) -> None:
     commits = git_lines("log", "--oneline", "--reverse", f"{fork_point}..HEAD")
 
     if len(commits) < 2:
-        print("Need at least 2 commits to split.", file=sys.stderr)
-        sys.exit(1)
+        raise TreeError("Need at least 2 commits to split.")
 
     selected = fzf_select(
         commits,
@@ -539,7 +585,7 @@ def cmd_split(_args: argparse.Namespace) -> None:
         header="Select the last commit for the new parent branch",
     )
     if not selected:
-        sys.exit(1)
+        raise SystemExit(1)
 
     commit_hash = selected[0].split()[0]
 
@@ -547,9 +593,9 @@ def cmd_split(_args: argparse.Namespace) -> None:
         parent_name = input("New parent branch name: ").strip()
     except (EOFError, KeyboardInterrupt):
         print()
-        sys.exit(1)
+        raise SystemExit(1)
     if not parent_name:
-        sys.exit(1)
+        raise SystemExit(1)
 
     try:
         worktree_path = input("Create worktree for parent? [path / N]: ").strip()
