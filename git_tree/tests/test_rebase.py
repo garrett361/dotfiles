@@ -14,15 +14,18 @@ def _ns(target: str) -> object:
 
 
 class TestRebase:
-    def test_rebases_onto_target(self, repo: RepoHelper, monkeypatch) -> None:
+    def test_rebases_onto_target(self, repo: RepoHelper, monkeypatch, tmp_path) -> None:
         repo.branch("feature", parent="main")
-        repo.checkout("feature")
-        repo.commit("f1.txt", "f1", "feature commit")
+        wt = repo.worktree("feature", str(tmp_path / "wt-feature"))
 
         repo.checkout("main")
         repo.commit("m2.txt", "m2", "advance main")
 
-        repo.checkout("feature")
+        (wt / "f1.txt").write_text("f1")
+        repo.git("add", "f1.txt", cwd=wt)
+        repo.git("commit", "-m", "feature commit", cwd=wt)
+
+        monkeypatch.chdir(wt)
         monkeypatch.setattr("builtins.input", lambda _: "y")
         cmd_rebase(_ns(target="main"))
 
@@ -30,31 +33,39 @@ class TestRebase:
         assert "advance main" in log
         assert "feature commit" in log
 
-    def test_updates_tree_parent_config(self, repo: RepoHelper, monkeypatch) -> None:
+    def test_updates_tree_parent_config(self, repo: RepoHelper, monkeypatch, tmp_path) -> None:
         repo.git("branch", "base")
         repo.set_parent("base", "main")
+        repo.worktree("base", str(tmp_path / "wt-base"))
         repo.branch("child", parent="base")
-        repo.checkout("child")
-        repo.commit("c1.txt", "c1", "child commit")
+        wt = repo.worktree("child", str(tmp_path / "wt-child"))
+        (wt / "c1.txt").write_text("c1")
+        repo.git("add", "c1.txt", cwd=wt)
+        repo.git("commit", "-m", "child commit", cwd=wt)
 
+        monkeypatch.chdir(wt)
         monkeypatch.setattr("builtins.input", lambda _: "y")
         cmd_rebase(_ns(target="main"))
 
         graph = discover()
         assert graph.parent_of["child"] == "main"
 
-    def test_cascades_to_descendants(self, repo: RepoHelper, monkeypatch) -> None:
+    def test_cascades_to_descendants(self, repo: RepoHelper, monkeypatch, tmp_path) -> None:
         repo.branch("b", parent="main")
-        repo.checkout("b")
-        repo.commit("b1.txt", "b1", "b commit")
+        wt_b = repo.worktree("b", str(tmp_path / "wt-b"))
+        (wt_b / "b1.txt").write_text("b1")
+        repo.git("add", "b1.txt", cwd=wt_b)
+        repo.git("commit", "-m", "b commit", cwd=wt_b)
         repo.branch("c", parent="b")
-        repo.checkout("c")
-        repo.commit("c1.txt", "c1", "c commit")
+        wt_c = repo.worktree("c", str(tmp_path / "wt-c"))
+        (wt_c / "c1.txt").write_text("c1")
+        repo.git("add", "c1.txt", cwd=wt_c)
+        repo.git("commit", "-m", "c commit", cwd=wt_c)
 
         repo.checkout("main")
         repo.commit("m2.txt", "m2", "new main commit")
 
-        repo.checkout("b")
+        monkeypatch.chdir(wt_b)
         monkeypatch.setattr("builtins.input", lambda _: "y")
         cmd_rebase(_ns(target="main"))
 
@@ -62,97 +73,92 @@ class TestRebase:
         assert "new main commit" in c_log
         assert "c commit" in c_log
 
-    def test_excludes_old_parent_commits(self, repo: RepoHelper, monkeypatch) -> None:
+    def test_excludes_old_parent_commits(self, repo: RepoHelper, monkeypatch, tmp_path) -> None:
         """After squash-merge, rebase replays only child's unique commits, not parent's."""
-        # Build parent-branch with 2 commits on top of main
         repo.branch("parent-branch", parent="main")
-        repo.checkout("parent-branch")
-        repo.commit("p1.txt", "p1", "parent commit 1")
-        repo.commit("p2.txt", "p2", "parent commit 2")
+        wt_p = repo.worktree("parent-branch", str(tmp_path / "wt-parent"))
+        (wt_p / "p1.txt").write_text("p1")
+        repo.git("add", "p1.txt", cwd=wt_p)
+        repo.git("commit", "-m", "parent commit 1", cwd=wt_p)
+        (wt_p / "p2.txt").write_text("p2")
+        repo.git("add", "p2.txt", cwd=wt_p)
+        repo.git("commit", "-m", "parent commit 2", cwd=wt_p)
 
-        # child-branch adds its own commit on top of parent-branch
         repo.branch("child-branch", parent="parent-branch")
-        repo.checkout("child-branch")
-        repo.commit("c1.txt", "c1", "child unique commit")
-
-        # child-branch's log now includes parent's commits in its history
-        child_log_before = repo.git("log", "--oneline", "child-branch")
-        assert "parent commit 1" in child_log_before
-        assert "parent commit 2" in child_log_before
+        wt_c = repo.worktree("child-branch", str(tmp_path / "wt-child"))
+        (wt_c / "c1.txt").write_text("c1")
+        repo.git("add", "c1.txt", cwd=wt_c)
+        repo.git("commit", "-m", "child unique commit", cwd=wt_c)
 
         # Simulate squash-merge of parent-branch into main
         repo.checkout("main")
         repo.git("merge", "--squash", "parent-branch")
         repo.git("commit", "-m", "squash merge of parent-branch")
 
-        # Rebase child onto main — the old parent branch still exists locally
-        # (user rebases before pruning the merged branch)
-        repo.checkout("child-branch")
+        monkeypatch.chdir(wt_c)
         monkeypatch.setattr("builtins.input", lambda _: "y")
         cmd_rebase(_ns(target="main"))
 
         log = repo.git("log", "--oneline", "child-branch")
         assert "child unique commit" in log
         assert "squash merge" in log
-        # Parent's original commits must NOT be replayed as separate commits
         assert "parent commit 1" not in log
         assert "parent commit 2" not in log
 
-    def test_confirmation_decline_aborts(self, repo: RepoHelper, monkeypatch) -> None:
+    def test_confirmation_decline_aborts(self, repo: RepoHelper, monkeypatch, tmp_path) -> None:
         repo.branch("feature", parent="main")
-        repo.checkout("feature")
-        repo.commit("f1.txt", "f1", "feature commit")
-        head_before = repo.head
+        wt = repo.worktree("feature", str(tmp_path / "wt-feature"))
+        (wt / "f1.txt").write_text("f1")
+        repo.git("add", "f1.txt", cwd=wt)
+        repo.git("commit", "-m", "feature commit", cwd=wt)
+        head_before = repo.git("rev-parse", "feature")
 
+        monkeypatch.chdir(wt)
         monkeypatch.setattr("builtins.input", lambda _: "n")
         cmd_rebase(_ns(target="main"))
 
-        assert repo.head == head_before
+        assert repo.git("rev-parse", "feature") == head_before
 
-    def test_dry_does_not_modify(self, repo: RepoHelper, capsys) -> None:
+    def test_dry_does_not_modify(self, repo: RepoHelper, capsys, tmp_path, monkeypatch) -> None:
         repo.branch("feature", parent="main")
-        repo.checkout("feature")
-        repo.commit("f1.txt", "f1", "feature commit")
-        head_before = repo.head
+        wt = repo.worktree("feature", str(tmp_path / "wt-feature"))
+        (wt / "f1.txt").write_text("f1")
+        repo.git("add", "f1.txt", cwd=wt)
+        repo.git("commit", "-m", "feature commit", cwd=wt)
+        head_before = repo.git("rev-parse", "feature")
 
+        monkeypatch.chdir(wt)
         cmd_rebase(argparse.Namespace(command="rebase", target="main", dry=True, no_auto_rerere=False))
 
-        assert repo.head == head_before
+        assert repo.git("rev-parse", "feature") == head_before
         out = capsys.readouterr().out
         assert "Rebasing onto" in out
 
-    def test_conflict_aborts(self, repo: RepoHelper, monkeypatch) -> None:
+    def test_conflict_aborts(self, repo: RepoHelper, monkeypatch, tmp_path) -> None:
         repo.commit("shared.txt", "original", "base")
         repo.branch("feature", parent="main")
-        repo.checkout("feature")
-        repo.commit("shared.txt", "feature version", "feature modifies shared")
+        wt = repo.worktree("feature", str(tmp_path / "wt-feature"))
+        (wt / "shared.txt").write_text("feature version")
+        repo.git("add", "shared.txt", cwd=wt)
+        repo.git("commit", "-m", "feature modifies shared", cwd=wt)
 
         repo.checkout("main")
         repo.commit("shared.txt", "main version", "main modifies shared")
 
-        repo.checkout("feature")
+        monkeypatch.chdir(wt)
         monkeypatch.setattr("builtins.input", lambda _: "y")
 
         with pytest.raises(SystemExit):
             cmd_rebase(_ns(target="main"))
 
-    def test_dirty_main_worktree(self, repo: RepoHelper, monkeypatch) -> None:
-        """Rebase succeeds when main worktree has staged changes."""
+    def test_rebase_fails_without_worktree(self, repo: RepoHelper, monkeypatch, capsys) -> None:
         repo.branch("feature", parent="main")
+        # No worktree created — but we need to pretend we're on that branch
         repo.checkout("feature")
-        repo.commit("f1.txt", "f1", "feature commit")
-
-        repo.checkout("main")
-        repo.commit("m2.txt", "m2", "advance main")
-
-        repo.checkout("feature")
-        repo.dirty_main(staged=True)
 
         monkeypatch.setattr("builtins.input", lambda _: "y")
-        cmd_rebase(_ns(target="main"))
+        with pytest.raises(SystemExit):
+            cmd_rebase(_ns(target="main"))
 
-        log = repo.git("log", "--oneline", "feature")
-        assert "advance main" in log
-        assert (repo.work / "_dirty.txt").exists()
-        status = repo.git("status", "--porcelain")
-        assert "_dirty.txt" in status
+        err = capsys.readouterr().err
+        assert "worktree" in err.lower()

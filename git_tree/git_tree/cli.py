@@ -383,11 +383,11 @@ def cmd_detach(args: argparse.Namespace) -> None:
 #    several empty patches in sequence.
 
 
-def _rebase_in_progress(cwd: Path | None) -> bool:
+def _rebase_in_progress(cwd: Path) -> bool:
     return git_ok("rev-parse", "--verify", "REBASE_HEAD", cwd=cwd)
 
 
-def _skip_empty_commits(child: str, parent: str, cwd: Path | None) -> str | None:
+def _skip_empty_commits(child: str, parent: str, cwd: Path) -> str | None:
     """Loop --skip until rebase finishes or a real conflict appears. Returns None if
     a real conflict was hit (rebase still in progress for user to resolve)."""
     while _rebase_in_progress(cwd):
@@ -404,16 +404,12 @@ def _rebase_onto(
     child: str,
     parent: str,
     fork_point: str,
-    cwd: Path | None,
+    cwd: Path,
     auto_rerere: bool,
     stashed: bool,
-    main_stashed: bool = False,
 ) -> str:
-    """Attempt rebase of child onto parent. Returns status or exits on unresolved conflict."""
-    if cwd:
-        result = _run("git", "rebase", "--onto", parent, fork_point, cwd=cwd, check=False)
-    else:
-        result = _run("git", "rebase", "--onto", parent, fork_point, child, check=False)
+    """Attempt rebase of child onto parent in its worktree. Returns status or exits on conflict."""
+    result = _run("git", "rebase", "--onto", parent, fork_point, cwd=cwd, check=False)
 
     if result.returncode == 0:
         return "ok"
@@ -429,17 +425,17 @@ def _rebase_onto(
         status = _skip_empty_commits(child, parent, cwd)
         if status is not None:
             return status
-        _conflict_exit(child, parent, cwd, stashed, main_stashed)
+        _conflict_exit(child, parent, cwd, stashed)
 
     if not auto_rerere:
-        _conflict_exit(child, parent, cwd, stashed, main_stashed)
+        _conflict_exit(child, parent, cwd, stashed)
 
     while True:
         git("rerere", cwd=cwd, check=False)
 
         remaining = git("rerere", "remaining", cwd=cwd, check=False)
         if remaining.strip():
-            _conflict_exit(child, parent, cwd, stashed, main_stashed)
+            _conflict_exit(child, parent, cwd, stashed)
 
         git("add", "-u", cwd=cwd)
 
@@ -453,24 +449,25 @@ def _rebase_onto(
             status = _skip_empty_commits(child, parent, cwd)
             if status is not None:
                 return "ok (rerere)"
-            _conflict_exit(child, parent, cwd, stashed, main_stashed)
+            _conflict_exit(child, parent, cwd, stashed)
 
 
-def _conflict_exit(
-    child: str, parent: str, cwd: Path | None, stashed: bool, main_stashed: bool = False,
-) -> NoReturn:
+def _conflict_exit(child: str, parent: str, cwd: Path, stashed: bool) -> NoReturn:
     lines = [f"\nCONFLICT while rebasing {child} onto {parent}"]
-    if cwd:
-        lines.append(f"Resolve conflicts in {cwd}, then run: git rebase --continue")
-    else:
-        lines.append("Resolve conflicts, then run: git rebase --continue")
+    lines.append(f"Resolve conflicts in {cwd}, then run: git rebase --continue")
     if stashed:
-        if cwd:
-            lines.append(f"Note: dirty worktree was stashed — run: cd {cwd} && git stash pop")
-        else:
-            lines.append("Note: dirty worktree was stashed — run `git stash pop` after resolving")
-    if main_stashed:
-        lines.append("Note: main worktree was stashed — run `git stash pop` after resolving")
+        lines.append(f"Note: dirty worktree was stashed — run: cd {cwd} && git stash pop")
+    raise TreeError("\n".join(lines))
+
+
+def _require_worktrees(branches: list[str], graph: Graph) -> None:
+    missing = [b for b in branches if not (graph.branches.get(b) and graph.branches[b].worktree)]
+    if not missing:
+        return
+    lines = ["These branches need worktrees before this operation can proceed:"]
+    for b in missing:
+        lines.append(f"  {b}")
+    lines.append("\nAdd worktrees with: git worktree add <path> <branch>")
     raise TreeError("\n".join(lines))
 
 
@@ -492,55 +489,30 @@ def cmd_propagate(args: argparse.Namespace) -> None:
     if getattr(args, "dry", False) or not confirm("Proceed?"):
         return
 
+    _require_worktrees(descendants, graph)
     auto_rerere = not getattr(args, "no_auto_rerere", False)
     results: list[tuple[str, str]] = []
 
-    # [main worktree stash] Non-worktree branches rebase in the main worktree via
-    # `git rebase --onto parent fork child`, which checks out child in the main worktree.
-    # If the main worktree is dirty, git refuses (exit 1, no REBASE_HEAD). Stash first,
-    # then restore HEAD + pop after the loop.
-    original_branch = current_branch()
-    needs_main_wt = any(
-        not (graph.branches.get(c) and graph.branches[c].worktree) for c in descendants
-    )
-    main_stashed = False
-    if needs_main_wt and bool(git("status", "--porcelain", check=False)):
-        result = _run("git", "stash", check=False)
-        main_stashed = "Saved working directory" in result.stdout
-
     for child in descendants:
         parent_of_child = graph.parent_of[child]
+        info = graph.branches[child]
+        wt_cwd = info.worktree
 
-        info = graph.branches.get(child)
         stashed = False
-
-        if info and info.worktree and info.is_dirty:
-            result = _run("git", "stash", check=False, cwd=info.worktree)
+        if info.is_dirty:
+            result = _run("git", "stash", check=False, cwd=wt_cwd)
             stashed = "Saved working directory" in result.stdout
 
         fork_point = git("merge-base", parent_of_child, child)
-        wt_cwd = info.worktree if info and info.worktree else None
+        status = _rebase_onto(child, parent_of_child, fork_point, wt_cwd, auto_rerere, stashed)
 
-        status = _rebase_onto(
-            child, parent_of_child, fork_point, wt_cwd, auto_rerere, stashed, main_stashed
-        )
-
-        if stashed and info and info.worktree:
-            pop_ok = git_ok("stash", "pop", cwd=info.worktree)
+        if stashed:
+            pop_ok = git_ok("stash", "pop", cwd=wt_cwd)
             if not pop_ok:
                 results.append((child, "rebased (stash pop conflict - resolve manually)"))
                 continue
 
         results.append((child, status))
-
-    if needs_main_wt:
-        git("checkout", original_branch, check=False)
-    if main_stashed:
-        if not git_ok("stash", "pop"):
-            print(
-                "Warning: could not pop main worktree stash — run `git stash pop` manually",
-                file=sys.stderr,
-            )
 
     print()
     print("Results:")
@@ -585,26 +557,32 @@ def cmd_rebase(args: argparse.Namespace) -> None:
         for s in siblings:
             print(f"  {s}")
 
+    info = graph.branches.get(branch)
+    if not info or not info.worktree:
+        raise TreeError(
+            f"{branch} needs a worktree. Add one with: git worktree add <path> {branch}"
+        )
+    if descendants:
+        _require_worktrees(descendants, graph)
+
     print()
     if args.dry or not confirm("Proceed?"):
         return
 
     auto_rerere = not getattr(args, "no_auto_rerere", False)
+    wt_cwd = info.worktree
 
-    main_stashed = False
-    if bool(git("status", "--porcelain", check=False)):
-        result = _run("git", "stash", check=False)
-        main_stashed = "Saved working directory" in result.stdout
+    stashed = False
+    if info.is_dirty:
+        result = _run("git", "stash", check=False, cwd=wt_cwd)
+        stashed = "Saved working directory" in result.stdout
 
-    _rebase_onto(
-        branch, target, fork_point, cwd=None,
-        auto_rerere=auto_rerere, stashed=False, main_stashed=main_stashed,
-    )
+    _rebase_onto(branch, target, fork_point, wt_cwd, auto_rerere, stashed)
 
-    if main_stashed:
-        if not git_ok("stash", "pop"):
+    if stashed:
+        if not git_ok("stash", "pop", cwd=wt_cwd):
             print(
-                "Warning: could not pop main worktree stash — run `git stash pop` manually",
+                f"Warning: could not pop worktree stash — run: cd {wt_cwd} && git stash pop",
                 file=sys.stderr,
             )
 
@@ -676,6 +654,7 @@ def cmd_push(args: argparse.Namespace) -> None:
 
     descendants = graph.downstream_from(branch)
     push_set = [branch] + descendants
+    _require_worktrees([b for b in push_set if b in graph.branches], graph)
 
     stale: list[str] = []
     ahead: dict[str, int] = {}
