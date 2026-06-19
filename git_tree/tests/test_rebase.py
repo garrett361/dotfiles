@@ -135,3 +135,24 @@ class TestRebase:
 
         with pytest.raises(SystemExit):
             cmd_rebase(_ns(target="main"))
+
+    def test_dirty_main_worktree(self, repo: RepoHelper, monkeypatch) -> None:
+        """Rebase succeeds when main worktree has staged changes."""
+        repo.branch("feature", parent="main")
+        repo.checkout("feature")
+        repo.commit("f1.txt", "f1", "feature commit")
+
+        repo.checkout("main")
+        repo.commit("m2.txt", "m2", "advance main")
+
+        repo.checkout("feature")
+        repo.dirty_main(staged=True)
+
+        monkeypatch.setattr("builtins.input", lambda _: "y")
+        cmd_rebase(_ns(target="main"))
+
+        log = repo.git("log", "--oneline", "feature")
+        assert "advance main" in log
+        assert (repo.work / "_dirty.txt").exists()
+        status = repo.git("status", "--porcelain")
+        assert "_dirty.txt" in status

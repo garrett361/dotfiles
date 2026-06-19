@@ -309,7 +309,7 @@ def cmd_tree(_args: argparse.Namespace) -> None:
     graph = discover()
     raw = git("rev-parse", "--abbrev-ref", "HEAD", check=False)
     current = None if (not raw or raw == "HEAD") else raw
-    print(format_tree(graph, current=current))
+    print(format_tree(graph, current=current, show_counts=True))
     if not graph.parent_of:
         print("  (no branches registered — use `git tree attach` or `git tree branch`)")
 
@@ -407,6 +407,7 @@ def _rebase_onto(
     cwd: Path | None,
     auto_rerere: bool,
     stashed: bool,
+    main_stashed: bool = False,
 ) -> str:
     """Attempt rebase of child onto parent. Returns status or exits on unresolved conflict."""
     if cwd:
@@ -418,6 +419,9 @@ def _rebase_onto(
         return "ok"
 
     if not _rebase_in_progress(cwd):
+        stderr = result.stderr.strip() if result.stderr else ""
+        if any(line.startswith(("error:", "fatal:")) for line in stderr.splitlines()):
+            raise TreeError(f"rebase of {child} onto {parent} failed:\n{stderr}")
         return "ok"
 
     unmerged = git("ls-files", "--unmerged", cwd=cwd, check=False)
@@ -425,17 +429,17 @@ def _rebase_onto(
         status = _skip_empty_commits(child, parent, cwd)
         if status is not None:
             return status
-        _conflict_exit(child, parent, cwd, stashed)
+        _conflict_exit(child, parent, cwd, stashed, main_stashed)
 
     if not auto_rerere:
-        _conflict_exit(child, parent, cwd, stashed)
+        _conflict_exit(child, parent, cwd, stashed, main_stashed)
 
     while True:
         git("rerere", cwd=cwd, check=False)
 
         remaining = git("rerere", "remaining", cwd=cwd, check=False)
         if remaining.strip():
-            _conflict_exit(child, parent, cwd, stashed)
+            _conflict_exit(child, parent, cwd, stashed, main_stashed)
 
         git("add", "-u", cwd=cwd)
 
@@ -449,10 +453,12 @@ def _rebase_onto(
             status = _skip_empty_commits(child, parent, cwd)
             if status is not None:
                 return "ok (rerere)"
-            _conflict_exit(child, parent, cwd, stashed)
+            _conflict_exit(child, parent, cwd, stashed, main_stashed)
 
 
-def _conflict_exit(child: str, parent: str, cwd: Path | None, stashed: bool) -> NoReturn:
+def _conflict_exit(
+    child: str, parent: str, cwd: Path | None, stashed: bool, main_stashed: bool = False,
+) -> NoReturn:
     lines = [f"\nCONFLICT while rebasing {child} onto {parent}"]
     if cwd:
         lines.append(f"Resolve conflicts in {cwd}, then run: git rebase --continue")
@@ -463,6 +469,8 @@ def _conflict_exit(child: str, parent: str, cwd: Path | None, stashed: bool) -> 
             lines.append(f"Note: dirty worktree was stashed — run: cd {cwd} && git stash pop")
         else:
             lines.append("Note: dirty worktree was stashed — run `git stash pop` after resolving")
+    if main_stashed:
+        lines.append("Note: main worktree was stashed — run `git stash pop` after resolving")
     raise TreeError("\n".join(lines))
 
 
@@ -487,6 +495,19 @@ def cmd_propagate(args: argparse.Namespace) -> None:
     auto_rerere = not getattr(args, "no_auto_rerere", False)
     results: list[tuple[str, str]] = []
 
+    # [main worktree stash] Non-worktree branches rebase in the main worktree via
+    # `git rebase --onto parent fork child`, which checks out child in the main worktree.
+    # If the main worktree is dirty, git refuses (exit 1, no REBASE_HEAD). Stash first,
+    # then restore HEAD + pop after the loop.
+    original_branch = current_branch()
+    needs_main_wt = any(
+        not (graph.branches.get(c) and graph.branches[c].worktree) for c in descendants
+    )
+    main_stashed = False
+    if needs_main_wt and bool(git("status", "--porcelain", check=False)):
+        result = _run("git", "stash", check=False)
+        main_stashed = "Saved working directory" in result.stdout
+
     for child in descendants:
         parent_of_child = graph.parent_of[child]
 
@@ -494,13 +515,15 @@ def cmd_propagate(args: argparse.Namespace) -> None:
         stashed = False
 
         if info and info.worktree and info.is_dirty:
-            git("stash", cwd=info.worktree)
-            stashed = True
+            result = _run("git", "stash", check=False, cwd=info.worktree)
+            stashed = "Saved working directory" in result.stdout
 
         fork_point = git("merge-base", parent_of_child, child)
         wt_cwd = info.worktree if info and info.worktree else None
 
-        status = _rebase_onto(child, parent_of_child, fork_point, wt_cwd, auto_rerere, stashed)
+        status = _rebase_onto(
+            child, parent_of_child, fork_point, wt_cwd, auto_rerere, stashed, main_stashed
+        )
 
         if stashed and info and info.worktree:
             pop_ok = git_ok("stash", "pop", cwd=info.worktree)
@@ -509,6 +532,15 @@ def cmd_propagate(args: argparse.Namespace) -> None:
                 continue
 
         results.append((child, status))
+
+    if needs_main_wt:
+        git("checkout", original_branch, check=False)
+    if main_stashed:
+        if not git_ok("stash", "pop"):
+            print(
+                "Warning: could not pop main worktree stash — run `git stash pop` manually",
+                file=sys.stderr,
+            )
 
     print()
     print("Results:")
@@ -558,7 +590,23 @@ def cmd_rebase(args: argparse.Namespace) -> None:
         return
 
     auto_rerere = not getattr(args, "no_auto_rerere", False)
-    _rebase_onto(branch, target, fork_point, cwd=None, auto_rerere=auto_rerere, stashed=False)
+
+    main_stashed = False
+    if bool(git("status", "--porcelain", check=False)):
+        result = _run("git", "stash", check=False)
+        main_stashed = "Saved working directory" in result.stdout
+
+    _rebase_onto(
+        branch, target, fork_point, cwd=None,
+        auto_rerere=auto_rerere, stashed=False, main_stashed=main_stashed,
+    )
+
+    if main_stashed:
+        if not git_ok("stash", "pop"):
+            print(
+                "Warning: could not pop main worktree stash — run `git stash pop` manually",
+                file=sys.stderr,
+            )
 
     git("config", f"branch.{branch}.tree-parent", target)
     print(f"Rebased {branch} onto {target}")

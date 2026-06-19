@@ -332,3 +332,75 @@ class TestPropagateBranchArg:
         assert "new on main" in b_log
         c_log = repo.git("log", "--oneline", "c")
         assert "new on main" in c_log
+
+
+class TestPropagateDirtyMainWorktree:
+    def test_staged_dirty_main_worktree(self, repo: RepoHelper, monkeypatch) -> None:
+        """Non-worktree branch propagates when main worktree has staged changes."""
+        repo.commit("a1.txt", "a1", "base for b")
+        repo.branch("b", parent="main")
+        repo.checkout("main")
+        repo.commit("a2.txt", "a2", "advance main")
+
+        repo.dirty_main(staged=True)
+
+        monkeypatch.setattr("builtins.input", lambda _: "y")
+        cmd_propagate(_ns())
+
+        b_log = repo.git("log", "--oneline", "b")
+        assert "advance main" in b_log
+        assert (repo.work / "_dirty.txt").exists()
+        status = repo.git("status", "--porcelain")
+        assert "_dirty.txt" in status
+
+    def test_unstaged_dirty_main_worktree(self, repo: RepoHelper, monkeypatch) -> None:
+        """Non-worktree branch propagates when main worktree has unstaged tracked changes."""
+        repo.commit("tracked.txt", "original", "add tracked file")
+        repo.branch("b", parent="main")
+        repo.checkout("main")
+        repo.commit("a2.txt", "a2", "advance main")
+
+        (repo.work / "tracked.txt").write_text("modified")
+
+        monkeypatch.setattr("builtins.input", lambda _: "y")
+        cmd_propagate(_ns())
+
+        b_log = repo.git("log", "--oneline", "b")
+        assert "advance main" in b_log
+        assert (repo.work / "tracked.txt").read_text() == "modified"
+
+    def test_mixed_worktree_and_non_worktree(
+        self, repo: RepoHelper, monkeypatch, tmp_path
+    ) -> None:
+        """Propagate with one worktree child and one non-worktree child, main dirty."""
+        repo.commit("a1.txt", "a1", "base")
+        repo.branch("b", parent="main")
+        repo.worktree("b", str(tmp_path / "wt-b"))
+
+        repo.branch("c", parent="main")
+
+        repo.checkout("main")
+        repo.commit("a2.txt", "a2", "advance main")
+        repo.dirty_main(staged=True)
+
+        monkeypatch.setattr("builtins.input", lambda _: "y")
+        cmd_propagate(_ns())
+
+        b_log = repo.git("log", "--oneline", "b")
+        assert "advance main" in b_log
+        c_log = repo.git("log", "--oneline", "c")
+        assert "advance main" in c_log
+        assert (repo.work / "_dirty.txt").exists()
+
+    def test_head_restored_after_propagate(self, repo: RepoHelper, monkeypatch) -> None:
+        """After propagating non-worktree branches, HEAD returns to original branch."""
+        repo.branch("b", parent="main")
+        repo.checkout("main")
+        repo.commit("a2.txt", "a2", "advance main")
+        repo.dirty_main(staged=True)
+
+        monkeypatch.setattr("builtins.input", lambda _: "y")
+        cmd_propagate(_ns())
+
+        current = repo.git("rev-parse", "--abbrev-ref", "HEAD")
+        assert current == "main"

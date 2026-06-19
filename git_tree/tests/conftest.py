@@ -59,6 +59,12 @@ class RepoHelper:
         target = cwd or self.work
         (target / filename).write_text(content)
 
+    def dirty_main(self, *, staged: bool = True) -> None:
+        """Create a dirty file in the main worktree (tracked so git stash captures it)."""
+        (self.work / "_dirty.txt").write_text("dirty")
+        if staged:
+            self.git("add", "_dirty.txt")
+
     @property
     def head(self) -> str:
         return self.git("rev-parse", "HEAD")
