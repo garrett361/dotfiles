@@ -317,21 +317,16 @@ def cmd_tree(_args: argparse.Namespace) -> None:
 def cmd_branch(args: argparse.Namespace) -> None:
     parent = current_branch()
     name: str = args.name
-    path: str | None = args.path
+    path: str = args.path
 
-    if path:
-        git("worktree", "add", path, "-b", name)
-    else:
-        git("branch", name)
-
+    git("worktree", "add", path, "-b", name)
     git("config", f"branch.{name}.tree-parent", parent)
 
     remote = git("config", f"branch.{parent}.remote", check=False)
     if remote:
         git("config", f"branch.{name}.remote", remote)
 
-    wt_msg = f" with worktree at {path}" if path else ""
-    print(f"Created branch {name} (parent: {parent}){wt_msg}")
+    print(f"Created branch {name} with worktree at {path} (parent: {parent})")
 
 
 def cmd_attach(args: argparse.Namespace) -> None:
@@ -749,7 +744,7 @@ _git-tree() {
             _arguments '--dry[Show what would be done]' '--no-auto-rerere[Disable auto-continue via rerere]' ':target:__git_heads'
             ;;
         branch)
-            _arguments ':name:' '--path[Create worktree at this path]:path:_directories'
+            _arguments ':name:' ':path:_directories'
             ;;
         attach|detach)
             _arguments ':branch:__git_heads'
@@ -796,7 +791,7 @@ _git_tree() {
             fi
             ;;
         branch)
-            COMPREPLY=($(compgen -W "--path" -- "$cur"))
+            COMPREPLY=($(compgen -d -- "$cur"))
             ;;
         attach|detach)
             local branches=$(git for-each-ref --format='%(refname:short)' refs/heads/)
@@ -857,7 +852,7 @@ def main() -> None:
 
     branch_p = sub.add_parser("branch", help="Create a child branch")
     branch_p.add_argument("name", help="Name for the new branch")
-    branch_p.add_argument("--path", help="Create worktree at this path")
+    branch_p.add_argument("path", help="Worktree path for the new branch")
 
     attach_p = sub.add_parser("attach", help="Attach current branch to tree")
     attach_p.add_argument("parent", nargs="?", help="Parent branch (fzf if omitted)")
