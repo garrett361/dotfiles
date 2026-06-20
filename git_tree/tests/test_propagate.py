@@ -190,6 +190,28 @@ class TestPropagate:
         assert "[" not in out
 
 
+    def test_equivalent_cherry_picked_patches_skipped(
+        self, repo: RepoHelper, monkeypatch, tmp_path
+    ) -> None:
+        """Patches cherry-picked to child (same content, different SHA) don't conflict on propagate."""
+        repo.branch("b", parent="main")
+        wt_b = repo.worktree("b", str(tmp_path / "wt-b"))
+
+        # Add a commit to main
+        repo.checkout("main")
+        repo.commit("f1.txt", "feature", "add feature")
+        main_tip = repo.git("rev-parse", "main")
+
+        # Cherry-pick it into b (same content, different SHA)
+        repo.git("cherry-pick", main_tip, cwd=wt_b)
+
+        monkeypatch.setattr("builtins.input", lambda _: "y")
+        cmd_propagate(_ns())
+
+        b_log = repo.git("log", "--oneline", "b")
+        assert "add feature" in b_log
+
+
 class TestPropagateRerere:
     def test_auto_rerere_continues_through_known_conflict(
         self, repo: RepoHelper, monkeypatch, capsys, tmp_path

@@ -409,7 +409,9 @@ def _rebase_onto(
     stashed: bool,
 ) -> str:
     """Attempt rebase of child onto parent in its worktree. Returns status or exits on conflict."""
-    result = _run("git", "rebase", "--onto", parent, fork_point, cwd=cwd, check=False)
+    result = _run(
+        "git", "rebase", "--no-reapply-cherry-picks", "--onto", parent, fork_point, cwd=cwd, check=False
+    )
 
     if result.returncode == 0:
         return "ok"

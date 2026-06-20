@@ -43,13 +43,15 @@ After adding commits to a parent branch, run `git tree propagate` to rebase all 
 
 When a parent branch gets squash-merged upstream, `git tree rebase <target>` rebases the current branch onto the merge target, excluding the old parent's commits, then cascades to descendants.
 
+Equivalent to: `git rebase --onto <target> <fork-point>` + `git tree attach <target>` + `git tree propagate`.
+
 ### Push
 
 `git tree push` pushes the current branch and all descendants with `--force-with-lease`. Branches that are stale (behind their parent) are skipped with a warning to run `propagate` first.
 
 ## Worktrees
 
-Worktrees are optional. The tool operates on branches — worktrees are a convenience for active development. Branches with worktrees get automatic stash/pop during rebase; branches without worktrees are rebased directly.
+All branches in the tree must have linked worktrees. Operations that touch multiple branches (propagate, rebase, push) verify this upfront and abort with an error listing any branches missing worktrees. Dirty worktrees are automatically stashed/popped during rebase.
 
 ## Development
 
