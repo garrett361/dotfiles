@@ -75,14 +75,14 @@ return {
 		{
 			"<leader>ak",
 			function()
-				prequire("gitsigns").prev_hunk()
+				prequire("gitsigns").nav_hunk("last", { wrap = true, target = "all" })
 			end,
 			mode = { "n" },
 		},
 		{
 			"<leader>aj",
 			function()
-				prequire("gitsigns").next_hunk()
+				prequire("gitsigns").nav_hunk("next", { wrap = true, target = "all" })
 			end,
 			mode = { "n" },
 		},
