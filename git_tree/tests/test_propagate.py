@@ -405,3 +405,60 @@ class TestWorktreeValidation:
         err = capsys.readouterr().err
         assert "b" in err
         assert "c" in err
+
+    def test_propagate_fails_with_active_rebase(
+        self, repo: RepoHelper, monkeypatch, capsys, tmp_path
+    ) -> None:
+        """A branch with an active rebase (detached worktree) aborts propagation early."""
+        repo.commit("shared.txt", "base", "base commit")
+        repo.branch("b", parent="main")
+        wt_b = repo.worktree("b", str(tmp_path / "wt-b"))
+        (wt_b / "shared.txt").write_text("from b")
+        repo.git("add", "shared.txt", cwd=wt_b)
+        repo.git("commit", "-m", "b modifies shared", cwd=wt_b)
+
+        repo.checkout("main")
+        repo.commit("shared.txt", "from main", "main modifies shared")
+        # Trigger a conflicting rebase — worktree becomes detached
+        repo.git("rebase", "--onto", "main", "main~1", cwd=wt_b, check=False)
+
+        monkeypatch.setattr("builtins.input", lambda _: "y")
+        with pytest.raises(SystemExit):
+            cmd_propagate(_ns())
+
+        err = capsys.readouterr().err
+        assert "not in a clean state" in err
+        assert "b" in err
+
+    def test_propagate_fails_with_rebase_in_progress(
+        self, repo: RepoHelper, monkeypatch, capsys, tmp_path
+    ) -> None:
+        """Branch with resolved conflicts but pending --continue aborts propagation."""
+        repo.commit("shared.txt", "base", "base commit")
+        repo.branch("b", parent="main")
+        repo.branch("c", parent="b")
+        wt_b = repo.worktree("b", str(tmp_path / "wt-b"))
+        wt_c = repo.worktree("c", str(tmp_path / "wt-c"))
+        (wt_c / "shared.txt").write_text("from c")
+        repo.git("add", "shared.txt", cwd=wt_c)
+        repo.git("commit", "-m", "c modifies shared", cwd=wt_c)
+
+        # Advance b to create a conflict for c
+        (wt_b / "shared.txt").write_text("from b")
+        repo.git("add", "shared.txt", cwd=wt_b)
+        repo.git("commit", "-m", "b modifies shared", cwd=wt_b)
+
+        # Rebase c onto b, causing conflict
+        repo.git("rebase", "--onto", "b", "b~1", cwd=wt_c, check=False)
+        # Resolve the conflict but don't --continue
+        (wt_c / "shared.txt").write_text("resolved")
+        repo.git("add", "shared.txt", cwd=wt_c)
+
+        # Propagate from main — c has rebase in progress
+        # b's worktree is fine but c's is in active rebase (detached)
+        monkeypatch.setattr("builtins.input", lambda _: "y")
+        with pytest.raises(SystemExit):
+            cmd_propagate(_ns())
+
+        err = capsys.readouterr().err
+        assert "c" in err

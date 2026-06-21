@@ -19,6 +19,23 @@ class TreeError(SystemExit):
 
 
 # ---------------------------------------------------------------------------
+# Color
+# ---------------------------------------------------------------------------
+
+
+def _use_color() -> bool:
+    if os.environ.get("NO_COLOR"):
+        return False
+    return sys.stdout.isatty()
+
+
+def _color(text: str, code: str) -> str:
+    if not _use_color():
+        return text
+    return f"\033[{code}m{text}\033[0m"
+
+
+# ---------------------------------------------------------------------------
 # Git helpers
 # ---------------------------------------------------------------------------
 
@@ -127,15 +144,30 @@ def discover() -> Graph:
     porcelain = git("worktree", "list", "--porcelain")
     current_path: Path | None = None
     worktree_count = 0
+    detached_worktrees: list[Path] = []
     for line in porcelain.splitlines():
         if line.startswith("worktree "):
             current_path = Path(line.split(" ", 1)[1])
             worktree_count += 1
         elif line.startswith("branch refs/heads/"):
             branch_name = line.removeprefix("branch refs/heads/")
-            # Skip the main worktree (first entry) — only track added worktrees
             if current_path is not None and worktree_count > 1:
                 worktree_map[branch_name] = current_path
+        elif line == "detached":
+            if current_path is not None and worktree_count > 1:
+                detached_worktrees.append(current_path)
+
+    # Recover branch names for detached worktrees (mid-rebase)
+    for wt_path in detached_worktrees:
+        git_dir = git("rev-parse", "--git-dir", cwd=wt_path)
+        git_dir_path = Path(git_dir) if Path(git_dir).is_absolute() else wt_path / git_dir
+        head_name_file = git_dir_path / "rebase-merge" / "head-name"
+        if not head_name_file.exists():
+            head_name_file = git_dir_path / "rebase-apply" / "head-name"
+        if head_name_file.exists():
+            ref = head_name_file.read_text().strip()
+            if ref.startswith("refs/heads/"):
+                worktree_map[ref.removeprefix("refs/heads/")] = wt_path
 
     all_branches = git_lines("for-each-ref", "--format=%(refname:short)", "refs/heads/")
 
@@ -166,6 +198,53 @@ BOX_TEE = "├──"
 BOX_ELBOW = "└──"
 BOX_SPACE = "   "
 BOX_PIPE_SPACE = "│  "
+
+
+def _git_status_summary(branch: str, info: BranchInfo) -> str:
+    worktree = info.worktree
+    if not worktree:
+        return ""
+
+    parts: list[str] = []
+
+    out = git("status", "--porcelain", cwd=worktree)
+    if out:
+        staged = modified = untracked = conflicted = 0
+        for line in out.splitlines():
+            xy = line[:2]
+            x, y = xy[0], xy[1]
+            if "U" in xy or xy in ("DD", "AA"):
+                conflicted += 1
+            elif x in "MADRC":
+                staged += 1
+            if y == "?":
+                untracked += 1
+            elif y not in (" ", "!", "U"):
+                modified += 1
+        if conflicted:
+            parts.append(_color(f"✘{conflicted}", "31"))
+        if staged:
+            parts.append(_color(f"+{staged}", "32"))
+        if modified:
+            parts.append(_color(f"!{modified}", "31"))
+        if untracked:
+            parts.append(_color(f"?{untracked}", "31"))
+
+    remote_name = info.remote or "origin"
+    remote_ref = f"{remote_name}/{branch}"
+    if git_ok("rev-parse", "--verify", remote_ref, cwd=worktree):
+        ahead_behind = git("rev-list", "--left-right", "--count", f"{branch}...{remote_ref}", cwd=worktree, check=False)
+        parts_ab = ahead_behind.split() if ahead_behind else []
+        if len(parts_ab) == 2:
+            ahead, behind = parts_ab
+            if int(ahead):
+                parts.append(_color(f"⇡{ahead}", "32"))
+            if int(behind):
+                parts.append(_color(f"⇣{behind}", "31"))
+
+    if not parts:
+        return ""
+    return "[" + "".join(parts) + "]"
 
 
 def _pending_count(parent: str, child: str) -> int:
@@ -210,8 +289,9 @@ def _format_subtree(
         annotation = ""
         if info and info.worktree:
             wt = str(info.worktree).replace(str(Path.home()), "~")
-            dirty = "  (dirty)" if info.is_dirty else ""
-            annotation = f"  {wt}{dirty}"
+            status = _git_status_summary(child, info)
+            status_part = f"  {status}" if status else ""
+            annotation = f"  {wt}{status_part}"
         elif info:
             annotation = "  (no worktree)"
 
@@ -468,6 +548,32 @@ def _require_worktrees(branches: list[str], graph: Graph) -> None:
     raise TreeError("\n".join(lines))
 
 
+def _has_active_rebase(cwd: Path) -> bool:
+    git_dir = git("rev-parse", "--git-dir", cwd=cwd)
+    git_dir_path = Path(git_dir) if Path(git_dir).is_absolute() else cwd / git_dir
+    return (git_dir_path / "rebase-merge").is_dir() or (git_dir_path / "rebase-apply").is_dir()
+
+
+def _require_clean_state(branches: list[str], graph: Graph) -> None:
+    problems = []
+    for b in branches:
+        info = graph.branches.get(b)
+        if not info or not info.worktree:
+            continue
+        wt = info.worktree
+        out = git("status", "--porcelain", cwd=wt)
+        if out and any("U" in line[:2] or line[:2] in ("DD", "AA") for line in out.splitlines()):
+            problems.append((b, wt, "unresolved conflicts"))
+        elif _has_active_rebase(wt):
+            problems.append((b, wt, "rebase in progress"))
+    if not problems:
+        return
+    lines = ["These branches are not in a clean state:"]
+    for b, wt, reason in problems:
+        lines.append(f"  {b}  ({reason} — resolve in: {wt})")
+    raise TreeError("\n".join(lines))
+
+
 def cmd_propagate(args: argparse.Namespace) -> None:
     branch = getattr(args, "branch", None) or current_branch()
     graph = discover()
@@ -477,6 +583,9 @@ def cmd_propagate(args: argparse.Namespace) -> None:
         print("No descendants to propagate to.")
         return
 
+    _require_worktrees(descendants, graph)
+    _require_clean_state(descendants, graph)
+
     print(f"Propagating from {branch}:")
     subtree_lines = format_tree(graph, root=branch, show_counts=True).splitlines()[1:]
     for line in subtree_lines:
@@ -485,8 +594,6 @@ def cmd_propagate(args: argparse.Namespace) -> None:
 
     if getattr(args, "dry", False) or not confirm("Proceed?"):
         return
-
-    _require_worktrees(descendants, graph)
     auto_rerere = not getattr(args, "no_auto_rerere", False)
     results: list[tuple[str, str]] = []
 
@@ -559,8 +666,10 @@ def cmd_rebase(args: argparse.Namespace) -> None:
         raise TreeError(
             f"{branch} needs a worktree. Add one with: git worktree add <path> {branch}"
         )
+    _require_clean_state([branch], graph)
     if descendants:
         _require_worktrees(descendants, graph)
+        _require_clean_state(descendants, graph)
 
     print()
     if args.dry or not confirm("Proceed?"):
