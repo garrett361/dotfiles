@@ -816,6 +816,30 @@ def cmd_push(args: argparse.Namespace) -> None:
         print(f"  {name}: {status}")
 
 
+def cmd_log(args: argparse.Namespace) -> None:
+    graph = discover()
+    root = main_branch()
+    descendants = graph.downstream_from(root)
+    if not descendants:
+        print(f"No tree branches found under {root}.")
+        raise SystemExit(0)
+
+    all_refs = [root] + descendants
+
+    cmd = ["git", "log", "--graph", "--oneline", "--decorate"]
+    if _use_color():
+        cmd.append("--color=always")
+    cmd += all_refs
+
+    boundary = git("merge-base", "--octopus", *all_refs, check=False)
+    if boundary and git_ok("rev-parse", "--verify", f"{boundary}^"):
+        cmd.append(f"^{boundary}^")
+
+    cmd += args.extra
+    result = subprocess.run(cmd)
+    raise SystemExit(result.returncode)
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -834,6 +858,7 @@ _git-tree() {
         'detach:Remove a branch from tree'
         'split:Split current branch into parent + child'
         'push:Push current branch + descendants'
+        'log:Show git log graph for all tree branches'
         'completions:Emit shell completion script'
     )
 
@@ -872,7 +897,7 @@ _git_tree() {
     local cur prev subcmds
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    subcmds="propagate rebase branch attach detach split push completions"
+    subcmds="propagate rebase branch attach detach split push log completions"
 
     if [[ $COMP_CWORD -eq 1 ]]; then
         COMPREPLY=($(compgen -W "$subcmds" -- "$cur"))
@@ -974,6 +999,9 @@ def main() -> None:
     push_p = sub.add_parser("push", help="Push current branch + descendants")
     push_p.add_argument("--dry", action="store_true", help="Show what would be done")
 
+    log_p = sub.add_parser("log", help="Show git log graph for all tree branches")
+    log_p.add_argument("extra", nargs=argparse.REMAINDER, help="Extra args passed to git log")
+
     completions_p = sub.add_parser("completions", help="Emit shell completion script")
     completions_p.add_argument("shell", choices=["zsh", "bash"], help="Shell type")
 
@@ -988,6 +1016,7 @@ def main() -> None:
         "detach": cmd_detach,
         "split": cmd_split,
         "push": cmd_push,
+        "log": cmd_log,
         "completions": cmd_completions,
     }
 

@@ -1,0 +1,77 @@
+from __future__ import annotations
+
+import argparse
+import subprocess as sp
+
+import pytest
+
+from git_tree.cli import cmd_log
+
+from .conftest import RepoHelper
+
+
+@pytest.fixture
+def capture(monkeypatch):
+    captured = {}
+    orig_run = sp.run
+
+    def capture_run(cmd, **kwargs):
+        kwargs["capture_output"] = True
+        kwargs["text"] = True
+        result = orig_run(cmd, **kwargs)
+        captured["stdout"] = result.stdout
+        captured["returncode"] = result.returncode
+        return result
+
+    monkeypatch.setattr("subprocess.run", capture_run)
+    return captured
+
+
+class TestLog:
+    def test_shows_all_tree_branches(self, repo: RepoHelper, capture) -> None:
+        repo.commit("a1.txt", "a1", "first on main")
+        repo.branch("b", parent="main")
+        repo.checkout("b")
+        repo.commit("b1.txt", "b1", "on b")
+        repo.checkout("main")
+        repo.commit("a2.txt", "a2", "second on main")
+
+        with pytest.raises(SystemExit) as exc:
+            cmd_log(argparse.Namespace(extra=["--no-color"]))
+        assert exc.value.code == 0
+        assert "on b" in capture["stdout"]
+        assert "second on main" in capture["stdout"]
+
+    def test_excludes_pre_fork_history(self, repo: RepoHelper, capture) -> None:
+        repo.commit("old.txt", "old", "ancient history")
+        repo.commit("a1.txt", "a1", "post-fork on main")
+        repo.branch("b", parent="main")
+        repo.checkout("b")
+        repo.commit("b1.txt", "b1", "on b")
+        repo.checkout("main")
+        repo.commit("a2.txt", "a2", "new on main")
+
+        with pytest.raises(SystemExit):
+            cmd_log(argparse.Namespace(extra=["--no-color"]))
+        assert "ancient history" not in capture["stdout"]
+        assert "on b" in capture["stdout"]
+        assert "post-fork on main" in capture["stdout"]
+
+    def test_no_descendants_exits_cleanly(self, repo: RepoHelper, capsys) -> None:
+        repo.commit("a1.txt", "a1", "on main")
+        with pytest.raises(SystemExit) as exc:
+            cmd_log(argparse.Namespace(extra=[]))
+        assert exc.value.code == 0
+        out = capsys.readouterr().out
+        assert "No tree branches" in out
+
+    def test_root_commit_boundary(self, repo: RepoHelper, capture) -> None:
+        repo.branch("b", parent="main")
+        repo.checkout("b")
+        repo.commit("b1.txt", "b1", "on b")
+        repo.checkout("main")
+
+        with pytest.raises(SystemExit) as exc:
+            cmd_log(argparse.Namespace(extra=["--no-color"]))
+        assert exc.value.code == 0
+        assert "on b" in capture["stdout"]
