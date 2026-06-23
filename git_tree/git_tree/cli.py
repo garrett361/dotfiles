@@ -745,6 +745,37 @@ def _require_clean_state(branches: list[str], graph: Graph) -> None:
     raise TreeError("\n".join(lines))
 
 
+@dataclass(frozen=True)
+class RebaseResult:
+    note: str  # how the rebase completed, for display: "ok", "ok (rerere)", ...
+    pop_conflicted: bool = False
+
+
+def _rebase_branch(
+    branch: str,
+    onto: str,
+    fork_point: str,
+    info: BranchInfo,
+    *,
+    auto_rerere: bool,
+) -> RebaseResult:
+    """Rebase `branch` onto `onto` in its worktree, stashing/popping dirty changes
+    and recording the new fork point. Raises (via _rebase_onto) on a real conflict,
+    leaving the rebase in progress. A pop conflict is non-fatal (the branch ref is
+    already rebased); it's reported via `pop_conflicted` and the worktree is left
+    for the user."""
+    cwd = info.worktree
+    assert cwd is not None  # callers guarantee a worktree via _require_worktrees
+    stashed = info.is_dirty and _stash_push_if_created(cwd)
+    note = _rebase_onto(branch, onto, fork_point, cwd, auto_rerere, stashed)
+    # Rebase succeeded; record the fork before the pop (which only touches the
+    # working tree). `rev-parse(onto)` is stable here — rebasing `branch` never
+    # moves `onto`.
+    _set_fork_commit(branch, git("rev-parse", onto))
+    pop_conflicted = stashed and not git_ok("stash", "pop", cwd=cwd)
+    return RebaseResult(note, pop_conflicted)
+
+
 def _propagate_descendants(
     branch: str,
     graph: Graph,
@@ -755,27 +786,12 @@ def _propagate_descendants(
     results: list[tuple[str, str]] = []
 
     for child in descendants:
-        parent_of_child = graph.parent_of[child]
+        parent = graph.parent_of[child]
         info = graph.branches[child]
-        wt_cwd = info.worktree
-        assert wt_cwd is not None  # guaranteed by _require_worktrees before we get here
-
-        stashed = info.is_dirty and _stash_push_if_created(wt_cwd)
-
-        parent_tip = git("rev-parse", parent_of_child)
-        fork_point = _get_fork_commit(child, parent_of_child, info)
-        status = _rebase_onto(child, parent_of_child, fork_point, wt_cwd, auto_rerere, stashed)
-        # Rebase succeeded (a conflict would have raised); record the new fork
-        # before the stash pop, which only touches the working tree.
-        _set_fork_commit(child, parent_tip)
-
-        if stashed:
-            pop_ok = git_ok("stash", "pop", cwd=wt_cwd)
-            if not pop_ok:
-                results.append((child, "rebased (stash pop conflict - resolve manually)"))
-                continue
-
-        results.append((child, status))
+        fork_point = _get_fork_commit(child, parent, info)
+        r = _rebase_branch(child, parent, fork_point, info, auto_rerere=auto_rerere)
+        text = "rebased (stash pop conflict - resolve manually)" if r.pop_conflicted else r.note
+        results.append((child, text))
 
     return results
 
@@ -864,20 +880,14 @@ def cmd_rebase(args: argparse.Namespace) -> None:
         return
 
     auto_rerere = not getattr(args, "no_auto_rerere", False)
-    wt_cwd = info.worktree
 
-    stashed = info.is_dirty and _stash_push_if_created(wt_cwd)
-
-    _rebase_onto(branch, target, fork_point, wt_cwd, auto_rerere, stashed)
-
-    if stashed and not git_ok("stash", "pop", cwd=wt_cwd):
+    r = _rebase_branch(branch, target, fork_point, info, auto_rerere=auto_rerere)
+    git("config", f"branch.{branch}.tree-parent-branch", target)
+    if r.pop_conflicted:
         print(
-            f"Warning: could not pop worktree stash — run: cd {wt_cwd} && git stash pop",
+            f"Warning: could not pop worktree stash — run: cd {info.worktree} && git stash pop",
             file=sys.stderr,
         )
-
-    git("config", f"branch.{branch}.tree-parent-branch", target)
-    _set_fork_commit(branch, git("rev-parse", target))
     print(f"Rebased {branch} onto {target}")
 
     if descendants:
