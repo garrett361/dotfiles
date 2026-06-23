@@ -959,6 +959,12 @@ def cmd_push(args: argparse.Namespace) -> None:
     push_set = [branch] + descendants
     _require_worktrees([b for b in push_set if b in graph.branches], graph)
 
+    # Note: intentionally do NOT fetch here. `--force-with-lease` (no explicit
+    # expected ref) compares the remote against the remote-tracking ref; fetching
+    # first would advance that ref to a teammate's commit and let the force-push
+    # silently clobber it. The un-fetched ref reflects our last known state and is
+    # exactly what makes the lease reject a clobber.
+
     stale: list[str] = []
     ahead: dict[str, int] = {}
 
@@ -984,7 +990,15 @@ def cmd_push(args: argparse.Namespace) -> None:
 
     pushable = [b for b in push_set if b not in stale]
 
-    if not pushable:
+    # A branch whose ancestor in this run is stale can't be pushed — its base
+    # wouldn't be on the remote. Propagate that through descendants (push_set is
+    # topological, parents before children) for an accurate preview.
+    blocked = set(stale)
+    for b in pushable:
+        if graph.parent_of.get(b) in blocked:
+            blocked.add(b)
+
+    if all(b in blocked for b in pushable):
         print("Nothing to push.")
         return
 
@@ -992,6 +1006,8 @@ def cmd_push(args: argparse.Namespace) -> None:
     for b in push_set:
         if b in stale:
             print(f"  {b}  (stale - run propagate first)")
+        elif b in blocked:
+            print(f"  {b}  (skipped - ancestor not pushed)")
         else:
             print(f"  {b}  [{ahead.get(b, 0)} ahead]")
     print()
@@ -1001,10 +1017,18 @@ def cmd_push(args: argparse.Namespace) -> None:
 
     results: list[tuple[str, str]] = []
     for b in pushable:
+        # Skip if an ancestor in this run is stale or its push failed. Re-add b so
+        # the block cascades to its own descendants later in the loop.
+        if graph.parent_of.get(b) in blocked:
+            results.append((b, "skipped (ancestor not pushed)"))
+            blocked.add(b)
+            continue
         info = graph.branches.get(b)
         remote_name = (info.remote if info else None) or "origin"
 
         ok = git_ok("push", "--force-with-lease", "-u", remote_name, b)
+        if not ok:
+            blocked.add(b)
         results.append((b, "ok" if ok else "FAILED"))
 
     print()
