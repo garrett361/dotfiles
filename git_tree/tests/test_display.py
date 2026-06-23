@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 
-from git_tree.cli import BranchInfo, _git_status_summary, cmd_tree, discover, format_tree
+from git_tree.cli import BranchInfo, _git_status_summary, cmd_tree, discover, format_tree, main
 
 from .conftest import RepoHelper
 
@@ -55,20 +55,68 @@ class TestFormatTree:
 
 
 class TestCmdTreeForest:
-    def test_renders_roots_not_under_main(self, repo: RepoHelper, capsys) -> None:
+    def test_all_renders_every_root(self, repo: RepoHelper, capsys) -> None:
         # A stack rooted at main, plus a separate forest whose base branch has no
-        # tree-parent (so it isn't reachable from main).
+        # tree-parent (so it isn't reachable from main). `--all` shows both.
         repo.branch("topic", parent="main")
         repo.git("branch", "standalone")  # real branch, not registered in the tree
         repo.branch("leaf", parent="standalone")
 
-        cmd_tree(argparse.Namespace())
+        cmd_tree(argparse.Namespace(all=True))
         out = capsys.readouterr().out
 
         assert "topic" in out
-        # Previously invisible because the walk only descended from main.
+        # A root whose base isn't main — only visible with --all.
         assert "standalone" in out
         assert "leaf" in out
+
+    def test_default_shows_only_current_tree(self, repo: RepoHelper, capsys) -> None:
+        # Two trees; standing in the `standalone` tree, the default view shows only it.
+        repo.branch("topic", parent="main")  # main's tree
+        repo.git("branch", "standalone")
+        repo.branch("leaf", parent="standalone")  # standalone's tree
+        repo.checkout("leaf")
+
+        cmd_tree(argparse.Namespace())
+        out = capsys.readouterr().out
+
+        assert "standalone" in out
+        assert "leaf" in out
+        assert "topic" not in out  # main's tree is not the current tree
+
+    def test_default_off_tree_points_to_all(self, repo: RepoHelper, capsys) -> None:
+        # On a branch in no tree while other trees exist: don't dump everything.
+        repo.git("branch", "standalone")
+        repo.branch("leaf", parent="standalone")
+        repo.checkout("main")  # main has no tree-parent and no children -> not a tree-branch
+
+        cmd_tree(argparse.Namespace())
+        out = capsys.readouterr().out
+
+        assert "Not on a tree-branch" in out
+        assert "--all" in out
+        assert "leaf" not in out
+
+    def test_all_shows_trees_even_when_off_tree(self, repo: RepoHelper, capsys) -> None:
+        # --all shows every tree regardless of the current branch (even off a tree).
+        repo.git("branch", "standalone")
+        repo.branch("leaf", parent="standalone")
+        repo.checkout("main")  # not a tree-branch (no parent, no children)
+
+        cmd_tree(argparse.Namespace(all=True))
+        out = capsys.readouterr().out
+        assert "standalone" in out
+        assert "leaf" in out
+
+    def test_all_flag_parses_via_cli(self, repo: RepoHelper, capsys) -> None:
+        repo.branch("topic", parent="main")
+        repo.git("branch", "standalone")
+        repo.branch("leaf", parent="standalone")
+
+        main(["--all"])  # `git tree --all`
+        out = capsys.readouterr().out
+        assert "topic" in out
+        assert "standalone" in out
 
 
 class TestStatusSummary:

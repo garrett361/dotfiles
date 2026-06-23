@@ -541,19 +541,29 @@ def _fallback_select(items: list[str], *, multi: bool) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def cmd_tree(_args: argparse.Namespace) -> None:
+def cmd_tree(args: argparse.Namespace) -> None:
     graph = discover()
     raw = git("rev-parse", "--abbrev-ref", "HEAD", check=False)
     current = None if (not raw or raw == "HEAD") else raw
 
-    # Render every root: a stack whose base isn't main/master (e.g. attached to a
-    # feature branch) would otherwise be invisible. A root is a tree-branch that has
-    # children but is not itself a tracked child.
-    blocks = [format_tree(graph, root=r, current=current, show_counts=True) for r in roots(graph)]
-    if blocks:
-        print("\n\n".join(blocks))
+    all_roots = roots(graph)
+    if getattr(args, "all", False):
+        # A root is a tree-branch with children but no tracked parent; show every one,
+        # including stacks whose base isn't main (otherwise invisible).
+        to_show = all_roots
+    elif current and (current in graph.parent_of or current in graph.children_of):
+        # Default: just the tree containing the current branch.
+        to_show = [root_of(graph, current)]
     else:
+        to_show = []
+
+    if to_show:
+        blocks = [format_tree(graph, root=r, current=current, show_counts=True) for r in to_show]
+        print("\n\n".join(blocks))
+    elif not all_roots:
         print("  (no tree-branches registered — use `git tree attach` or `git tree branch`)")
+    else:
+        print("Not on a tree-branch. Use `git tree --all` to see all trees.")
 
 
 def cmd_branch(args: argparse.Namespace) -> None:
@@ -1240,6 +1250,11 @@ def cmd_completions(args: argparse.Namespace) -> None:
 
 def main(argv: list[str] | None = None) -> None:  # explicit argv for tests
     parser = argparse.ArgumentParser(prog="git-tree", description=__doc__)
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="With no subcommand, show all trees instead of just the current one",
+    )
     sub = parser.add_subparsers(dest="command")
 
     propagate_p = sub.add_parser("propagate", help="Propagate changes to all descendants")
