@@ -311,7 +311,7 @@ def _git_status_summary(branch: str, info: BranchInfo) -> str:
             x, y = xy[0], xy[1]
             if "U" in xy or xy in ("DD", "AA"):
                 conflicted += 1
-            elif x in "MADRC":
+            elif x in "MADRCT":  # include T (type-change), e.g. file <-> symlink
                 staged += 1
             if y == "?":
                 untracked += 1
@@ -338,7 +338,7 @@ def _git_status_summary(branch: str, info: BranchInfo) -> str:
             check=False,
         )
         parts_ab = ahead_behind.split() if ahead_behind else []
-        if len(parts_ab) == 2:
+        if len(parts_ab) == 2 and all(p.isdigit() for p in parts_ab):
             ahead, behind = parts_ab
             if int(ahead):
                 parts.append(_color(f"⇡{ahead}", "32"))
@@ -941,8 +941,17 @@ def cmd_split(_args: argparse.Namespace) -> None:
         git("config", f"branch.{parent_name}.remote", remote)
 
     if worktree_path and worktree_path.lower() != "n":
-        git("worktree", "add", worktree_path, parent_name)
-        print(f"Created worktree at {worktree_path}")
+        # The split (branch + config) is already applied; a worktree-add failure
+        # must not abort and leave the user unsure whether the split happened.
+        if git_ok("worktree", "add", worktree_path, parent_name):
+            print(f"Created worktree at {worktree_path}")
+        else:
+            print(
+                f"Warning: could not create worktree at {worktree_path} "
+                f"(the split itself succeeded; add one later with "
+                f"`git worktree add <path> {parent_name}`).",
+                file=sys.stderr,
+            )
 
     split_commits = git_lines("log", "--oneline", f"{old_fork}..{commit_hash}")
     remaining = git_lines("log", "--oneline", f"{commit_hash}..HEAD")

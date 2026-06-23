@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 
-from git_tree.cli import cmd_tree, discover, format_tree
+from git_tree.cli import BranchInfo, _git_status_summary, cmd_tree, discover, format_tree
 
 from .conftest import RepoHelper
 
@@ -69,3 +69,20 @@ class TestCmdTreeForest:
         # Previously invisible because the walk only descended from main.
         assert "standalone" in out
         assert "leaf" in out
+
+
+class TestStatusSummary:
+    def test_counts_staged_type_change(self, repo: RepoHelper, tmp_path) -> None:
+        repo.branch("feat", parent="main")
+        wt = repo.worktree("feat", str(tmp_path / "wt-feat"))
+        (wt / "f").write_text("content")
+        repo.git("add", "f", cwd=wt)
+        repo.git("commit", "-m", "add f", cwd=wt)
+
+        # Replace the regular file with a symlink and stage it -> "T " (type-change).
+        (wt / "f").unlink()
+        (wt / "f").symlink_to("target")
+        repo.git("add", "f", cwd=wt)
+
+        summary = _git_status_summary("feat", BranchInfo(name="feat", worktree=wt))
+        assert "+1" in summary  # counted as staged (T was previously ignored)

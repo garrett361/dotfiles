@@ -80,3 +80,31 @@ class TestSplit:
         worktrees = repo.git("worktree", "list", "--porcelain")
         assert "feature-parent" in worktrees
         assert (tmp_path / "wt-parent").exists()
+
+    def test_worktree_failure_is_non_fatal(
+        self, repo: RepoHelper, monkeypatch, capsys, tmp_path
+    ) -> None:
+        repo.branch("feature", parent="main")
+        repo.checkout("feature")
+        repo.commit("f1.txt", "f1", "first on feature")
+        repo.commit("f2.txt", "f2", "second on feature")
+
+        commits = repo.git("log", "--oneline", "--reverse", "main..HEAD").splitlines()
+        split_line = commits[0]
+
+        # A path that already exists as a file -> `git worktree add` fails.
+        bad_path = tmp_path / "exists"
+        bad_path.write_text("not a directory")
+
+        inputs = iter(["feature-base", str(bad_path)])
+        monkeypatch.setattr("git_tree.cli.fzf_select", lambda items, **kw: [split_line])
+        monkeypatch.setattr("builtins.input", lambda _: next(inputs))
+
+        cmd_split(None)  # must not raise despite the worktree failure
+
+        # The split itself was applied.
+        graph = discover()
+        assert graph.parent_of["feature-base"] == "main"
+        assert graph.parent_of["feature"] == "feature-base"
+        err = capsys.readouterr().err
+        assert "could not create worktree" in err
