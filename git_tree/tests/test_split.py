@@ -67,25 +67,6 @@ class TestSplit:
         with pytest.raises(SystemExit):
             cmd_split(None)
 
-    def test_inherits_remote(self, repo: RepoHelper, monkeypatch) -> None:
-        repo.branch("feature", parent="main")
-        repo.git("config", "branch.feature.remote", "origin")
-        repo.checkout("feature")
-        repo.commit("f1.txt", "f1", "first")
-        repo.commit("f2.txt", "f2", "second")
-
-        commits = repo.git("log", "--oneline", "--reverse", "main..HEAD").splitlines()
-        split_line = commits[0]
-
-        inputs = iter(["feature-base", "n"])
-        monkeypatch.setattr("git_tree.cli.fzf_select", lambda items, **kw: [split_line])
-        monkeypatch.setattr("builtins.input", lambda _: next(inputs))
-
-        cmd_split(None)
-
-        remote = repo.git("config", "branch.feature-base.remote")
-        assert remote == "origin"
-
     def test_creates_worktree_when_path_given(
         self, repo: RepoHelper, monkeypatch, tmp_path
     ) -> None:

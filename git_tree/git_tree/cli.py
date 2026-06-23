@@ -119,7 +119,6 @@ def _set_fork_commit(branch: str, commit: str) -> None:
 class BranchInfo:
     name: str
     worktree: Path | None = None
-    remote: str | None = None
     fork_commit: str | None = None
 
     @property
@@ -186,6 +185,17 @@ def root_of(graph: Graph, branch: str) -> str:
         seen.add(branch)
         branch = graph.parent_of[branch]
     return branch
+
+
+def _root_remote(graph: Graph, branch: str) -> tuple[str, str | None]:
+    """The tree root for `branch` and that root's configured remote (None if unset).
+
+    A tree has one remote, defined on its root; every branch in the tree pushes there
+    and shows ahead/behind against it.
+    """
+    root = root_of(graph, branch)
+    remote = git("config", f"branch.{root}.remote", check=False) or None
+    return root, remote
 
 
 def _find_cycles(graph: Graph) -> list[list[str]]:
@@ -261,12 +271,10 @@ def discover() -> Graph:
             orphaned.append((branch, parent))
             continue
 
-        remote = git("config", f"branch.{branch}.remote", check=False) or None
         fork_commit = git("config", f"branch.{branch}.tree-fork-commit", check=False) or None
         info = BranchInfo(
             name=branch,
             worktree=worktree_map.get(branch),
-            remote=remote,
             fork_commit=fork_commit,
         )
         graph.branches[branch] = info
@@ -303,7 +311,7 @@ BOX_SPACE = "   "
 BOX_PIPE_SPACE = "│  "
 
 
-def _git_status_summary(branch: str, info: BranchInfo) -> str:
+def _git_status_summary(branch: str, info: BranchInfo, remote: str | None) -> str:
     worktree = info.worktree
     if not worktree:
         return ""
@@ -333,9 +341,8 @@ def _git_status_summary(branch: str, info: BranchInfo) -> str:
         if untracked:
             parts.append(_color(f"?{untracked}", Color.RED))
 
-    remote_name = info.remote or "origin"
-    remote_ref = f"{remote_name}/{branch}"
-    if git_ok("rev-parse", "--verify", remote_ref, cwd=worktree):
+    remote_ref = f"{remote}/{branch}" if remote else None
+    if remote_ref and git_ok("rev-parse", "--verify", remote_ref, cwd=worktree):
         ahead_behind = git(
             "rev-list",
             "--left-right",
@@ -380,7 +387,12 @@ def format_tree(
     marker = "* " if current == root else ""
     lines: list[str] = [f"{marker}{root}"]
     children = graph.children_of.get(root, [])
-    _format_subtree(graph, children, "", lines, show_counts=show_counts, current=current)
+    # The whole tree shares one remote, anchored at its actual root (which may be above
+    # `root` when rendering a mid-tree subtree, e.g. a propagate/rebase preview).
+    _, tree_remote = _root_remote(graph, root)
+    _format_subtree(
+        graph, children, "", lines, show_counts=show_counts, current=current, remote=tree_remote
+    )
     return "\n".join(lines)
 
 
@@ -392,6 +404,7 @@ def _format_subtree(
     *,
     show_counts: bool = False,
     current: str | None = None,
+    remote: str | None = None,
 ) -> None:
     # The graph is acyclic: discover() raises on a cycle, so this recursion is bounded.
     for i, child in enumerate(children):
@@ -402,7 +415,7 @@ def _format_subtree(
         annotation = ""
         if info and info.worktree:
             wt = str(info.worktree).replace(str(Path.home()), "~")
-            status = _git_status_summary(child, info)
+            status = _git_status_summary(child, info, remote)
             status_part = f"  {status}" if status else ""
             annotation = f"  {wt}{status_part}"
         elif info:
@@ -428,6 +441,7 @@ def _format_subtree(
                 lines,
                 show_counts=show_counts,
                 current=current,
+                remote=remote,
             )
 
 
@@ -525,10 +539,6 @@ def cmd_branch(args: argparse.Namespace) -> None:
     git("worktree", "add", path, "-b", name)
     git("config", f"branch.{name}.tree-parent-branch", parent)
     _set_fork_commit(name, git("rev-parse", parent))
-
-    remote = git("config", f"branch.{parent}.remote", check=False)
-    if remote:
-        git("config", f"branch.{name}.remote", remote)
 
     print(f"Created branch {name} with worktree at {path} (parent: {parent})")
 
@@ -951,10 +961,6 @@ def cmd_split(_args: argparse.Namespace) -> None:
         git("config", f"branch.{parent_name}.tree-parent-branch", parent)
         _set_fork_commit(parent_name, old_fork)
 
-    remote = git("config", f"branch.{branch}.remote", check=False)
-    if remote:
-        git("config", f"branch.{parent_name}.remote", remote)
-
     if worktree_path and worktree_path.lower() != "n":
         # The split (branch + config) is already applied; a worktree-add failure
         # must not abort and leave the user unsure whether the split happened.
@@ -984,6 +990,14 @@ def cmd_push(args: argparse.Namespace) -> None:
     push_set = [branch] + descendants
     _require_worktrees([b for b in push_set if b in graph.branches], graph)
 
+    # One remote per tree, defined on the root; every branch pushes there.
+    root, root_remote = _root_remote(graph, branch)
+    if not root_remote:
+        raise TreeError(
+            f"root tree-branch '{root}' has no remote configured "
+            f"(set it with `git config branch.{root}.remote <remote>`)"
+        )
+
     # Note: intentionally do NOT fetch here. `--force-with-lease` (no explicit
     # expected ref) compares the remote against the remote-tracking ref; fetching
     # first would advance that ref to a teammate's commit and let the force-push
@@ -1002,10 +1016,7 @@ def cmd_push(args: argparse.Namespace) -> None:
                 stale.append(b)
                 continue
 
-        info = graph.branches.get(b)
-        remote_name = (info.remote if info else None) or "origin"
-        remote_ref = f"{remote_name}/{b}"
-
+        remote_ref = f"{root_remote}/{b}"
         if git_ok("rev-parse", "--verify", remote_ref):
             count = len(git_lines("rev-list", f"{remote_ref}..{b}"))
         else:
@@ -1027,7 +1038,7 @@ def cmd_push(args: argparse.Namespace) -> None:
         print("Nothing to push.")
         return
 
-    print("Pushing (--force-with-lease):")
+    print(f"Pushing to {root_remote} (--force-with-lease):")
     for b in push_set:
         if b in stale:
             print(f"  {b}  (stale - run propagate first)")
@@ -1048,10 +1059,8 @@ def cmd_push(args: argparse.Namespace) -> None:
             results.append((b, "skipped (ancestor not pushed)"))
             blocked.add(b)
             continue
-        info = graph.branches.get(b)
-        remote_name = (info.remote if info else None) or "origin"
 
-        ok = git_ok("push", "--force-with-lease", "-u", remote_name, b)
+        ok = git_ok("push", "--force-with-lease", "-u", root_remote, b)
         if not ok:
             blocked.add(b)
         results.append((b, "ok" if ok else "FAILED"))

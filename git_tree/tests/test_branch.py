@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import subprocess
 
 from git_tree.cli import cmd_branch, discover
 
@@ -29,21 +28,3 @@ class TestBranch:
         cmd_branch(_ns(name="child", path=wt_path))
         result = repo.git("worktree", "list", "--porcelain")
         assert "child" in result
-
-    def test_inherits_remote(self, repo: RepoHelper, tmp_path) -> None:
-        repo.git("config", "branch.main.remote", "origin")
-        cmd_branch(_ns(name="child", path=str(tmp_path / "wt-child")))
-        remote = repo.git("config", "branch.child.remote", check=False)
-        assert remote == "origin"
-
-    def test_no_remote_inheritance_when_parent_has_none(self, repo: RepoHelper, tmp_path) -> None:
-        repo.git("config", "--unset", "branch.main.remote", check=False)
-        cmd_branch(_ns(name="child", path=str(tmp_path / "wt-child")))
-        result = subprocess.run(
-            ["git", "config", "branch.child.remote"],
-            cwd=repo.work,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert result.returncode != 0

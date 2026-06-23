@@ -2,13 +2,24 @@ from __future__ import annotations
 
 import argparse
 
-from git_tree.cli import cmd_push
+import pytest
+
+from git_tree.cli import TreeError, cmd_push
 
 from .conftest import RepoHelper
 
 
-def _ns() -> object:
-    return argparse.Namespace(dry=False)
+def _ns(dry: bool = False) -> object:
+    return argparse.Namespace(dry=dry)
+
+
+def _add_remote(repo: RepoHelper, name: str, tmp_path) -> object:
+    """Create a second bare remote and register it; returns its path."""
+    path = tmp_path / f"{name}.git"
+    path.mkdir()
+    repo.git("init", "--bare", cwd=path)
+    repo.git("remote", "add", name, str(path))
+    return path
 
 
 class TestPush:
@@ -40,6 +51,7 @@ class TestPush:
         # A standalone root (no tree-parent) never pushed: the ahead-count falls back to a
         # self-base (0) instead of anchoring on main, and the push still succeeds.
         repo.git("branch", "base")  # root: has a tree-child below but no tree-parent
+        repo.git("config", "branch.base.remote", "origin")  # tree remote lives on the root
         repo.branch("child", parent="base")
         wt = repo.worktree("child", str(tmp_path / "wt-child"))
         (wt / "c1.txt").write_text("c1")
@@ -54,6 +66,72 @@ class TestPush:
         assert "base  [0 ahead]" in out
         remote = repo.git("ls-remote", "--heads", str(repo.origin))
         assert "refs/heads/base" in remote
+
+    def test_uses_root_remote_for_all_branches(
+        self, repo: RepoHelper, monkeypatch, tmp_path
+    ) -> None:
+        # The tree root's remote wins over a child's own remote config.
+        upstream = _add_remote(repo, "upstream", tmp_path)
+        repo.git("config", "branch.main.remote", "upstream")  # root -> upstream
+
+        repo.branch("child", parent="main")
+        repo.git("config", "branch.child.remote", "origin")  # child disagrees; ignored
+        wt = repo.worktree("child", str(tmp_path / "wt-child"))
+        (wt / "c1.txt").write_text("c1")
+        repo.git("add", "c1.txt", cwd=wt)
+        repo.git("commit", "-m", "child commit", cwd=wt)
+
+        monkeypatch.chdir(wt)
+        monkeypatch.setattr("builtins.input", lambda _: "y")
+        cmd_push(_ns())
+
+        assert "refs/heads/child" in repo.git("ls-remote", "--heads", str(upstream))
+        assert "refs/heads/child" not in repo.git("ls-remote", "--heads", str(repo.origin))
+
+    def test_push_from_mid_tree_uses_tree_root_remote(
+        self, repo: RepoHelper, monkeypatch, tmp_path
+    ) -> None:
+        # Pushing from a mid-tree branch still anchors on the absolute tree root's remote,
+        # even though the root itself isn't in the push set.
+        upstream = _add_remote(repo, "upstream", tmp_path)
+        repo.git("config", "branch.main.remote", "upstream")
+
+        repo.branch("a", parent="main")
+        repo.branch("b", parent="a")
+        wt_b = repo.worktree("b", str(tmp_path / "wt-b"))
+        (wt_b / "b1.txt").write_text("b1")
+        repo.git("add", "b1.txt", cwd=wt_b)
+        repo.git("commit", "-m", "b commit", cwd=wt_b)
+
+        monkeypatch.chdir(wt_b)
+        monkeypatch.setattr("builtins.input", lambda _: "y")
+        cmd_push(_ns())
+
+        assert "refs/heads/b" in repo.git("ls-remote", "--heads", str(upstream))
+        assert "refs/heads/b" not in repo.git("ls-remote", "--heads", str(repo.origin))
+
+    def test_errors_when_root_remote_unset(self, repo: RepoHelper, capsys) -> None:
+        repo.git("config", "--unset", "branch.main.remote")
+        repo.branch("child", parent="main")
+        repo.checkout("child")
+
+        with pytest.raises(TreeError):
+            cmd_push(_ns())
+
+        err = capsys.readouterr().err
+        assert "root tree-branch 'main' has no remote configured" in err
+
+    def test_confirmation_prints_remote(self, repo: RepoHelper, capsys, tmp_path) -> None:
+        repo.branch("feature", parent="main")
+        wt = repo.worktree("feature", str(tmp_path / "wt-feature"))
+        (wt / "f1.txt").write_text("f1")
+        repo.git("add", "f1.txt", cwd=wt)
+        repo.git("commit", "-m", "feature commit", cwd=wt)
+
+        cmd_push(_ns(dry=True))  # dry-run: prints the preview, no actual push
+
+        out = capsys.readouterr().out
+        assert "Pushing to origin (--force-with-lease):" in out
 
     def test_uses_force_with_lease(self, repo: RepoHelper, monkeypatch, tmp_path) -> None:
         repo.branch("feature", parent="main")

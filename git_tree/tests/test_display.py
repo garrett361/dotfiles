@@ -84,5 +84,44 @@ class TestStatusSummary:
         (wt / "f").symlink_to("target")
         repo.git("add", "f", cwd=wt)
 
-        summary = _git_status_summary("feat", BranchInfo(name="feat", worktree=wt))
+        summary = _git_status_summary("feat", BranchInfo(name="feat", worktree=wt), remote=None)
         assert "+1" in summary  # counted as staged (T was previously ignored)
+
+
+class TestStatusRemote:
+    def test_status_uses_root_remote(self, repo: RepoHelper, capsys, tmp_path) -> None:
+        # The tree's root points at a second remote; ahead/behind is computed against it.
+        upstream = tmp_path / "upstream.git"
+        upstream.mkdir()
+        repo.git("init", "--bare", cwd=upstream)
+        repo.git("remote", "add", "upstream", str(upstream))
+        repo.git("config", "branch.main.remote", "upstream")
+
+        repo.branch("child", parent="main")
+        wt = repo.worktree("child", str(tmp_path / "wt-child"))
+        (wt / "c1.txt").write_text("c1")
+        repo.git("add", "c1.txt", cwd=wt)
+        repo.git("commit", "-m", "c1", cwd=wt)
+        repo.git("push", "-u", "upstream", "child", cwd=wt)  # upstream/child now exists
+        (wt / "c2.txt").write_text("c2")
+        repo.git("add", "c2.txt", cwd=wt)
+        repo.git("commit", "-m", "c2", cwd=wt)  # 1 ahead of upstream/child
+
+        cmd_tree(argparse.Namespace())
+        out = capsys.readouterr().out
+        assert "⇡1" in out  # ahead computed against upstream/child, not origin
+
+    def test_status_no_root_remote_is_graceful(self, repo: RepoHelper, capsys, tmp_path) -> None:
+        # Root has no remote: render must not error and must show no ahead/behind markers.
+        repo.git("config", "--unset", "branch.main.remote")
+        repo.branch("child", parent="main")
+        wt = repo.worktree("child", str(tmp_path / "wt-child"))
+        (wt / "c1.txt").write_text("c1")
+        repo.git("add", "c1.txt", cwd=wt)
+        repo.git("commit", "-m", "c1", cwd=wt)
+
+        cmd_tree(argparse.Namespace())
+        out = capsys.readouterr().out
+        assert "child" in out
+        assert "⇡" not in out
+        assert "⇣" not in out
