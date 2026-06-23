@@ -40,13 +40,15 @@ class RepoHelper:
     def branch(self, name: str, parent: str | None = None) -> None:
         self.git("branch", name)
         if parent:
-            self.git("config", f"branch.{name}.tree-parent", parent)
+            self.set_parent(name, parent)
 
     def checkout(self, name: str) -> None:
         self.git("checkout", name)
 
     def set_parent(self, branch: str, parent: str) -> None:
-        self.git("config", f"branch.{branch}.tree-parent", parent)
+        self.git("config", f"branch.{branch}.tree-parent-branch", parent)
+        fork = self.git("merge-base", parent, branch)
+        self.git("config", f"branch.{branch}.tree-fork-commit", fork)
 
     def worktree(self, branch: str, path: str | None = None) -> Path:
         wt_path = self.work.parent / (path or f"wt-{branch}")

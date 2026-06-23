@@ -9,9 +9,7 @@ from git_tree.cli import cmd_propagate
 from .conftest import RepoHelper
 
 
-def _ns(
-    *, dry: bool = False, no_auto_rerere: bool = False, branch: str | None = None
-) -> object:
+def _ns(*, dry: bool = False, no_auto_rerere: bool = False, branch: str | None = None) -> object:
     return argparse.Namespace(dry=dry, no_auto_rerere=no_auto_rerere, branch=branch)
 
 
@@ -79,9 +77,7 @@ class TestPropagate:
         out = capsys.readouterr().out
         assert "b" in out
 
-    def test_child_no_unique_commits(
-        self, repo: RepoHelper, monkeypatch, capsys, tmp_path
-    ) -> None:
+    def test_child_no_unique_commits(self, repo: RepoHelper, monkeypatch, capsys, tmp_path) -> None:
         """Branch with no unique commits beyond parent still propagates cleanly."""
         repo.branch("b", parent="main")
         repo.worktree("b", str(tmp_path / "wt-b"))
@@ -112,9 +108,7 @@ class TestPropagate:
         c_log = repo.git("log", "--oneline", "c")
         assert "advance main" in c_log
 
-    def test_confirmation_decline_is_noop(
-        self, repo: RepoHelper, monkeypatch, tmp_path
-    ) -> None:
+    def test_confirmation_decline_is_noop(self, repo: RepoHelper, monkeypatch, tmp_path) -> None:
         repo.branch("b", parent="main")
         wt_b = repo.worktree("b", str(tmp_path / "wt-b"))
         (wt_b / "b1.txt").write_text("b1")
@@ -189,11 +183,10 @@ class TestPropagate:
         out = capsys.readouterr().out
         assert "[" not in out
 
-
     def test_equivalent_cherry_picked_patches_skipped(
         self, repo: RepoHelper, monkeypatch, tmp_path
     ) -> None:
-        """Patches cherry-picked to child (same content, different SHA) don't conflict on propagate."""
+        """Patches cherry-picked to child (same content, different SHA) don't conflict."""
         repo.branch("b", parent="main")
         wt_b = repo.worktree("b", str(tmp_path / "wt-b"))
 
@@ -269,9 +262,7 @@ class TestPropagateRerere:
 
         assert repo.git("rev-parse", "b") == b_original
 
-    def test_auto_rerere_disabled_with_flag(
-        self, repo: RepoHelper, monkeypatch, tmp_path
-    ) -> None:
+    def test_auto_rerere_disabled_with_flag(self, repo: RepoHelper, monkeypatch, tmp_path) -> None:
         repo.enable_rerere()
         repo.commit("shared.txt", "original", "base")
         repo.branch("b", parent="main")
@@ -465,10 +456,8 @@ class TestWorktreeValidation:
 
 
 class TestPropagateMainWorktree:
-    def test_propagate_to_branch_in_main_worktree(
-        self, repo: RepoHelper, monkeypatch
-    ) -> None:
-        """A tree-child checked out in the main worktree (no secondary worktree) can be propagated to."""
+    def test_propagate_to_branch_in_main_worktree(self, repo: RepoHelper, monkeypatch) -> None:
+        """A tree-child checked out in the main worktree (no linked worktree) can be propagated."""
         repo.commit("a1.txt", "a1", "base")
         repo.branch("b", parent="main")
         repo.checkout("b")

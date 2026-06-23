@@ -47,9 +47,8 @@ class TestAttach:
         err = capsys.readouterr().err
         assert "Warning" in err or "does not appear to descend" in err
 
-
     def test_attach_disjoint_history_clean_error(self, repo: RepoHelper, capsys, tmp_path) -> None:
-        """Attaching to a branch with no common history should produce a TreeError, not a traceback."""
+        """Attaching to a branch with no common history is a TreeError, not a traceback."""
         orphan_wt = tmp_path / "orphan-wt"
         repo.git("worktree", "add", "--detach", str(orphan_wt))
         _git("checkout", "--orphan", "orphan", cwd=orphan_wt)
@@ -72,7 +71,7 @@ class TestDetach:
         repo.checkout("feature")
         cmd_detach(_ns())
         result = subprocess.run(
-            ["git", "config", "branch.feature.tree-parent"],
+            ["git", "config", "branch.feature.tree-parent-branch"],
             cwd=repo.work,
             capture_output=True,
             text=True,
@@ -85,7 +84,7 @@ class TestDetach:
         repo.checkout("main")
         cmd_detach(_ns(branch="feature"))
         result = subprocess.run(
-            ["git", "config", "branch.feature.tree-parent"],
+            ["git", "config", "branch.feature.tree-parent-branch"],
             cwd=repo.work,
             capture_output=True,
             text=True,

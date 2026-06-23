@@ -27,13 +27,24 @@ git tree push                          # push current branch + descendants (--fo
 
 ## How it works
 
-Dependencies are stored in git config:
+Each branch records two things in git config — no external files, no commit labels, no hooks:
 
 ```
-git config branch.<name>.tree-parent <parent-branch>
+git config branch.<name>.tree-parent-branch <parent-branch>   # which branch it stacks on
+git config branch.<name>.tree-fork-commit   <commit>          # where it forks from that parent
 ```
 
-No external files, no commit labels, no hooks. Works immediately after `git tree branch` or `git tree attach`.
+`tree-parent-branch` is the structural edge; `tree-fork-commit` is the parent's tip the
+branch was last rebased onto (set on `branch`/`attach`/`split` and updated after every
+successful rebase). The fork commit is what lets a rebase replay *only* the branch's own
+commits: once a parent moves ahead of its child, `merge-base(parent, child)` drifts off the
+real fork, so the stored commit is the only reliable boundary. This is what makes an
+interrupted propagate resumable, and keeps a reorder/split or `git pull --rebase` of a parent
+from corrupting its descendants.
+
+Works immediately after `git tree branch` or `git tree attach`. Trees created before this
+key existed still work: a missing `tree-fork-commit` falls back to `merge-base`, and a legacy
+`tree-parent` key is read as the parent branch.
 
 ### Propagate
 

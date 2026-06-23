@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NoReturn
 
+
 class TreeError(SystemExit):
     """Raised by helpers to exit with a user-facing message."""
 
@@ -78,6 +79,32 @@ def git_ok(*args: str, cwd: Path | str | None = None, env: dict[str, str] | None
 
 
 # ---------------------------------------------------------------------------
+# Fork point storage
+# ---------------------------------------------------------------------------
+
+# Each branch records the commit it forks from its parent in
+# branch.<name>.tree-fork-commit. This is the parent's tip the branch was last
+# rebased onto (or created/attached at), used as the `--onto <old-base>` exclude
+# argument. It is the only reliable fork point once a parent moves ahead of its
+# child: merge-base(parent, child) drifts backward in that case.
+
+
+def _get_fork_commit(branch: str, parent: str, info: BranchInfo | None = None) -> str:
+    """Stored fork commit; merge-base fallback for un-migrated/legacy branches."""
+    if info is not None:
+        stored = info.fork_commit
+    else:
+        stored = git("config", f"branch.{branch}.tree-fork-commit", check=False)
+    if stored and git_ok("rev-parse", "--verify", stored):
+        return stored
+    return git("merge-base", parent, branch, check=False) or git("merge-base", parent, branch)
+
+
+def _set_fork_commit(branch: str, commit: str) -> None:
+    git("config", f"branch.{branch}.tree-fork-commit", commit)
+
+
+# ---------------------------------------------------------------------------
 # Data model
 # ---------------------------------------------------------------------------
 
@@ -87,6 +114,7 @@ class BranchInfo:
     name: str
     worktree: Path | None = None
     remote: str | None = None
+    fork_commit: str | None = None
 
     @property
     def is_dirty(self) -> bool:
@@ -174,7 +202,10 @@ def discover() -> Graph:
 
     orphaned: list[tuple[str, str]] = []
     for branch in all_branches:
-        parent = git("config", f"branch.{branch}.tree-parent", check=False)
+        parent = git("config", f"branch.{branch}.tree-parent-branch", check=False)
+        if not parent:
+            # Legacy key (pre-rename); read-only fallback, no migration writes.
+            parent = git("config", f"branch.{branch}.tree-parent", check=False)
         if not parent:
             continue
 
@@ -183,17 +214,22 @@ def discover() -> Graph:
             continue
 
         remote = git("config", f"branch.{branch}.remote", check=False) or None
+        fork_commit = git("config", f"branch.{branch}.tree-fork-commit", check=False) or None
         info = BranchInfo(
             name=branch,
             worktree=worktree_map.get(branch),
             remote=remote,
+            fork_commit=fork_commit,
         )
         graph.branches[branch] = info
         graph.parent_of[branch] = parent
         graph.children_of.setdefault(parent, []).append(branch)
 
     if orphaned:
-        lines = ["Warning: these branches have a deleted parent (use `git tree attach` or `git tree detach`):"]
+        lines = [
+            "Warning: these branches have a deleted parent "
+            "(use `git tree attach` or `git tree detach`):"
+        ]
         for b, p in orphaned:
             lines.append(f"  {b}  (parent was: {p})")
         print("\n".join(lines), file=sys.stderr)
@@ -245,7 +281,14 @@ def _git_status_summary(branch: str, info: BranchInfo) -> str:
     remote_name = info.remote or "origin"
     remote_ref = f"{remote_name}/{branch}"
     if git_ok("rev-parse", "--verify", remote_ref, cwd=worktree):
-        ahead_behind = git("rev-list", "--left-right", "--count", f"{branch}...{remote_ref}", cwd=worktree, check=False)
+        ahead_behind = git(
+            "rev-list",
+            "--left-right",
+            "--count",
+            f"{branch}...{remote_ref}",
+            cwd=worktree,
+            check=False,
+        )
         parts_ab = ahead_behind.split() if ahead_behind else []
         if len(parts_ab) == 2:
             ahead, behind = parts_ab
@@ -259,12 +302,17 @@ def _git_status_summary(branch: str, info: BranchInfo) -> str:
     return "[" + "".join(parts) + "]"
 
 
-def _pending_count(parent: str, child: str) -> int:
-    """Count commits on parent that child hasn't incorporated yet."""
-    base = git("merge-base", parent, child, check=False)
+def _pending_commit_count(parent: str, child: str, info: BranchInfo | None = None) -> int:
+    """Count commits on parent that child hasn't incorporated yet.
+
+    Counts from the stored fork point (where child currently sits on parent), so
+    the number matches what propagate would actually replay; merge-base would
+    over-count once parent and child have drifted.
+    """
+    base = _get_fork_commit(child, parent, info)
     if not base:
         return 0
-    out = git("rev-list", "--count", f"{base}..{parent}")
+    out = git("rev-list", "--count", f"{base}..{parent}", check=False)
     return int(out) if out else 0
 
 
@@ -310,7 +358,7 @@ def _format_subtree(
         if show_counts:
             parent = graph.parent_of.get(child, "")
             if parent:
-                n = _pending_count(parent, child)
+                n = _pending_commit_count(parent, child, info)
                 if n > 0:
                     annotation += f"  [{n} new]"
 
@@ -321,8 +369,12 @@ def _format_subtree(
         if grandchildren:
             next_prefix = prefix + (BOX_SPACE if is_last else BOX_PIPE_SPACE)
             _format_subtree(
-                graph, grandchildren, next_prefix, lines,
-                show_counts=show_counts, current=current,
+                graph,
+                grandchildren,
+                next_prefix,
+                lines,
+                show_counts=show_counts,
+                current=current,
             )
 
 
@@ -412,7 +464,8 @@ def cmd_branch(args: argparse.Namespace) -> None:
     path: str = args.path
 
     git("worktree", "add", path, "-b", name)
-    git("config", f"branch.{name}.tree-parent", parent)
+    git("config", f"branch.{name}.tree-parent-branch", parent)
+    _set_fork_commit(name, git("rev-parse", parent))
 
     remote = git("config", f"branch.{parent}.remote", check=False)
     if remote:
@@ -443,17 +496,22 @@ def cmd_attach(args: argparse.Namespace) -> None:
         if merge_base != parent_tip:
             print(f"Warning: {branch} does not appear to descend from {parent}.", file=sys.stderr)
 
-    git("config", f"branch.{branch}.tree-parent", parent)
+    git("config", f"branch.{branch}.tree-parent-branch", parent)
+    _set_fork_commit(branch, git("merge-base", parent, branch))
     print(f"Attached {branch} to {parent}")
 
 
 def cmd_detach(args: argparse.Namespace) -> None:
     branch = getattr(args, "branch", None) or current_branch()
-    parent = git("config", f"branch.{branch}.tree-parent", check=False)
+    parent = git("config", f"branch.{branch}.tree-parent-branch", check=False) or git(
+        "config", f"branch.{branch}.tree-parent", check=False
+    )
     if not parent:
         raise TreeError(f"{branch} is not in the tree.")
 
-    git("config", "--unset", f"branch.{branch}.tree-parent")
+    git("config", "--unset", f"branch.{branch}.tree-parent-branch", check=False)
+    git("config", "--unset", f"branch.{branch}.tree-parent", check=False)
+    git("config", "--unset", f"branch.{branch}.tree-fork-commit", check=False)
     print(f"Detached {branch} (was child of {parent})")
 
     graph = discover()
@@ -461,7 +519,7 @@ def cmd_detach(args: argparse.Namespace) -> None:
     if children:
         print(f"\nNote: {branch} has children — they now form a separate tree:")
         print(format_tree(graph, root=branch))
-        print(f"\nMain tree:")
+        print("\nMain tree:")
         print(format_tree(graph))
 
 
@@ -507,7 +565,14 @@ def _rebase_onto(
 ) -> str:
     """Attempt rebase of child onto parent in its worktree. Returns status or exits on conflict."""
     result = _run(
-        "git", "rebase", "--no-reapply-cherry-picks", "--onto", parent, fork_point, cwd=cwd, check=False
+        "git",
+        "rebase",
+        "--no-reapply-cherry-picks",
+        "--onto",
+        parent,
+        fork_point,
+        cwd=cwd,
+        check=False,
     )
 
     if result.returncode == 0:
@@ -609,14 +674,19 @@ def _propagate_descendants(
         parent_of_child = graph.parent_of[child]
         info = graph.branches[child]
         wt_cwd = info.worktree
+        assert wt_cwd is not None  # guaranteed by _require_worktrees before we get here
 
         stashed = False
         if info.is_dirty:
             result = _run("git", "stash", check=False, cwd=wt_cwd)
             stashed = "Saved working directory" in result.stdout
 
-        fork_point = git("merge-base", parent_of_child, child)
+        parent_tip = git("rev-parse", parent_of_child)
+        fork_point = _get_fork_commit(child, parent_of_child, info)
         status = _rebase_onto(child, parent_of_child, fork_point, wt_cwd, auto_rerere, stashed)
+        # Rebase succeeded (a conflict would have raised); record the new fork
+        # before the stash pop, which only touches the working tree.
+        _set_fork_commit(child, parent_tip)
 
         if stashed:
             pop_ok = git_ok("stash", "pop", cwd=wt_cwd)
@@ -666,14 +736,16 @@ def cmd_rebase(args: argparse.Namespace) -> None:
 
     old_parent = graph.parent_of.get(branch)
     if not old_parent:
-        old_parent = git("config", f"branch.{branch}.tree-parent", check=False)
+        old_parent = git("config", f"branch.{branch}.tree-parent-branch", check=False) or git(
+            "config", f"branch.{branch}.tree-parent", check=False
+        )
     if not old_parent:
-        raise TreeError(f"{branch} has no tree-parent configured.")
+        raise TreeError(f"{branch} has no tree-parent-branch configured.")
 
     if not git_ok("rev-parse", "--verify", old_parent):
         raise TreeError(f"Old parent {old_parent} does not exist.")
 
-    fork_point = git("merge-base", old_parent, branch)
+    fork_point = _get_fork_commit(branch, old_parent, graph.branches.get(branch))
     commit_count = len(git_lines("rev-list", f"{fork_point}..{branch}"))
 
     descendants = graph.downstream_from(branch)
@@ -720,14 +792,14 @@ def cmd_rebase(args: argparse.Namespace) -> None:
 
     _rebase_onto(branch, target, fork_point, wt_cwd, auto_rerere, stashed)
 
-    if stashed:
-        if not git_ok("stash", "pop", cwd=wt_cwd):
-            print(
-                f"Warning: could not pop worktree stash — run: cd {wt_cwd} && git stash pop",
-                file=sys.stderr,
-            )
+    if stashed and not git_ok("stash", "pop", cwd=wt_cwd):
+        print(
+            f"Warning: could not pop worktree stash — run: cd {wt_cwd} && git stash pop",
+            file=sys.stderr,
+        )
 
-    git("config", f"branch.{branch}.tree-parent", target)
+    git("config", f"branch.{branch}.tree-parent-branch", target)
+    _set_fork_commit(branch, git("rev-parse", target))
     print(f"Rebased {branch} onto {target}")
 
     if descendants:
@@ -742,10 +814,16 @@ def cmd_rebase(args: argparse.Namespace) -> None:
 
 def cmd_split(_args: argparse.Namespace) -> None:
     branch = current_branch()
-    parent = git("config", f"branch.{branch}.tree-parent", check=False) or main_branch()
+    parent = (
+        git("config", f"branch.{branch}.tree-parent-branch", check=False)
+        or git("config", f"branch.{branch}.tree-parent", check=False)
+        or main_branch()
+    )
 
-    fork_point = git("merge-base", parent, branch)
-    commits = git_lines("log", "--oneline", "--reverse", f"{fork_point}..HEAD")
+    # The split branch's fork from `parent` is inherited by the new parent E,
+    # which takes the split branch's old position. Read it before overwriting.
+    old_fork = _get_fork_commit(branch, parent)
+    commits = git_lines("log", "--oneline", "--reverse", f"{old_fork}..HEAD")
 
     if len(commits) < 2:
         raise TreeError("Need at least 2 commits to split.")
@@ -764,7 +842,7 @@ def cmd_split(_args: argparse.Namespace) -> None:
         parent_name = input("New parent branch name: ").strip()
     except (EOFError, KeyboardInterrupt):
         print()
-        raise SystemExit(1)
+        raise SystemExit(1) from None
     if not parent_name:
         raise SystemExit(1)
 
@@ -775,8 +853,10 @@ def cmd_split(_args: argparse.Namespace) -> None:
         worktree_path = ""
 
     git("branch", parent_name, commit_hash)
-    git("config", f"branch.{parent_name}.tree-parent", parent)
-    git("config", f"branch.{branch}.tree-parent", parent_name)
+    git("config", f"branch.{parent_name}.tree-parent-branch", parent)
+    _set_fork_commit(parent_name, old_fork)
+    git("config", f"branch.{branch}.tree-parent-branch", parent_name)
+    _set_fork_commit(branch, git("rev-parse", commit_hash))
 
     remote = git("config", f"branch.{branch}.remote", check=False)
     if remote:
@@ -786,7 +866,7 @@ def cmd_split(_args: argparse.Namespace) -> None:
         git("worktree", "add", worktree_path, parent_name)
         print(f"Created worktree at {worktree_path}")
 
-    split_commits = git_lines("log", "--oneline", f"{fork_point}..{commit_hash}")
+    split_commits = git_lines("log", "--oneline", f"{old_fork}..{commit_hash}")
     remaining = git_lines("log", "--oneline", f"{commit_hash}..HEAD")
     print("\nSplit complete:")
     print(f"  {parent_name} ({len(split_commits)} commits) → new parent branch")
@@ -908,13 +988,19 @@ _git-tree() {
 
     case $words[2] in
         propagate)
-            _arguments '--dry[Show what would be done]' '--no-auto-rerere[Disable auto-continue via rerere]' ':branch:__git_heads'
+            _arguments \
+                '--dry[Show what would be done]' \
+                '--no-auto-rerere[Disable auto-continue via rerere]' \
+                ':branch:__git_heads'
             ;;
         push)
             _arguments '--dry[Show what would be done]'
             ;;
         rebase)
-            _arguments '--dry[Show what would be done]' '--no-auto-rerere[Disable auto-continue via rerere]' ':target:__git_heads'
+            _arguments \
+                '--dry[Show what would be done]' \
+                '--no-auto-rerere[Disable auto-continue via rerere]' \
+                ':target:__git_heads'
             ;;
         branch)
             _arguments ':name:' ':path:_directories'
@@ -987,7 +1073,6 @@ def cmd_completions(args: argparse.Namespace) -> None:
         print(_BASH_COMPLETION)
 
 
-
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
@@ -998,7 +1083,9 @@ def main(argv: list[str] | None = None) -> None:  # explicit argv for tests
     sub = parser.add_subparsers(dest="command")
 
     propagate_p = sub.add_parser("propagate", help="Propagate changes to all descendants")
-    propagate_p.add_argument("branch", nargs="?", help="Branch to propagate from (default: current)")
+    propagate_p.add_argument(
+        "branch", nargs="?", help="Branch to propagate from (default: current)"
+    )
     propagate_p.add_argument("--dry", action="store_true", help="Show what would be done")
     propagate_p.add_argument(
         "--no-auto-rerere", action="store_true", help="Disable auto-continue via rerere"

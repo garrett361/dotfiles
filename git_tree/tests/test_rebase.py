@@ -128,7 +128,9 @@ class TestRebase:
         head_before = repo.git("rev-parse", "feature")
 
         monkeypatch.chdir(wt)
-        cmd_rebase(argparse.Namespace(command="rebase", target="main", dry=True, no_auto_rerere=False))
+        cmd_rebase(
+            argparse.Namespace(command="rebase", target="main", dry=True, no_auto_rerere=False)
+        )
 
         assert repo.git("rev-parse", "feature") == head_before
         out = capsys.readouterr().out
@@ -167,7 +169,7 @@ class TestRebase:
     def test_rebase_diverged_parent_preserves_commits(
         self, repo: RepoHelper, monkeypatch, tmp_path
     ) -> None:
-        """When child diverged from parent (parent advanced without propagate), rebase preserves child's commits."""
+        """When the parent advanced without propagate, rebase preserves the child's commits."""
         repo.commit("a1.txt", "a1", "base for feature")
         repo.branch("feature", parent="main")
         wt = repo.worktree("feature", str(tmp_path / "wt-feature"))

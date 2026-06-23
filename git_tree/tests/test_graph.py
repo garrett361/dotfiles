@@ -30,7 +30,6 @@ class TestDiscover:
         assert graph.parent_of["c"] == "b"
         assert graph.children_of["b"] == ["c"]
 
-
     def test_deleted_parent_skipped_with_warning(self, repo: RepoHelper, capsys) -> None:
         """Branch whose tree-parent was deleted should be excluded, not crash."""
         repo.branch("child", parent="main")

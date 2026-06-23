@@ -12,9 +12,7 @@ def _ns() -> object:
 
 
 class TestPush:
-    def test_pushes_current_and_descendants(
-        self, repo: RepoHelper, monkeypatch, tmp_path
-    ) -> None:
+    def test_pushes_current_and_descendants(self, repo: RepoHelper, monkeypatch, tmp_path) -> None:
         repo.branch("b", parent="main")
         wt_b = repo.worktree("b", str(tmp_path / "wt-b"))
         (wt_b / "b1.txt").write_text("b1")
