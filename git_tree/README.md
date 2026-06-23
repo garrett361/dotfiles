@@ -19,7 +19,8 @@ git tree                               # show the current branch's tree
 git tree --all                         # show every tree
 git tree branch <name> <path>          # create child branch with worktree
 git tree attach [parent]               # attach current branch to tree
-git tree detach                        # remove current branch from tree
+git tree detach                        # remove current branch from tree (keeps branch + worktree)
+git tree remove [branch]               # remove a subtree's worktrees + unregister its branches (keeps refs)
 git tree propagate                     # cascade current branch's changes to descendants
 git tree rebase <target>               # rebase current branch + descendants onto new base
 git tree split                         # split current branch into parent + child

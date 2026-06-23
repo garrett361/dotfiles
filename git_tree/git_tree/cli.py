@@ -637,6 +637,87 @@ def cmd_detach(args: argparse.Namespace) -> None:
             print("\n\n".join(format_tree(graph, root=r) for r in other_roots))
 
 
+def cmd_remove(args: argparse.Namespace) -> None:
+    """Tear down a subtree's worktrees and unregister its branches from the tree.
+
+    This removes worktree directories and unsets tree config; it never deletes a branch
+    ref, so no committed work can be lost. The only data at risk is uncommitted changes,
+    which the clean-worktree gate protects.
+    """
+    graph = discover()
+    try:
+        cur: str | None = current_branch()
+    except TreeError:
+        cur = None
+
+    target = getattr(args, "branch", None)
+    if target is None:
+        # No branch given: pick from removable tree-branches that have a worktree. The
+        # picker doesn't pre-filter dirty ones — the clean gate below still catches them.
+        candidates = sorted(
+            b
+            for b in graph.parent_of
+            if b != cur and (info := graph.branches.get(b)) and info.worktree
+        )
+        if not candidates:
+            raise TreeError("No tree-branch worktrees available to remove.")
+        selected = fzf_select(
+            candidates,
+            prompt="Remove worktree> ",
+            header="Select a tree-branch to remove (its worktree + subtree)",
+        )
+        if not selected:
+            raise SystemExit(1)
+        target = selected[0]
+
+    # Only non-root tree-branches: this never touches a tree's trunk / main worktree.
+    if target not in graph.parent_of:
+        raise TreeError(
+            f"{target} is not a removable tree-branch — it has no tree-parent "
+            f"(git tree remove won't touch a tree root)."
+        )
+
+    subtree = [target] + graph.downstream_from(target)  # parents-first
+
+    if cur in subtree:
+        raise TreeError(
+            f"cannot remove {cur}: it's the branch you're on. "
+            f"Switch to a branch outside the subtree first."
+        )
+
+    # Safety gate (all-or-nothing): never remove a worktree with uncommitted work. Branch
+    # refs are kept, so committed work is never at risk — only this needs checking.
+    dirty = [b for b in subtree if (info := graph.branches.get(b)) and info.is_dirty]
+    if dirty:
+        lines = ["Refusing to remove — these worktrees have uncommitted changes:"]
+        lines += [f"  {b}  ({graph.branches[b].worktree})" for b in dirty]
+        lines.append("\nCommit, stash, or discard them first. Nothing was removed.")
+        raise TreeError("\n".join(lines))
+
+    print(f"Removing worktrees and unregistering {target} + its subtree (branch refs kept):")
+    print(format_tree(graph, root=target))
+    print()
+    if not confirm("Remove these worktrees and detach the branches?"):
+        return
+
+    # Children-first; stop on the first git failure rather than report false success.
+    removed_worktrees = 0
+    for b in reversed(subtree):
+        info = graph.branches.get(b)
+        if info and info.worktree:
+            if not git_echo_ok("worktree", "remove", str(info.worktree)):
+                raise TreeError(f"failed to remove {b}'s worktree — stopping (see output above).")
+            removed_worktrees += 1
+        git("config", "--unset", f"branch.{b}.tree-parent-branch", check=False)
+        git("config", "--unset", f"branch.{b}.tree-parent", check=False)
+        git("config", "--unset", f"branch.{b}.tree-fork-commit", check=False)
+
+    print(
+        f"\nDetached {len(subtree)} branch(es) from the tree; "
+        f"removed {removed_worktrees} worktree(s). Branch refs kept."
+    )
+
+
 # [empty-patch handling]
 #
 # git rebase --onto can exit non-zero without producing merge conflicts.
@@ -1145,6 +1226,7 @@ _git-tree() {
         'branch:Create a child branch'
         'attach:Attach current branch to tree'
         'detach:Remove a branch from tree'
+        'remove:Remove a subtree’s worktrees, keep the branch refs'
         'split:Split current branch into parent + child'
         'push:Push current branch + descendants'
         'log:Show git log graph for all tree-branches'
@@ -1175,7 +1257,7 @@ _git-tree() {
         branch)
             _arguments ':name:' ':path:_directories'
             ;;
-        attach|detach)
+        attach|detach|remove)
             _arguments ':branch:__git_heads'
             ;;
         completions)
@@ -1192,7 +1274,7 @@ _git_tree() {
     local cur prev subcmds
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    subcmds="propagate rebase branch attach detach split push log completions"
+    subcmds="propagate rebase branch attach detach remove split push log completions"
 
     if [[ $COMP_CWORD -eq 1 ]]; then
         COMPREPLY=($(compgen -W "$subcmds" -- "$cur"))
@@ -1222,7 +1304,7 @@ _git_tree() {
         branch)
             COMPREPLY=($(compgen -d -- "$cur"))
             ;;
-        attach|detach)
+        attach|detach|remove)
             local branches=$(git for-each-ref --format='%(refname:short)' refs/heads/)
             COMPREPLY=($(compgen -W "$branches" -- "$cur"))
             ;;
@@ -1283,6 +1365,11 @@ def main(argv: list[str] | None = None) -> None:  # explicit argv for tests
     detach_p = sub.add_parser("detach", help="Remove a branch from tree")
     detach_p.add_argument("branch", nargs="?", help="Branch to detach (default: current)")
 
+    remove_p = sub.add_parser(
+        "remove", help="Remove a subtree's worktrees and unregister its branches (keeps refs)"
+    )
+    remove_p.add_argument("branch", nargs="?", help="Branch to remove (default: pick via fzf)")
+
     sub.add_parser("split", help="Split current branch into parent + child")
 
     push_p = sub.add_parser("push", help="Push current branch + descendants")
@@ -1306,6 +1393,7 @@ def main(argv: list[str] | None = None) -> None:  # explicit argv for tests
         "branch": cmd_branch,
         "attach": cmd_attach,
         "detach": cmd_detach,
+        "remove": cmd_remove,
         "split": cmd_split,
         "push": cmd_push,
         "log": cmd_log,
