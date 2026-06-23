@@ -31,6 +31,21 @@ class TestDiscover:
         assert graph.children_of["b"] == ["c"]
 
 
+    def test_deleted_parent_skipped_with_warning(self, repo: RepoHelper, capsys) -> None:
+        """Branch whose tree-parent was deleted should be excluded, not crash."""
+        repo.branch("child", parent="main")
+        repo.branch("grandchild", parent="child")
+        repo.git("branch", "-D", "child")
+
+        graph = discover()
+        assert "child" not in graph.parent_of
+        assert "grandchild" not in graph.parent_of
+        assert "grandchild" not in graph.branches
+        err = capsys.readouterr().err
+        assert "grandchild" in err
+        assert "child" in err
+
+
 class TestDownstream:
     def test_linear_descendants(self, repo: RepoHelper) -> None:
         repo.branch("b", parent="main")

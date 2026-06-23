@@ -151,14 +151,44 @@ class TestRebase:
         with pytest.raises(SystemExit):
             cmd_rebase(_ns(target="main"))
 
-    def test_rebase_fails_without_worktree(self, repo: RepoHelper, monkeypatch, capsys) -> None:
+    def test_rebase_works_in_main_worktree(self, repo: RepoHelper, monkeypatch) -> None:
+        """Branch checked out in main worktree (no secondary worktree) can be rebased."""
+        repo.commit("a1.txt", "a1", "advance main")
         repo.branch("feature", parent="main")
-        # No worktree created — but we need to pretend we're on that branch
         repo.checkout("feature")
+        repo.commit("f1.txt", "f1", "on feature")
 
         monkeypatch.setattr("builtins.input", lambda _: "y")
-        with pytest.raises(SystemExit):
-            cmd_rebase(_ns(target="main"))
+        cmd_rebase(_ns(target="main"))
 
-        err = capsys.readouterr().err
-        assert "worktree" in err.lower()
+        log = repo.git("log", "--oneline", "feature")
+        assert "on feature" in log
+
+    def test_rebase_diverged_parent_preserves_commits(
+        self, repo: RepoHelper, monkeypatch, tmp_path
+    ) -> None:
+        """When child diverged from parent (parent advanced without propagate), rebase preserves child's commits."""
+        repo.commit("a1.txt", "a1", "base for feature")
+        repo.branch("feature", parent="main")
+        wt = repo.worktree("feature", str(tmp_path / "wt-feature"))
+        (wt / "f1.txt").write_text("f1")
+        repo.git("add", "f1.txt", cwd=wt)
+        repo.git("commit", "-m", "first on feature", cwd=wt)
+        (wt / "f2.txt").write_text("f2")
+        repo.git("add", "f2.txt", cwd=wt)
+        repo.git("commit", "-m", "second on feature", cwd=wt)
+
+        # Advance main (parent diverges from feature's fork point)
+        repo.checkout("main")
+        repo.commit("a2.txt", "a2", "advance main past fork")
+
+        # Create a new target branch
+        repo.git("branch", "new-base")
+
+        monkeypatch.chdir(wt)
+        monkeypatch.setattr("builtins.input", lambda _: "y")
+        cmd_rebase(_ns(target="new-base"))
+
+        log = repo.git("log", "--oneline", "feature")
+        assert "first on feature" in log
+        assert "second on feature" in log

@@ -151,7 +151,7 @@ def discover() -> Graph:
             worktree_count += 1
         elif line.startswith("branch refs/heads/"):
             branch_name = line.removeprefix("branch refs/heads/")
-            if current_path is not None and worktree_count > 1:
+            if current_path is not None:
                 worktree_map[branch_name] = current_path
         elif line == "detached":
             if current_path is not None and worktree_count > 1:
@@ -170,10 +170,16 @@ def discover() -> Graph:
                 worktree_map[ref.removeprefix("refs/heads/")] = wt_path
 
     all_branches = git_lines("for-each-ref", "--format=%(refname:short)", "refs/heads/")
+    all_branches_set = set(all_branches)
 
+    orphaned: list[tuple[str, str]] = []
     for branch in all_branches:
         parent = git("config", f"branch.{branch}.tree-parent", check=False)
         if not parent:
+            continue
+
+        if parent not in all_branches_set:
+            orphaned.append((branch, parent))
             continue
 
         remote = git("config", f"branch.{branch}.remote", check=False) or None
@@ -185,6 +191,12 @@ def discover() -> Graph:
         graph.branches[branch] = info
         graph.parent_of[branch] = parent
         graph.children_of.setdefault(parent, []).append(branch)
+
+    if orphaned:
+        lines = ["Warning: these branches have a deleted parent (use `git tree attach` or `git tree detach`):"]
+        for b, p in orphaned:
+            lines.append(f"  {b}  (parent was: {p})")
+        print("\n".join(lines), file=sys.stderr)
 
     return graph
 
@@ -424,7 +436,9 @@ def cmd_attach(args: argparse.Namespace) -> None:
         parent = selected[0]
 
     if not git_ok("merge-base", "--is-ancestor", parent, branch):
-        merge_base = git("merge-base", parent, branch)
+        merge_base = git("merge-base", parent, branch, check=False)
+        if not merge_base:
+            raise TreeError(f"No common history between {parent} and {branch}.")
         parent_tip = git("rev-parse", parent)
         if merge_base != parent_tip:
             print(f"Warning: {branch} does not appear to descend from {parent}.", file=sys.stderr)
@@ -441,6 +455,14 @@ def cmd_detach(args: argparse.Namespace) -> None:
 
     git("config", "--unset", f"branch.{branch}.tree-parent")
     print(f"Detached {branch} (was child of {parent})")
+
+    graph = discover()
+    children = graph.children_of.get(branch, [])
+    if children:
+        print(f"\nNote: {branch} has children — they now form a separate tree:")
+        print(format_tree(graph, root=branch))
+        print(f"\nMain tree:")
+        print(format_tree(graph))
 
 
 # [empty-patch handling]
@@ -574,27 +596,13 @@ def _require_clean_state(branches: list[str], graph: Graph) -> None:
     raise TreeError("\n".join(lines))
 
 
-def cmd_propagate(args: argparse.Namespace) -> None:
-    branch = getattr(args, "branch", None) or current_branch()
-    graph = discover()
-
+def _propagate_descendants(
+    branch: str,
+    graph: Graph,
+    *,
+    auto_rerere: bool = True,
+) -> list[tuple[str, str]]:
     descendants = graph.downstream_from(branch)
-    if not descendants:
-        print("No descendants to propagate to.")
-        return
-
-    _require_worktrees(descendants, graph)
-    _require_clean_state(descendants, graph)
-
-    print(f"Propagating from {branch}:")
-    subtree_lines = format_tree(graph, root=branch, show_counts=True).splitlines()[1:]
-    for line in subtree_lines:
-        print(line)
-    print()
-
-    if getattr(args, "dry", False) or not confirm("Proceed?"):
-        return
-    auto_rerere = not getattr(args, "no_auto_rerere", False)
     results: list[tuple[str, str]] = []
 
     for child in descendants:
@@ -618,6 +626,33 @@ def cmd_propagate(args: argparse.Namespace) -> None:
 
         results.append((child, status))
 
+    return results
+
+
+def cmd_propagate(args: argparse.Namespace) -> None:
+    branch = getattr(args, "branch", None) or current_branch()
+    graph = discover()
+
+    descendants = graph.downstream_from(branch)
+    if not descendants:
+        print("No descendants to propagate to.")
+        return
+
+    _require_worktrees(descendants, graph)
+    _require_clean_state(descendants, graph)
+
+    print(f"Propagating from {branch}:")
+    subtree_lines = format_tree(graph, root=branch, show_counts=True).splitlines()[1:]
+    for line in subtree_lines:
+        print(line)
+    print()
+
+    if getattr(args, "dry", False) or not confirm("Proceed?"):
+        return
+    auto_rerere = not getattr(args, "no_auto_rerere", False)
+
+    results = _propagate_descendants(branch, graph, auto_rerere=auto_rerere)
+
     print()
     print("Results:")
     for name, status in results:
@@ -638,7 +673,7 @@ def cmd_rebase(args: argparse.Namespace) -> None:
     if not git_ok("rev-parse", "--verify", old_parent):
         raise TreeError(f"Old parent {old_parent} does not exist.")
 
-    fork_point = git("rev-parse", old_parent)
+    fork_point = git("merge-base", old_parent, branch)
     commit_count = len(git_lines("rev-list", f"{fork_point}..{branch}"))
 
     descendants = graph.downstream_from(branch)
@@ -698,7 +733,11 @@ def cmd_rebase(args: argparse.Namespace) -> None:
     if descendants:
         print()
         print("Cascading to descendants...")
-        cmd_propagate(args)
+        results = _propagate_descendants(branch, graph, auto_rerere=auto_rerere)
+        print()
+        print("Results:")
+        for name, status in results:
+            print(f"  {name}: {status}")
 
 
 def cmd_split(_args: argparse.Namespace) -> None:
@@ -948,25 +987,13 @@ def cmd_completions(args: argparse.Namespace) -> None:
         print(_BASH_COMPLETION)
 
 
-def _is_descendant_of(branch: str, ancestor: str, graph: Graph) -> bool:
-    current = graph.parent_of.get(branch)
-    visited: set[str] = set()
-    while current:
-        if current == ancestor:
-            return True
-        if current in visited:
-            return False
-        visited.add(current)
-        current = graph.parent_of.get(current)
-    return False
-
 
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:  # explicit argv for tests
     parser = argparse.ArgumentParser(prog="git-tree", description=__doc__)
     sub = parser.add_subparsers(dest="command")
 
@@ -999,13 +1026,16 @@ def main() -> None:
     push_p = sub.add_parser("push", help="Push current branch + descendants")
     push_p.add_argument("--dry", action="store_true", help="Show what would be done")
 
-    log_p = sub.add_parser("log", help="Show git log graph for all tree branches")
-    log_p.add_argument("extra", nargs=argparse.REMAINDER, help="Extra args passed to git log")
+    sub.add_parser("log", help="Show git log graph for all tree branches")
 
     completions_p = sub.add_parser("completions", help="Emit shell completion script")
     completions_p.add_argument("shell", choices=["zsh", "bash"], help="Shell type")
 
-    args = parser.parse_args()
+    args, unknown = parser.parse_known_args(argv)
+    if unknown and getattr(args, "command", None) != "log":
+        parser.error(f"unrecognized arguments: {' '.join(unknown)}")
+    if getattr(args, "command", None) == "log":
+        args.extra = unknown
 
     commands = {
         None: cmd_tree,

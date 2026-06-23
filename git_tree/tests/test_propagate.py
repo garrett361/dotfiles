@@ -462,3 +462,25 @@ class TestWorktreeValidation:
 
         err = capsys.readouterr().err
         assert "c" in err
+
+
+class TestPropagateMainWorktree:
+    def test_propagate_to_branch_in_main_worktree(
+        self, repo: RepoHelper, monkeypatch
+    ) -> None:
+        """A tree-child checked out in the main worktree (no secondary worktree) can be propagated to."""
+        repo.commit("a1.txt", "a1", "base")
+        repo.branch("b", parent="main")
+        repo.checkout("b")
+        repo.commit("b1.txt", "b1", "on b")
+
+        repo.checkout("main")
+        repo.commit("a2.txt", "a2", "advance main")
+
+        repo.checkout("b")
+        monkeypatch.setattr("builtins.input", lambda _: "y")
+        cmd_propagate(_ns(branch="main"))
+
+        b_log = repo.git("log", "--oneline", "b")
+        assert "advance main" in b_log
+        assert "on b" in b_log

@@ -5,7 +5,7 @@ import subprocess as sp
 
 import pytest
 
-from git_tree.cli import cmd_log
+from git_tree.cli import cmd_log, main
 
 from .conftest import RepoHelper
 
@@ -64,6 +64,18 @@ class TestLog:
         assert exc.value.code == 0
         out = capsys.readouterr().out
         assert "No tree branches" in out
+
+    def test_flags_without_separator(self, repo: RepoHelper, capture) -> None:
+        """git tree log --graph should work without requiring '--'."""
+        repo.commit("a1.txt", "a1", "on main")
+        repo.branch("b", parent="main")
+        repo.checkout("b")
+        repo.commit("b1.txt", "b1", "on b")
+        repo.checkout("main")
+
+        with pytest.raises(SystemExit) as exc:
+            main(["log", "--no-color"])
+        assert exc.value.code == 0
 
     def test_root_commit_boundary(self, repo: RepoHelper, capture) -> None:
         repo.branch("b", parent="main")

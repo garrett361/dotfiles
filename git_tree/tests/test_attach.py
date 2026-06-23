@@ -5,9 +5,9 @@ import subprocess
 
 import pytest
 
-from git_tree.cli import cmd_attach, cmd_detach, discover
+from git_tree.cli import TreeError, cmd_attach, cmd_detach, discover
 
-from .conftest import RepoHelper
+from .conftest import RepoHelper, _git
 
 
 def _ns(**kwargs) -> object:
@@ -46,6 +46,24 @@ class TestAttach:
         assert graph.parent_of["unrelated"] == "main"
         err = capsys.readouterr().err
         assert "Warning" in err or "does not appear to descend" in err
+
+
+    def test_attach_disjoint_history_clean_error(self, repo: RepoHelper, capsys, tmp_path) -> None:
+        """Attaching to a branch with no common history should produce a TreeError, not a traceback."""
+        orphan_wt = tmp_path / "orphan-wt"
+        repo.git("worktree", "add", "--detach", str(orphan_wt))
+        _git("checkout", "--orphan", "orphan", cwd=orphan_wt)
+        (orphan_wt / "o.txt").write_text("orphan")
+        _git("add", "o.txt", cwd=orphan_wt)
+        _git("commit", "-m", "orphan root", cwd=orphan_wt)
+        repo.git("worktree", "remove", str(orphan_wt))
+
+        repo.checkout("orphan")
+        with pytest.raises(TreeError):
+            cmd_attach(_ns(parent="main"))
+
+        err = capsys.readouterr().err
+        assert "No common history" in err
 
 
 class TestDetach:

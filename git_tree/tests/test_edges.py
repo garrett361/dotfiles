@@ -6,11 +6,13 @@ from .conftest import RepoHelper
 
 
 class TestEdgeCases:
-    def test_missing_parent_branch_excluded(self, repo: RepoHelper) -> None:
+    def test_missing_parent_branch_excluded(self, repo: RepoHelper, capsys) -> None:
         repo.git("config", "branch.main.tree-parent", "nonexistent")
         graph = discover()
-        assert "main" in graph.parent_of
-        assert graph.parent_of["main"] == "nonexistent"
+        assert "main" not in graph.parent_of
+        assert "main" not in graph.branches
+        err = capsys.readouterr().err
+        assert "nonexistent" in err
 
     def test_circular_dependency_no_infinite_loop(self, repo: RepoHelper) -> None:
         repo.git("branch", "a")
