@@ -587,20 +587,18 @@ def cmd_detach(args: argparse.Namespace) -> None:
 #    several empty patches in sequence.
 
 
-def _rebase_in_progress(cwd: Path) -> bool:
-    return git_ok("rev-parse", "--verify", "REBASE_HEAD", cwd=cwd)
-
-
 def _skip_empty_commits(child: str, parent: str, cwd: Path) -> str | None:
     """Loop --skip until rebase finishes or a real conflict appears. Returns None if
-    a real conflict was hit (rebase still in progress for user to resolve)."""
-    while _rebase_in_progress(cwd):
-        unmerged = git("ls-files", "--unmerged", cwd=cwd, check=False)
-        if unmerged.strip():
-            return None
+    a real conflict was hit (rebase left in progress for the user to resolve).
+
+    Never aborts: a `--skip` that lands on a conflicting next commit is normal, so
+    leave the rebase resumable rather than discarding it.
+    """
+    while _has_active_rebase(cwd):
+        if git("ls-files", "--unmerged", cwd=cwd, check=False).strip():
+            return None  # real conflict; leave rebase in progress
         if not git_ok("rebase", "--skip", cwd=cwd):
-            git("rebase", "--abort", cwd=cwd, check=False)
-            raise TreeError(f"rebase of {child} onto {parent}: --skip failed unexpectedly")
+            return None  # --skip surfaced a conflict / can't proceed; hand to user
     return "ok (skipped empty)"
 
 
@@ -613,6 +611,7 @@ def _rebase_onto(
     stashed: bool,
 ) -> str:
     """Attempt rebase of child onto parent in its worktree. Returns status or exits on conflict."""
+    head_before = git("rev-parse", "HEAD", cwd=cwd)
     result = _run(
         "git",
         "rebase",
@@ -627,11 +626,14 @@ def _rebase_onto(
     if result.returncode == 0:
         return "ok"
 
-    if not _rebase_in_progress(cwd):
+    if not _has_active_rebase(cwd):
+        # Non-zero exit, no rebase left in progress. Confirm success positively:
+        # the ref must have moved. Otherwise it's a real failure (bad ref,
+        # pre-rebase hook reject, ...) — don't infer "ok" from stderr text.
+        if git("rev-parse", "HEAD", cwd=cwd) != head_before:
+            return "ok"
         stderr = result.stderr.strip() if result.stderr else ""
-        if any(line.startswith(("error:", "fatal:")) for line in stderr.splitlines()):
-            raise TreeError(f"rebase of {child} onto {parent} failed:\n{stderr}")
-        return "ok"
+        raise TreeError(f"rebase of {child} onto {parent} failed:\n{stderr}")
 
     unmerged = git("ls-files", "--unmerged", cwd=cwd, check=False)
     if not unmerged.strip():
@@ -690,6 +692,18 @@ def _has_active_rebase(cwd: Path) -> bool:
     return (git_dir_path / "rebase-merge").is_dir() or (git_dir_path / "rebase-apply").is_dir()
 
 
+def _stash_push_if_created(cwd: Path) -> bool:
+    """Stash tracked changes; return True iff a new stash entry was created.
+
+    Detect via `refs/stash` advancing rather than parsing git's stdout, which is
+    locale-dependent ("Saved working directory ..." is only English).
+    """
+    before = git("rev-parse", "--verify", "--quiet", "refs/stash", cwd=cwd, check=False)
+    _run("git", "stash", "push", check=False, cwd=cwd)
+    after = git("rev-parse", "--verify", "--quiet", "refs/stash", cwd=cwd, check=False)
+    return bool(after) and after != before
+
+
 def _require_clean_state(branches: list[str], graph: Graph) -> None:
     problems = []
     for b in branches:
@@ -725,10 +739,7 @@ def _propagate_descendants(
         wt_cwd = info.worktree
         assert wt_cwd is not None  # guaranteed by _require_worktrees before we get here
 
-        stashed = False
-        if info.is_dirty:
-            result = _run("git", "stash", check=False, cwd=wt_cwd)
-            stashed = "Saved working directory" in result.stdout
+        stashed = info.is_dirty and _stash_push_if_created(wt_cwd)
 
         parent_tip = git("rev-parse", parent_of_child)
         fork_point = _get_fork_commit(child, parent_of_child, info)
@@ -834,10 +845,7 @@ def cmd_rebase(args: argparse.Namespace) -> None:
     auto_rerere = not getattr(args, "no_auto_rerere", False)
     wt_cwd = info.worktree
 
-    stashed = False
-    if info.is_dirty:
-        result = _run("git", "stash", check=False, cwd=wt_cwd)
-        stashed = "Saved working directory" in result.stdout
+    stashed = info.is_dirty and _stash_push_if_created(wt_cwd)
 
     _rebase_onto(branch, target, fork_point, wt_cwd, auto_rerere, stashed)
 
