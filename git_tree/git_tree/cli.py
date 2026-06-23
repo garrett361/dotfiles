@@ -102,6 +102,13 @@ def git_echo(
     return result
 
 
+def git_echo_ok(
+    *args: str, cwd: Path | str | None = None, env: dict[str, str] | None = None
+) -> bool:
+    """`git_echo` for callers that only need success/failure (mirrors `git_ok`)."""
+    return git_echo(*args, cwd=cwd, env=env).returncode == 0
+
+
 # ---------------------------------------------------------------------------
 # Fork point storage
 # ---------------------------------------------------------------------------
@@ -554,7 +561,8 @@ def cmd_branch(args: argparse.Namespace) -> None:
     name: str = args.name
     path: str = args.path
 
-    git("worktree", "add", path, "-b", name)
+    if not git_echo_ok("worktree", "add", path, "-b", name):
+        raise TreeError(f"failed to create worktree at {path}")
     git("config", f"branch.{name}.tree-parent-branch", parent)
     _set_fork_commit(name, git("rev-parse", parent))
 
@@ -644,7 +652,7 @@ def _skip_empty_commits(child: str, parent: str, cwd: Path) -> str | None:
     while _has_active_rebase(cwd):
         if git("ls-files", "--unmerged", cwd=cwd, check=False).strip():
             return None  # real conflict; leave rebase in progress
-        if not git_ok("rebase", "--skip", cwd=cwd):
+        if not git_echo_ok("rebase", "--skip", cwd=cwd):
             return None  # --skip surfaced a conflict / can't proceed; hand to user
     return "ok (skipped empty)"
 
@@ -659,16 +667,7 @@ def _rebase_onto(
 ) -> str:
     """Attempt rebase of child onto parent in its worktree. Returns status or exits on conflict."""
     head_before = git("rev-parse", "HEAD", cwd=cwd)
-    result = _run(
-        "git",
-        "rebase",
-        "--no-reapply-cherry-picks",
-        "--onto",
-        parent,
-        fork_point,
-        cwd=cwd,
-        check=False,
-    )
+    result = git_echo("rebase", "--no-reapply-cherry-picks", "--onto", parent, fork_point, cwd=cwd)
 
     if result.returncode == 0:
         return "ok"
@@ -679,8 +678,8 @@ def _rebase_onto(
         # pre-rebase hook reject, ...) — don't infer "ok" from stderr text.
         if git("rev-parse", "HEAD", cwd=cwd) != head_before:
             return "ok"
-        stderr = result.stderr.strip() if result.stderr else ""
-        raise TreeError(f"rebase of {child} onto {parent} failed:\n{stderr}")
+        # git_echo already reprinted git's stderr above.
+        raise TreeError(f"rebase of {child} onto {parent} failed (see output above)")
 
     unmerged = git("ls-files", "--unmerged", cwd=cwd, check=False)
     if not unmerged.strip():
@@ -701,7 +700,7 @@ def _rebase_onto(
 
         git("add", "-u", cwd=cwd)
 
-        continued = git_ok("rebase", "--continue", cwd=cwd, env={"GIT_EDITOR": "true"})
+        continued = git_echo_ok("rebase", "--continue", cwd=cwd, env={"GIT_EDITOR": "true"})
         if continued:
             return "ok (rerere)"
 
@@ -746,7 +745,7 @@ def _stash_push_if_created(cwd: Path) -> bool:
     locale-dependent ("Saved working directory ..." is only English).
     """
     before = git("rev-parse", "--verify", "--quiet", "refs/stash", cwd=cwd, check=False)
-    _run("git", "stash", "push", check=False, cwd=cwd)
+    git_echo("stash", "push", cwd=cwd)
     after = git("rev-parse", "--verify", "--quiet", "refs/stash", cwd=cwd, check=False)
     return bool(after) and after != before
 
@@ -798,7 +797,7 @@ def _rebase_branch(
     # working tree). `rev-parse(onto)` is stable here — rebasing `branch` never
     # moves `onto`.
     _set_fork_commit(branch, git("rev-parse", onto))
-    pop_conflicted = stashed and not git_ok("stash", "pop", cwd=cwd)
+    pop_conflicted = stashed and not git_echo_ok("stash", "pop", cwd=cwd)
     return RebaseResult(note, pop_conflicted)
 
 
@@ -982,7 +981,7 @@ def cmd_split(_args: argparse.Namespace) -> None:
     if worktree_path and worktree_path.lower() != "n":
         # The split (branch + config) is already applied; a worktree-add failure
         # must not abort and leave the user unsure whether the split happened.
-        if git_ok("worktree", "add", worktree_path, parent_name):
+        if git_echo_ok("worktree", "add", worktree_path, parent_name):
             print(f"Created worktree at {worktree_path}")
         else:
             print(
@@ -1078,7 +1077,7 @@ def cmd_push(args: argparse.Namespace) -> None:
             blocked.add(b)
             continue
 
-        ok = git_echo("push", "--force-with-lease", "-u", root_remote, b).returncode == 0
+        ok = git_echo_ok("push", "--force-with-lease", "-u", root_remote, b)
         if not ok:
             blocked.add(b)
         results.append((b, "ok" if ok else "FAILED"))

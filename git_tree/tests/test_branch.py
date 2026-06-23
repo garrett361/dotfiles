@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 
-from git_tree.cli import cmd_branch, discover
+import pytest
+
+from git_tree.cli import TreeError, cmd_branch, discover
 
 from .conftest import RepoHelper
 
@@ -28,3 +30,15 @@ class TestBranch:
         cmd_branch(_ns(name="child", path=wt_path))
         result = repo.git("worktree", "list", "--porcelain")
         assert "child" in result
+
+    def test_worktree_add_failure_raises(self, repo: RepoHelper, capsys, tmp_path) -> None:
+        # A path that already exists as a file makes `git worktree add` fail; cmd_branch
+        # must surface that as a clear error and not register a half-created branch.
+        bad_path = tmp_path / "exists"
+        bad_path.write_text("not a directory")
+
+        with pytest.raises(TreeError):
+            cmd_branch(_ns(name="child", path=str(bad_path)))
+
+        assert "failed to create worktree" in capsys.readouterr().err
+        assert "child" not in discover().parent_of
