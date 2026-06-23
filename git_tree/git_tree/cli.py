@@ -165,6 +165,32 @@ def main_branch() -> str:
     return "main"
 
 
+def _break_cycles(graph: Graph) -> list[list[str]]:
+    """Break any parent-chain cycle by dropping one edge (in-memory only).
+
+    `tree-parent-branch` config is free-form, so a user can create a cycle
+    (A→B→A) or self-parent (A→A). `downstream_from` tolerates cycles but the
+    display recursion does not, so break them here and let the caller warn. The
+    parent graph is functional (one parent per node), so each component has at
+    most one cycle and a simple walk finds it. Returns the cycles in loop order.
+    """
+    cycles: list[list[str]] = []
+    for start in list(graph.parent_of):
+        path: list[str] = []
+        node = start
+        while node in graph.parent_of:
+            if node in path:
+                cycle = path[path.index(node) :]
+                last = cycle[-1]
+                parent = graph.parent_of.pop(last)
+                graph.children_of[parent].remove(last)
+                cycles.append(cycle)
+                break
+            path.append(node)
+            node = graph.parent_of[node]
+    return cycles
+
+
 def discover() -> Graph:
     graph = Graph()
 
@@ -232,6 +258,16 @@ def discover() -> Graph:
         ]
         for b, p in orphaned:
             lines.append(f"  {b}  (parent was: {p})")
+        print("\n".join(lines), file=sys.stderr)
+
+    cycles = _break_cycles(graph)
+    if cycles:
+        lines = [
+            "Warning: these branches form a dependency cycle "
+            "(broken for this run; fix with `git tree attach`/`git tree detach`):"
+        ]
+        for cycle in cycles:
+            lines.append("  " + " → ".join(cycle + [cycle[0]]))
         print("\n".join(lines), file=sys.stderr)
 
     return graph
@@ -328,7 +364,9 @@ def format_tree(
     marker = "* " if current == root else ""
     lines: list[str] = [f"{marker}{root}"]
     children = graph.children_of.get(root, [])
-    _format_subtree(graph, children, "", lines, show_counts=show_counts, current=current)
+    _format_subtree(
+        graph, children, "", lines, show_counts=show_counts, current=current, seen={root}
+    )
     return "\n".join(lines)
 
 
@@ -340,10 +378,20 @@ def _format_subtree(
     *,
     show_counts: bool = False,
     current: str | None = None,
+    seen: set[str] | None = None,
 ) -> None:
+    # Defense in depth: discover() breaks cycles, but a Graph built elsewhere
+    # could still be cyclic. The parent graph is functional, so a re-visit is
+    # always a cycle (never a legitimate diamond).
+    seen = set() if seen is None else seen
     for i, child in enumerate(children):
         is_last = i == len(children) - 1
         connector = BOX_ELBOW if is_last else BOX_TEE
+
+        if child in seen:
+            lines.append(f"{prefix}{connector} {child}  (cycle)")
+            continue
+        seen.add(child)
 
         info = graph.branches.get(child)
         annotation = ""
@@ -375,6 +423,7 @@ def _format_subtree(
                 lines,
                 show_counts=show_counts,
                 current=current,
+                seen=seen,
             )
 
 
