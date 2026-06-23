@@ -177,29 +177,28 @@ def main_branch() -> str:
     return "main"
 
 
-def _break_cycles(graph: Graph) -> list[list[str]]:
-    """Break any parent-chain cycle by dropping one edge (in-memory only).
+def _find_cycles(graph: Graph) -> list[list[str]]:
+    """Return each parent-chain cycle (in loop order), or [] if the tree is acyclic.
 
     `tree-parent-branch` config is free-form, so a user can create a cycle
-    (A→B→A) or self-parent (A→A). `downstream_from` tolerates cycles but the
-    display recursion does not, so break them here and let the caller warn. The
-    parent graph is functional (one parent per node), so each component has at
-    most one cycle and a simple walk finds it. Returns the cycles in loop order.
+    (A→B→A) or self-parent (A→A). The parent graph is functional (one parent per
+    node), so each weakly-connected component has at most one cycle and a simple
+    walk finds it.
     """
     cycles: list[list[str]] = []
-    for start in list(graph.parent_of):
+    seen: set[str] = set()
+    for start in graph.parent_of:
+        if start in seen:
+            continue
         path: list[str] = []
         node = start
-        while node in graph.parent_of:
+        while node in graph.parent_of and node not in seen:
             if node in path:
-                cycle = path[path.index(node) :]
-                last = cycle[-1]
-                parent = graph.parent_of.pop(last)
-                graph.children_of[parent].remove(last)
-                cycles.append(cycle)
+                cycles.append(path[path.index(node) :])
                 break
             path.append(node)
             node = graph.parent_of[node]
+        seen.update(path)
     return cycles
 
 
@@ -272,15 +271,12 @@ def discover() -> Graph:
             lines.append(f"  {b}  (parent was: {p})")
         print("\n".join(lines), file=sys.stderr)
 
-    cycles = _break_cycles(graph)
+    cycles = _find_cycles(graph)
     if cycles:
-        lines = [
-            "Warning: these branches form a dependency cycle "
-            "(broken for this run; fix with `git tree attach`/`git tree detach`):"
-        ]
+        lines = ["Branches form a dependency cycle (fix with `git tree attach`/`git tree detach`):"]
         for cycle in cycles:
             lines.append("  " + " → ".join(cycle + [cycle[0]]))
-        print("\n".join(lines), file=sys.stderr)
+        raise TreeError("\n".join(lines))
 
     return graph
 
@@ -376,9 +372,7 @@ def format_tree(
     marker = "* " if current == root else ""
     lines: list[str] = [f"{marker}{root}"]
     children = graph.children_of.get(root, [])
-    _format_subtree(
-        graph, children, "", lines, show_counts=show_counts, current=current, seen={root}
-    )
+    _format_subtree(graph, children, "", lines, show_counts=show_counts, current=current)
     return "\n".join(lines)
 
 
@@ -390,20 +384,11 @@ def _format_subtree(
     *,
     show_counts: bool = False,
     current: str | None = None,
-    seen: set[str] | None = None,
 ) -> None:
-    # Defense in depth: discover() breaks cycles, but a Graph built elsewhere
-    # could still be cyclic. The parent graph is functional, so a re-visit is
-    # always a cycle (never a legitimate diamond).
-    seen = set() if seen is None else seen
+    # The graph is acyclic: discover() raises on a cycle, so this recursion is bounded.
     for i, child in enumerate(children):
         is_last = i == len(children) - 1
         connector = BOX_ELBOW if is_last else BOX_TEE
-
-        if child in seen:
-            lines.append(f"{prefix}{connector} {child}  (cycle)")
-            continue
-        seen.add(child)
 
         info = graph.branches.get(child)
         annotation = ""
@@ -435,7 +420,6 @@ def _format_subtree(
                 lines,
                 show_counts=show_counts,
                 current=current,
-                seen=seen,
             )
 
 
