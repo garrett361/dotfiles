@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from git_tree.cli import discover, format_tree
+import argparse
+
+from git_tree.cli import cmd_tree, discover, format_tree
 
 from .conftest import RepoHelper
 
@@ -50,3 +52,20 @@ class TestFormatTree:
         graph = discover()
         output = format_tree(graph)
         assert "(no worktree)" in output
+
+
+class TestCmdTreeForest:
+    def test_renders_roots_not_under_main(self, repo: RepoHelper, capsys) -> None:
+        # A stack rooted at main, plus a separate forest whose base branch has no
+        # tree-parent (so it isn't reachable from main).
+        repo.branch("topic", parent="main")
+        repo.git("branch", "standalone")  # real branch, not registered in the tree
+        repo.branch("leaf", parent="standalone")
+
+        cmd_tree(argparse.Namespace())
+        out = capsys.readouterr().out
+
+        assert "topic" in out
+        # Previously invisible because the walk only descended from main.
+        assert "standalone" in out
+        assert "leaf" in out

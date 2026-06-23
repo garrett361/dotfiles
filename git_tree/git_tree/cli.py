@@ -514,7 +514,16 @@ def cmd_tree(_args: argparse.Namespace) -> None:
     graph = discover()
     raw = git("rev-parse", "--abbrev-ref", "HEAD", check=False)
     current = None if (not raw or raw == "HEAD") else raw
-    print(format_tree(graph, current=current, show_counts=True))
+
+    # Render every root, not just main: a stack whose base isn't main/master
+    # (e.g. attached to a feature branch) would otherwise be invisible. A root is
+    # a branch that has children but is not itself a tracked child.
+    main = main_branch()
+    other_roots = sorted(p for p in graph.children_of if p not in graph.parent_of and p != main)
+    blocks = [
+        format_tree(graph, root=r, current=current, show_counts=True) for r in [main, *other_roots]
+    ]
+    print("\n\n".join(blocks))
     if not graph.parent_of:
         print("  (no branches registered — use `git tree attach` or `git tree branch`)")
 
