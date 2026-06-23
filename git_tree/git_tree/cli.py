@@ -28,6 +28,7 @@ class TreeError(SystemExit):
 class Color(StrEnum):
     RED = "31"
     GREEN = "32"
+    DIM = "2"
 
 
 def _use_color() -> bool:
@@ -82,6 +83,23 @@ def git_lines(*args: str, cwd: Path | str | None = None) -> list[str]:
 def git_ok(*args: str, cwd: Path | str | None = None, env: dict[str, str] | None = None) -> bool:
     result = _run("git", *args, check=False, cwd=cwd, env=env)
     return result.returncode == 0
+
+
+def git_echo(
+    *args: str, cwd: Path | str | None = None, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
+    """Run a side-effecting git command, echoing the invocation and reprinting its output.
+
+    Captures (rather than streams) so callers keep stdout/stderr for logic and so the
+    output is visible the same way regardless of TTY. Returns the completed process.
+    """
+    print(_color(f"+ git {' '.join(args)}", Color.DIM))
+    result = _run("git", *args, check=False, cwd=cwd, env=env)
+    if result.stdout:
+        print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
+    if result.stderr:
+        print(result.stderr, end="" if result.stderr.endswith("\n") else "\n", file=sys.stderr)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1060,7 +1078,7 @@ def cmd_push(args: argparse.Namespace) -> None:
             blocked.add(b)
             continue
 
-        ok = git_ok("push", "--force-with-lease", "-u", root_remote, b)
+        ok = git_echo("push", "--force-with-lease", "-u", root_remote, b).returncode == 0
         if not ok:
             blocked.add(b)
         results.append((b, "ok" if ok else "FAILED"))

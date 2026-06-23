@@ -2,6 +2,13 @@
 
 Cascading rebase tool for branch dependency chains. Manages branches that form trees (A → B → C) and automates propagating changes downstream.
 
+## Design philosophy
+
+git-tree is a deliberately **light wrapper around plain git**. It automates the bookkeeping of cascading rebases but should never obscure what git is doing. Two principles guide changes:
+
+- **Minimal state**: dependency edges live in git config (see Architecture), not external files or commit labels. Anything git already knows is read from git, never duplicated.
+- **Explicit and transparent**: prefer surfacing the underlying git operations over hiding them. Side-effecting commands echo the git invocation and reprint git's own output (`git_echo`); `git tree log` streams git directly. Only data-query git calls are captured silently. When in doubt, show the git command and its output rather than a hand-rolled summary.
+
 ## Install
 
 ```sh
@@ -34,7 +41,7 @@ Single module: `git_tree/cli.py`. All commands, git helpers, graph discovery, an
 
 **Key abstractions**:
 - `Graph` dataclass: `parent_of`, `children_of`, `branches` dicts + `downstream_from()` BFS
-- `BranchInfo` dataclass: `name`, `worktree` (optional Path), `remote`, `fork_commit`, `is_dirty`
+- `BranchInfo` dataclass: `name`, `worktree` (optional Path), `fork_commit`, `is_dirty`. A tree has one remote, defined on its **root** (`branch.<root>.remote`); push and status resolve it via `_root_remote`/`root_of` rather than per-branch.
 - `discover()`: reads worktree list + git config to build the graph
 
 ## Testing

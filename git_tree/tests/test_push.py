@@ -45,6 +45,25 @@ class TestPush:
         assert "refs/heads/b" in remote_branches
         assert "refs/heads/c" in remote_branches
 
+    def test_echoes_command_and_reprints_git_output(
+        self, repo: RepoHelper, monkeypatch, capsys, tmp_path
+    ) -> None:
+        # The invoked push command is echoed and git's own output is shown, not swallowed.
+        repo.branch("feature", parent="main")
+        wt = repo.worktree("feature", str(tmp_path / "wt-feature"))
+        (wt / "f1.txt").write_text("f1")
+        repo.git("add", "f1.txt", cwd=wt)
+        repo.git("commit", "-m", "feature commit", cwd=wt)
+
+        monkeypatch.chdir(wt)
+        monkeypatch.setattr("builtins.input", lambda _: "y")
+        cmd_push(_ns())
+
+        captured = capsys.readouterr()
+        assert "+ git push --force-with-lease -u origin feature" in captured.out
+        # git prints the ref update on stderr; it must reach the user, not be swallowed.
+        assert "feature -> feature" in captured.err
+
     def test_unpushed_root_reports_zero_ahead(
         self, repo: RepoHelper, monkeypatch, capsys, tmp_path
     ) -> None:
@@ -204,9 +223,12 @@ class TestPush:
         monkeypatch.setattr("builtins.input", lambda _: "y")
         cmd_push(_ns())
 
-        out = capsys.readouterr().out
-        assert "a: FAILED" in out
-        assert "skipped" in out  # b not pushed because its base (a) failed
+        captured = capsys.readouterr()
+        assert "a: FAILED" in captured.out
+        assert "skipped" in captured.out  # b not pushed because its base (a) failed
+        # The failing push is echoed and git's rejection reason is shown, not swallowed.
+        assert "+ git push --force-with-lease -u origin a" in captured.out
+        assert "remote rejected" in captured.err
 
         remote = repo.git("ls-remote", "--heads", str(repo.origin))
         assert "refs/heads/a" not in remote
