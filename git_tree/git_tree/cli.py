@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 from typing import NoReturn
 
@@ -24,13 +25,18 @@ class TreeError(SystemExit):
 # ---------------------------------------------------------------------------
 
 
+class Color(StrEnum):
+    RED = "31"
+    GREEN = "32"
+
+
 def _use_color() -> bool:
     if os.environ.get("NO_COLOR"):
         return False
     return sys.stdout.isatty()
 
 
-def _color(text: str, code: str) -> str:
+def _color(text: str, code: Color) -> str:
     if not _use_color():
         return text
     return f"\033[{code}m{text}\033[0m"
@@ -319,13 +325,13 @@ def _git_status_summary(branch: str, info: BranchInfo) -> str:
             elif y not in (" ", "!", "U"):
                 modified += 1
         if conflicted:
-            parts.append(_color(f"✘{conflicted}", "31"))
+            parts.append(_color(f"✘{conflicted}", Color.RED))
         if staged:
-            parts.append(_color(f"+{staged}", "32"))
+            parts.append(_color(f"+{staged}", Color.GREEN))
         if modified:
-            parts.append(_color(f"!{modified}", "31"))
+            parts.append(_color(f"!{modified}", Color.RED))
         if untracked:
-            parts.append(_color(f"?{untracked}", "31"))
+            parts.append(_color(f"?{untracked}", Color.RED))
 
     remote_name = info.remote or "origin"
     remote_ref = f"{remote_name}/{branch}"
@@ -342,9 +348,9 @@ def _git_status_summary(branch: str, info: BranchInfo) -> str:
         if len(parts_ab) == 2 and all(p.isdigit() for p in parts_ab):
             ahead, behind = parts_ab
             if int(ahead):
-                parts.append(_color(f"⇡{ahead}", "32"))
+                parts.append(_color(f"⇡{ahead}", Color.GREEN))
             if int(behind):
-                parts.append(_color(f"⇣{behind}", "31"))
+                parts.append(_color(f"⇣{behind}", Color.RED))
 
     if not parts:
         return ""
