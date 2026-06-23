@@ -44,6 +44,7 @@
     sa = stash apply
     sc = stash clear
     sp = stash pop
+    t = tree
     wt = worktree
     wta = worktree add
     wtr = worktree remove
