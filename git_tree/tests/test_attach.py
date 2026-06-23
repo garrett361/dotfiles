@@ -5,7 +5,7 @@ import subprocess
 
 import pytest
 
-from git_tree.cli import TreeError, cmd_attach, cmd_detach, discover
+from git_tree.cli import TreeError, cmd_attach, cmd_detach, discover, roots
 
 from .conftest import RepoHelper, _git
 
@@ -111,6 +111,14 @@ class TestDetach:
 
         monkeypatch.setattr("builtins.input", lambda _: "y")
         cmd_detach(_ns())
+
+        # Forest actually split: mid is now a root carrying leaf; main keeps topic.
+        graph = discover()
+        assert "mid" not in graph.parent_of
+        assert graph.parent_of["leaf"] == "mid"
+        assert graph.parent_of["topic"] == "main"
+        assert roots(graph) == ["main", "mid"]
+
         out = capsys.readouterr().out
         assert "they will form a separate tree" in out
         assert "leaf" in out
