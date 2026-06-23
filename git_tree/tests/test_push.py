@@ -34,6 +34,27 @@ class TestPush:
         assert "refs/heads/b" in remote_branches
         assert "refs/heads/c" in remote_branches
 
+    def test_unpushed_root_reports_zero_ahead(
+        self, repo: RepoHelper, monkeypatch, capsys, tmp_path
+    ) -> None:
+        # A standalone root (no tree-parent) never pushed: the ahead-count falls back to a
+        # self-base (0) instead of anchoring on main, and the push still succeeds.
+        repo.git("branch", "base")  # root: has a tree-child below but no tree-parent
+        repo.branch("child", parent="base")
+        wt = repo.worktree("child", str(tmp_path / "wt-child"))
+        (wt / "c1.txt").write_text("c1")
+        repo.git("add", "c1.txt", cwd=wt)
+        repo.git("commit", "-m", "child commit", cwd=wt)
+
+        repo.checkout("base")
+        monkeypatch.setattr("builtins.input", lambda _: "y")
+        cmd_push(_ns())
+
+        out = capsys.readouterr().out
+        assert "base  [0 ahead]" in out
+        remote = repo.git("ls-remote", "--heads", str(repo.origin))
+        assert "refs/heads/base" in remote
+
     def test_uses_force_with_lease(self, repo: RepoHelper, monkeypatch, tmp_path) -> None:
         repo.branch("feature", parent="main")
         wt = repo.worktree("feature", str(tmp_path / "wt-feature"))

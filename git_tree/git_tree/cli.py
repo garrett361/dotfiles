@@ -163,18 +163,23 @@ def current_branch() -> str:
     return name
 
 
-def main_branch() -> str:
-    for candidate in ("main", "master"):
-        if git_ok("rev-parse", "--verify", candidate):
-            return candidate
-    # Neither standard name exists — fall back to the remote's default branch
-    # (e.g. a repo whose trunk is `trunk`/`develop`), if it's present locally.
-    head = git("symbolic-ref", "--short", "refs/remotes/origin/HEAD", check=False)
-    if head:
-        short = head.split("/", 1)[1] if "/" in head else head
-        if short and git_ok("rev-parse", "--verify", short):
-            return short
-    return "main"
+def roots(graph: Graph) -> list[str]:
+    """Every tree root: a tree-branch with children but no tracked parent."""
+    return sorted(p for p in graph.children_of if p not in graph.parent_of)
+
+
+def root_of(graph: Graph, branch: str) -> str:
+    """Walk the (functional, acyclic) parent chain up to this branch's root.
+
+    Returns `branch` unchanged when it has no parent — it is itself a root, or it is
+    not registered in the tree at all (callers distinguish the two). `discover` rejects
+    cycles, so the `seen` guard is purely defensive against a malformed graph.
+    """
+    seen: set[str] = set()
+    while branch in graph.parent_of and branch not in seen:
+        seen.add(branch)
+        branch = graph.parent_of[branch]
+    return branch
 
 
 def _find_cycles(graph: Graph) -> list[list[str]]:
@@ -362,13 +367,10 @@ def _pending_commit_count(parent: str, child: str, info: BranchInfo | None = Non
 
 def format_tree(
     graph: Graph,
-    root: str | None = None,
+    root: str,
     show_counts: bool = False,
     current: str | None = None,
 ) -> str:
-    if root is None:
-        root = main_branch()
-
     marker = "* " if current == root else ""
     lines: list[str] = [f"{marker}{root}"]
     children = graph.children_of.get(root, [])
@@ -499,17 +501,14 @@ def cmd_tree(_args: argparse.Namespace) -> None:
     raw = git("rev-parse", "--abbrev-ref", "HEAD", check=False)
     current = None if (not raw or raw == "HEAD") else raw
 
-    # Render every root, not just main: a stack whose base isn't main/master
-    # (e.g. attached to a feature branch) would otherwise be invisible. A root is
-    # a branch that has children but is not itself a tracked child.
-    main = main_branch()
-    other_roots = sorted(p for p in graph.children_of if p not in graph.parent_of and p != main)
-    blocks = [
-        format_tree(graph, root=r, current=current, show_counts=True) for r in [main, *other_roots]
-    ]
-    print("\n\n".join(blocks))
-    if not graph.parent_of:
-        print("  (no branches registered — use `git tree attach` or `git tree branch`)")
+    # Render every root: a stack whose base isn't main/master (e.g. attached to a
+    # feature branch) would otherwise be invisible. A root is a tree-branch that has
+    # children but is not itself a tracked child.
+    blocks = [format_tree(graph, root=r, current=current, show_counts=True) for r in roots(graph)]
+    if blocks:
+        print("\n\n".join(blocks))
+    else:
+        print("  (no tree-branches registered — use `git tree attach` or `git tree branch`)")
 
 
 def cmd_branch(args: argparse.Namespace) -> None:
@@ -563,18 +562,27 @@ def cmd_detach(args: argparse.Namespace) -> None:
     if not parent:
         raise TreeError(f"{branch} is not in the tree.")
 
+    graph = discover()
+    children = graph.children_of.get(branch, [])
+    print(f"Detaching {branch} from {parent}.")
+    if children:
+        print(f"{branch} has children — they will form a separate tree:")
+        print(format_tree(graph, root=branch))
+
+    if not confirm("Proceed?"):
+        return
+
     git("config", "--unset", f"branch.{branch}.tree-parent-branch", check=False)
     git("config", "--unset", f"branch.{branch}.tree-parent", check=False)
     git("config", "--unset", f"branch.{branch}.tree-fork-commit", check=False)
     print(f"Detached {branch} (was child of {parent})")
 
-    graph = discover()
-    children = graph.children_of.get(branch, [])
     if children:
-        print(f"\nNote: {branch} has children — they now form a separate tree:")
-        print(format_tree(graph, root=branch))
-        print("\nMain tree:")
-        print(format_tree(graph))
+        graph = discover()
+        other_roots = [r for r in roots(graph) if r != branch]
+        if other_roots:
+            print("\nRemaining tree(s):")
+            print("\n\n".join(format_tree(graph, root=r) for r in other_roots))
 
 
 # [empty-patch handling]
@@ -886,16 +894,20 @@ def cmd_rebase(args: argparse.Namespace) -> None:
 
 def cmd_split(_args: argparse.Namespace) -> None:
     branch = current_branch()
-    parent = (
-        git("config", f"branch.{branch}.tree-parent-branch", check=False)
-        or git("config", f"branch.{branch}.tree-parent", check=False)
-        or main_branch()
+    parent = git("config", f"branch.{branch}.tree-parent-branch", check=False) or git(
+        "config", f"branch.{branch}.tree-parent", check=False
     )
 
-    # The split branch's fork from `parent` is inherited by the new parent E,
-    # which takes the split branch's old position. Read it before overwriting.
-    old_fork = _get_fork_commit(branch, parent)
-    commits = git_lines("log", "--oneline", "--reverse", f"{old_fork}..HEAD")
+    # A child splits the commits above its fork from `parent`; that fork is inherited by
+    # the new parent, which takes the child's old position. A root has no fork, so its
+    # splittable range is its full history and the new parent it yields is itself a root.
+    old_fork: str | None
+    if parent:
+        old_fork = _get_fork_commit(branch, parent)
+        commits = git_lines("log", "--oneline", "--reverse", f"{old_fork}..HEAD")
+    else:
+        old_fork = None
+        commits = git_lines("log", "--oneline", "--reverse", "HEAD")
 
     if len(commits) < 2:
         raise TreeError("Need at least 2 commits to split.")
@@ -925,10 +937,13 @@ def cmd_split(_args: argparse.Namespace) -> None:
         worktree_path = ""
 
     git("branch", parent_name, commit_hash)
-    git("config", f"branch.{parent_name}.tree-parent-branch", parent)
-    _set_fork_commit(parent_name, old_fork)
     git("config", f"branch.{branch}.tree-parent-branch", parent_name)
     _set_fork_commit(branch, git("rev-parse", commit_hash))
+    if old_fork is not None:
+        # Child split: the new parent inherits the child's former parent and fork point.
+        # For a root split, the new parent is itself a root, so it gets neither.
+        git("config", f"branch.{parent_name}.tree-parent-branch", parent)
+        _set_fork_commit(parent_name, old_fork)
 
     remote = git("config", f"branch.{branch}.remote", check=False)
     if remote:
@@ -947,7 +962,8 @@ def cmd_split(_args: argparse.Namespace) -> None:
                 file=sys.stderr,
             )
 
-    split_commits = git_lines("log", "--oneline", f"{old_fork}..{commit_hash}")
+    split_range = f"{old_fork}..{commit_hash}" if old_fork is not None else commit_hash
+    split_commits = git_lines("log", "--oneline", split_range)
     remaining = git_lines("log", "--oneline", f"{commit_hash}..HEAD")
     print("\nSplit complete:")
     print(f"  {parent_name} ({len(split_commits)} commits) → new parent branch")
@@ -987,7 +1003,7 @@ def cmd_push(args: argparse.Namespace) -> None:
         if git_ok("rev-parse", "--verify", remote_ref):
             count = len(git_lines("rev-list", f"{remote_ref}..{b}"))
         else:
-            base = git("merge-base", graph.parent_of.get(b, main_branch()), b)
+            base = git("merge-base", graph.parent_of.get(b, b), b)
             count = len(git_lines("rev-list", f"{base}..{b}"))
         ahead[b] = count
 
@@ -1042,12 +1058,19 @@ def cmd_push(args: argparse.Namespace) -> None:
 
 def cmd_log(args: argparse.Namespace) -> None:
     graph = discover()
-    root = main_branch()
-    descendants = graph.downstream_from(root)
-    if not descendants:
-        print(f"No tree branches found under {root}.")
+    try:
+        branch = current_branch()
+    except TreeError:
+        print("Not on a tree-branch.")
+        raise SystemExit(0) from None
+    # A branch participates in the forest if it has a parent (a tracked child) or has
+    # children (a root). Anything else is a plain git branch git-tree doesn't track.
+    if branch not in graph.parent_of and branch not in graph.children_of:
+        print("Not on a tree-branch.")
         raise SystemExit(0)
 
+    root = root_of(graph, branch)
+    descendants = graph.downstream_from(root)
     all_refs = [root] + descendants
 
     cmd = ["git", "log", "--graph", "--oneline", "--decorate"]
@@ -1082,7 +1105,7 @@ _git-tree() {
         'detach:Remove a branch from tree'
         'split:Split current branch into parent + child'
         'push:Push current branch + descendants'
-        'log:Show git log graph for all tree branches'
+        'log:Show git log graph for all tree-branches'
         'completions:Emit shell completion script'
     )
 
@@ -1218,7 +1241,7 @@ def main(argv: list[str] | None = None) -> None:  # explicit argv for tests
     push_p = sub.add_parser("push", help="Push current branch + descendants")
     push_p.add_argument("--dry", action="store_true", help="Show what would be done")
 
-    sub.add_parser("log", help="Show git log graph for all tree branches")
+    sub.add_parser("log", help="Show git log graph for all tree-branches")
 
     completions_p = sub.add_parser("completions", help="Emit shell completion script")
     completions_p.add_argument("shell", choices=["zsh", "bash"], help="Shell type")

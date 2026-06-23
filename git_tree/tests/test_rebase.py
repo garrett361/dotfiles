@@ -166,6 +166,40 @@ class TestRebase:
         log = repo.git("log", "--oneline", "feature")
         assert "on feature" in log
 
+    def test_rebase_propagates_to_one_child_not_sibling(
+        self, repo: RepoHelper, monkeypatch, tmp_path
+    ) -> None:
+        """main -> dev1, dev2: rebasing dev1 onto an advanced main updates dev1 (and its
+        descendants) but leaves the sibling dev2 untouched."""
+        repo.branch("dev1", parent="main")
+        wt1 = repo.worktree("dev1", str(tmp_path / "wt-dev1"))
+        (wt1 / "d1.txt").write_text("d1")
+        repo.git("add", "d1.txt", cwd=wt1)
+        repo.git("commit", "-m", "dev1 commit", cwd=wt1)
+
+        repo.branch("dev2", parent="main")
+        wt2 = repo.worktree("dev2", str(tmp_path / "wt-dev2"))
+        (wt2 / "d2.txt").write_text("d2")
+        repo.git("add", "d2.txt", cwd=wt2)
+        repo.git("commit", "-m", "dev2 commit", cwd=wt2)
+
+        # Bring new upstream work into main.
+        repo.checkout("main")
+        repo.commit("m2.txt", "m2", "new main commit")
+
+        # Propagate main into dev1 only, via rebase from dev1's worktree.
+        monkeypatch.chdir(wt1)
+        monkeypatch.setattr("builtins.input", lambda _: "y")
+        cmd_rebase(_ns(target="main"))
+
+        dev1_log = repo.git("log", "--oneline", "dev1")
+        assert "new main commit" in dev1_log
+        assert "dev1 commit" in dev1_log
+
+        dev2_log = repo.git("log", "--oneline", "dev2")
+        assert "new main commit" not in dev2_log  # sibling not propagated
+        assert "dev2 commit" in dev2_log
+
     def test_rebase_diverged_parent_preserves_commits(
         self, repo: RepoHelper, monkeypatch, tmp_path
     ) -> None:

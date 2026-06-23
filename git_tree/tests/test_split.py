@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from git_tree.cli import cmd_split, discover
+from git_tree.cli import cmd_split, discover, roots
 
 from .conftest import RepoHelper
 
@@ -31,6 +31,33 @@ class TestSplit:
         split_hash = split_line.split()[0]
         base_tip_full = repo.git("rev-parse", "feature-base")
         assert base_tip_full.startswith(split_hash)
+
+    def test_split_on_root_creates_new_root_parent(self, repo: RepoHelper, monkeypatch) -> None:
+        # A root (no tree-parent) splits over its full history; the new parent becomes a
+        # root and the original branch becomes its child.
+        repo.git("branch", "base")  # root: no tree-parent
+        repo.checkout("base")
+        repo.commit("a1.txt", "a1", "first on base")
+        repo.commit("a2.txt", "a2", "second on base")
+        repo.commit("a3.txt", "a3", "third on base")
+
+        commits = repo.git("log", "--oneline", "--reverse", "base").splitlines()
+        split_line = commits[1]  # split after the second commit in full history
+
+        inputs = iter(["base-bottom", "n"])
+        monkeypatch.setattr("git_tree.cli.fzf_select", lambda items, **kw: [split_line])
+        monkeypatch.setattr("builtins.input", lambda _: next(inputs))
+
+        cmd_split(None)
+
+        graph = discover()
+        # New parent is a root (no tree-parent); base is now its child.
+        assert "base-bottom" not in graph.parent_of
+        assert graph.parent_of["base"] == "base-bottom"
+        assert roots(graph) == ["base-bottom"]
+        # The split point is base-bottom's tip.
+        split_hash = split_line.split()[0]
+        assert repo.git("rev-parse", "base-bottom").startswith(split_hash)
 
     def test_single_commit_exits(self, repo: RepoHelper) -> None:
         repo.branch("feature", parent="main")

@@ -66,31 +66,56 @@ class TestAttach:
 
 
 class TestDetach:
-    def test_removes_tree_parent(self, repo: RepoHelper) -> None:
+    def _branch_config(self, repo: RepoHelper, branch: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["git", "config", f"branch.{branch}.tree-parent-branch"],
+            cwd=repo.work,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def test_removes_tree_parent(self, repo: RepoHelper, monkeypatch) -> None:
         repo.branch("feature", parent="main")
         repo.checkout("feature")
+        monkeypatch.setattr("builtins.input", lambda _: "y")
         cmd_detach(_ns())
-        result = subprocess.run(
-            ["git", "config", "branch.feature.tree-parent-branch"],
-            cwd=repo.work,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert result.returncode != 0
+        assert self._branch_config(repo, "feature").returncode != 0
 
-    def test_detach_by_name_from_different_branch(self, repo: RepoHelper) -> None:
+    def test_detach_by_name_from_different_branch(self, repo: RepoHelper, monkeypatch) -> None:
         repo.branch("feature", parent="main")
         repo.checkout("main")
+        monkeypatch.setattr("builtins.input", lambda _: "y")
         cmd_detach(_ns(branch="feature"))
-        result = subprocess.run(
-            ["git", "config", "branch.feature.tree-parent-branch"],
-            cwd=repo.work,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert result.returncode != 0
+        assert self._branch_config(repo, "feature").returncode != 0
+
+    def test_declined_confirmation_keeps_parent(self, repo: RepoHelper, monkeypatch) -> None:
+        repo.branch("feature", parent="main")
+        repo.checkout("feature")
+        monkeypatch.setattr("builtins.input", lambda _: "n")
+        cmd_detach(_ns())
+        # Config untouched: still attached to main.
+        result = self._branch_config(repo, "feature")
+        assert result.returncode == 0
+        assert result.stdout.strip() == "main"
+
+    def test_detach_with_children_lists_remaining_trees(
+        self, repo: RepoHelper, capsys, monkeypatch
+    ) -> None:
+        # mid is a tree-child of main and parent of leaf. Detaching mid splits the forest:
+        # mid+leaf become their own tree, and main's tree (now without mid) is "remaining".
+        repo.branch("topic", parent="main")
+        repo.branch("mid", parent="main")
+        repo.branch("leaf", parent="mid")
+        repo.checkout("mid")
+
+        monkeypatch.setattr("builtins.input", lambda _: "y")
+        cmd_detach(_ns())
+        out = capsys.readouterr().out
+        assert "they will form a separate tree" in out
+        assert "leaf" in out
+        assert "Remaining tree(s):" in out
+        assert "topic" in out  # still under main
 
     def test_detach_not_in_tree_exits(self, repo: RepoHelper) -> None:
         repo.git("branch", "orphan")

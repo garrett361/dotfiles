@@ -8,22 +8,22 @@ from .conftest import RepoHelper
 
 
 class TestFormatTree:
-    def test_empty_tree(self, repo: RepoHelper) -> None:
-        graph = discover()
-        output = format_tree(graph)
-        assert output == "main"
+    def test_empty_repo_prints_registration_hint(self, repo: RepoHelper, capsys) -> None:
+        cmd_tree(argparse.Namespace())
+        out = capsys.readouterr().out
+        assert "no tree-branches registered" in out
 
     def test_single_child(self, repo: RepoHelper) -> None:
         repo.branch("feature", parent="main")
         graph = discover()
-        output = format_tree(graph)
+        output = format_tree(graph, root="main")
         assert "└── feature" in output
 
     def test_multiple_children(self, repo: RepoHelper) -> None:
         repo.branch("a", parent="main")
         repo.branch("b", parent="main")
         graph = discover()
-        output = format_tree(graph)
+        output = format_tree(graph, root="main")
         lines = output.splitlines()
         assert lines[0] == "main"
         connectors = [line.strip()[:3] for line in lines[1:]]
@@ -33,7 +33,7 @@ class TestFormatTree:
         repo.branch("b", parent="main")
         repo.branch("c", parent="b")
         graph = discover()
-        output = format_tree(graph)
+        output = format_tree(graph, root="main")
         assert "main" in output
         assert "b" in output
         assert "c" in output
@@ -50,7 +50,7 @@ class TestFormatTree:
     def test_no_worktree_annotation(self, repo: RepoHelper) -> None:
         repo.branch("feature", parent="main")
         graph = discover()
-        output = format_tree(graph)
+        output = format_tree(graph, root="main")
         assert "(no worktree)" in output
 
 

@@ -1,10 +1,10 @@
-"""Ref resolution edge cases (Unit 2): detached HEAD and main_branch fallback."""
+"""Ref resolution edge cases: detached HEAD and structural root discovery."""
 
 from __future__ import annotations
 
 import pytest
 
-from git_tree.cli import TreeError, current_branch, main_branch
+from git_tree.cli import TreeError, current_branch, discover, root_of, roots
 
 from .conftest import RepoHelper
 
@@ -19,26 +19,31 @@ class TestCurrentBranch:
         assert current_branch() == "main"
 
 
-class TestMainBranch:
-    def test_prefers_main(self, repo: RepoHelper) -> None:
-        assert main_branch() == "main"
+class TestRoots:
+    def test_discovers_every_root_in_a_forest(self, repo: RepoHelper) -> None:
+        # One stack rooted at main, a second rooted at an unregistered base.
+        repo.branch("topic", parent="main")
+        repo.git("branch", "release")  # real branch, no tree-parent -> a second root
+        repo.branch("feat", parent="release")
 
-    def test_detects_non_standard_remote_default(self, repo: RepoHelper) -> None:
-        # Repo whose trunk is `trunk`, not main/master.
+        graph = discover()
+        assert roots(graph) == ["main", "release"]
+
+    def test_root_of_resolves_each_branch_to_its_own_root(self, repo: RepoHelper) -> None:
+        repo.branch("topic", parent="main")
+        repo.git("branch", "release")
+        repo.branch("feat", parent="release")
+
+        graph = discover()
+        # Assert both directions so a helper that always returns the first root can't pass.
+        assert root_of(graph, "topic") == "main"
+        assert root_of(graph, "feat") == "release"
+
+    def test_works_with_non_main_trunk(self, repo: RepoHelper) -> None:
+        # Repo whose only root is `trunk`, with no `main` ref present at all.
         repo.git("branch", "-m", "main", "trunk")
-        repo.git("push", "origin", "trunk")
-        repo.git("remote", "set-head", "origin", "trunk")
-        # Must detect `trunk`, not misreport the literal "main".
-        assert main_branch() == "trunk"
+        repo.branch("feat", parent="trunk")
 
-    def test_ignores_remote_default_absent_locally(self, repo: RepoHelper) -> None:
-        # origin/HEAD -> origin/trunk, but no local trunk and no local main/master.
-        repo.git("push", "origin", "main:trunk")
-        repo.git("remote", "set-head", "origin", "trunk")
-        repo.git("branch", "-m", "main", "dev")
-        assert main_branch() == "main"  # guard rejects a remote default absent locally
-
-    def test_falls_back_when_no_origin_default(self, repo: RepoHelper) -> None:
-        repo.git("branch", "-m", "main", "trunk")
-        repo.git("remote", "remove", "origin")
-        assert main_branch() == "main"
+        graph = discover()
+        assert roots(graph) == ["trunk"]
+        assert root_of(graph, "feat") == "trunk"
