@@ -155,13 +155,25 @@ def current_branch() -> str:
     if proc.returncode != 0:
         msg = proc.stderr.strip() if proc.stderr else "not on a branch"
         raise TreeError(f"fatal: {msg}")
-    return proc.stdout.strip()
+    name = proc.stdout.strip()
+    if name == "HEAD":
+        # Detached HEAD: rev-parse --abbrev-ref prints the literal "HEAD".
+        # Don't let callers operate on (or write config for) a branch named HEAD.
+        raise TreeError("fatal: not on a branch (detached HEAD)")
+    return name
 
 
 def main_branch() -> str:
     for candidate in ("main", "master"):
         if git_ok("rev-parse", "--verify", candidate):
             return candidate
+    # Neither standard name exists — fall back to the remote's default branch
+    # (e.g. a repo whose trunk is `trunk`/`develop`), if it's present locally.
+    head = git("symbolic-ref", "--short", "refs/remotes/origin/HEAD", check=False)
+    if head:
+        short = head.split("/", 1)[1] if "/" in head else head
+        if short and git_ok("rev-parse", "--verify", short):
+            return short
     return "main"
 
 
