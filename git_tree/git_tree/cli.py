@@ -901,6 +901,10 @@ def _conflict_exit(child: str, parent: str, cwd: Path, stashed: bool) -> NoRetur
     lines.append(f"Resolve conflicts in {cwd}, then run: git rebase --continue")
     if stashed:
         lines.append(f"Note: dirty worktree was stashed — run: cd {cwd} && git stash pop")
+    lines.append(
+        f"Then resume the cascade with: git tree propagate {parent}"
+        f"  (records {child}'s new fork point and continues to its descendants)"
+    )
     raise TreeError("\n".join(lines))
 
 
