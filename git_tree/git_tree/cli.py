@@ -163,19 +163,13 @@ def _set_fork_commit(branch: str, commit: str) -> None:
 
 
 def _get_tree_parent(branch: str) -> str:
-    """Tree parent branch, or "" if unset.
-
-    Falls back to the legacy `tree-parent` key (pre-rename); that read is best-effort
-    and never migrated — writes always use the current `tree-parent-branch` key.
-    """
-    return git("config", f"branch.{branch}.tree-parent-branch", check=False) or git(
-        "config", f"branch.{branch}.tree-parent", check=False
-    )
+    """Tree parent branch, or "" if unset."""
+    return git("config", f"branch.{branch}.tree-parent-branch", check=False)
 
 
 def _unset_tree_config(branch: str) -> None:
-    """Remove all tree config for a branch: parent edge, legacy key, and fork commit."""
-    for key in ("tree-parent-branch", "tree-parent", "tree-fork-commit"):
+    """Remove all tree config for a branch: parent edge and fork commit."""
+    for key in ("tree-parent-branch", "tree-fork-commit"):
         git("config", "--unset", f"branch.{branch}.{key}", check=False)
 
 

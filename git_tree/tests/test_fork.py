@@ -259,20 +259,6 @@ class TestForkCommitLifecycle:
         assert repo.git("config", "branch.b.tree-fork-commit") == main_tip
 
 
-class TestLegacyConfig:
-    def test_reads_legacy_tree_parent_without_writing(self, repo: RepoHelper) -> None:
-        repo.git("branch", "b")
-        repo.git("config", "branch.b.tree-parent", "main")  # legacy key only
-
-        graph = discover()
-        assert graph.parent_of.get("b") == "main"
-
-        # No migration writes: the new key is not created on read.
-        assert repo.git("config", "branch.b.tree-parent") == "main"
-        assert not repo.git("config", "branch.b.tree-parent-branch", check=False)
-        assert not repo.git("config", "branch.b.tree-fork-commit", check=False)
-
-
 class TestForkAncestorGuard:
     """The stored fork is honored only when it is an ancestor of the branch; otherwise
     _get_fork_commit falls back to merge-base so the --onto range stays correct."""

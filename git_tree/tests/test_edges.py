@@ -9,7 +9,7 @@ from .conftest import RepoHelper
 
 class TestEdgeCases:
     def test_missing_parent_branch_excluded(self, repo: RepoHelper, capsys) -> None:
-        repo.git("config", "branch.main.tree-parent", "nonexistent")
+        repo.git("config", "branch.main.tree-parent-branch", "nonexistent")
         graph = discover()
         assert "main" not in graph.parent_of
         assert "main" not in graph.branches

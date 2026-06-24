@@ -44,9 +44,7 @@ real fork, so the stored commit is the only reliable boundary. This is what make
 interrupted propagate resumable, and keeps a reorder/split or `git pull --rebase` of a parent
 from corrupting its descendants.
 
-Works immediately after `git tree branch` or `git tree attach`. Trees created before this
-key existed still work: a missing `tree-fork-commit` falls back to `merge-base`, and a legacy
-`tree-parent` key is read as the parent branch.
+Works immediately after `git tree branch` or `git tree attach`, which record the fork commit.
 
 ### Propagate
 
