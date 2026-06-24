@@ -17,7 +17,9 @@ own work so you never re-resolve a conflict you've already handled. It also prov
 commands to build and reshape the tree: create child branches with worktrees, split a branch
 into parent and child, attach or detach branches, and tear down a subtree's worktrees.
 
-It rewrites history, so it's for stacks you control and force-push, not shared branches.
+It rewrites history, so it's for stacks you control and force-push, not shared branches. And
+it stays a thin wrapper — non-trivial git commands are echoed with their output, so you can
+see what it did and fall back to plain git.
 
 ## Install
 
