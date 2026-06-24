@@ -578,13 +578,18 @@ def _print_results(results: list[tuple[str, str]]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def confirm(message: str) -> bool:
+def _prompt(message: str) -> str | None:
+    """input() returning the stripped reply, or None on EOF/Ctrl-C (echoing a newline)."""
     try:
-        response = input(f"{message} [y/N] ")
+        return input(message).strip()
     except (EOFError, KeyboardInterrupt):
         print()
-        return False
-    return response.strip().lower() in ("y", "yes")
+        return None
+
+
+def confirm(message: str) -> bool:
+    response = _prompt(f"{message} [y/N] ")
+    return response is not None and response.lower() in ("y", "yes")
 
 
 # ---------------------------------------------------------------------------
@@ -1169,19 +1174,11 @@ def cmd_split(_args: argparse.Namespace) -> None:
         header="Select the last commit for the new parent branch",
     ).split()[0]
 
-    try:
-        parent_name = input("New parent branch name: ").strip()
-    except (EOFError, KeyboardInterrupt):
-        print()
-        raise SystemExit(1) from None
+    parent_name = _prompt("New parent branch name: ")
     if not parent_name:
         raise SystemExit(1)
 
-    try:
-        worktree_path = input("Create worktree for parent? [path / N]: ").strip()
-    except (EOFError, KeyboardInterrupt):
-        print()
-        worktree_path = ""
+    worktree_path = _prompt("Create worktree for parent? [path / N]: ") or ""
 
     git("branch", parent_name, commit_hash)
     git("config", f"branch.{branch}.tree-parent-branch", parent_name)
