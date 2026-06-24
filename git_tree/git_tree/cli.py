@@ -1083,6 +1083,9 @@ def cmd_rebase(args: argparse.Namespace) -> None:
     if not git_ok("rev-parse", "--verify", old_parent):
         raise TreeError(f"Old parent {old_parent} does not exist.")
 
+    if not git_ok("rev-parse", "--verify", target):
+        raise TreeError(f"Rebase target {target} does not exist.")
+
     if target == branch:
         raise TreeError(f"Cannot rebase {branch} onto itself.")
     if _would_cycle(branch, target):

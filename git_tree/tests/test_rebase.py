@@ -247,6 +247,28 @@ class TestRebase:
         assert repo.git("rev-parse", "a") == tip_before
         assert discover().parent_of["a"] == "main"
 
+    def test_rebase_nonexistent_target_raises_before_side_effects(
+        self, repo: RepoHelper, monkeypatch, tmp_path, capsys
+    ) -> None:
+        # A typo'd target must be rejected before the confirm prompt and before any
+        # rebase: the branch tip and its tree-parent stay put.
+        repo.branch("feature", parent="main")
+        wt = repo.worktree("feature", str(tmp_path / "wt-feature"))
+        (wt / "f1.txt").write_text("f1")
+        repo.git("add", "f1.txt", cwd=wt)
+        repo.git("commit", "-m", "feature commit", cwd=wt)
+        tip_before = repo.git("rev-parse", "feature")
+
+        monkeypatch.chdir(wt)
+        # input must never be consulted — the guard aborts before the confirm prompt.
+        monkeypatch.setattr("builtins.input", lambda _: pytest.fail("reached confirm"))
+        with pytest.raises(TreeError):
+            cmd_rebase(_ns(target="no-such-branch"))
+
+        assert "Rebase target no-such-branch does not exist" in capsys.readouterr().err
+        assert repo.git("rev-parse", "feature") == tip_before
+        assert discover().parent_of["feature"] == "main"
+
     def test_rebase_onto_self_raises(self, repo: RepoHelper, monkeypatch) -> None:
         repo.branch("a", parent="main")
         repo.checkout("a")
