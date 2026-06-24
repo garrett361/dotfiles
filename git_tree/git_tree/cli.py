@@ -136,6 +136,28 @@ def _set_fork_commit(branch: str, commit: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Tree edge storage
+# ---------------------------------------------------------------------------
+
+
+def _get_tree_parent(branch: str) -> str:
+    """Tree parent branch, or "" if unset.
+
+    Falls back to the legacy `tree-parent` key (pre-rename); that read is best-effort
+    and never migrated — writes always use the current `tree-parent-branch` key.
+    """
+    return git("config", f"branch.{branch}.tree-parent-branch", check=False) or git(
+        "config", f"branch.{branch}.tree-parent", check=False
+    )
+
+
+def _unset_tree_config(branch: str) -> None:
+    """Remove all tree config for a branch: parent edge, legacy key, and fork commit."""
+    for key in ("tree-parent-branch", "tree-parent", "tree-fork-commit"):
+        git("config", "--unset", f"branch.{branch}.{key}", check=False)
+
+
+# ---------------------------------------------------------------------------
 # Data model
 # ---------------------------------------------------------------------------
 
@@ -285,10 +307,7 @@ def discover() -> Graph:
 
     orphaned: list[tuple[str, str]] = []
     for branch in all_branches:
-        parent = git("config", f"branch.{branch}.tree-parent-branch", check=False)
-        if not parent:
-            # Legacy key (pre-rename); read-only fallback, no migration writes.
-            parent = git("config", f"branch.{branch}.tree-parent", check=False)
+        parent = _get_tree_parent(branch)
         if not parent:
             continue
 
@@ -608,9 +627,7 @@ def cmd_attach(args: argparse.Namespace) -> None:
 
 def cmd_detach(args: argparse.Namespace) -> None:
     branch = getattr(args, "branch", None) or current_branch()
-    parent = git("config", f"branch.{branch}.tree-parent-branch", check=False) or git(
-        "config", f"branch.{branch}.tree-parent", check=False
-    )
+    parent = _get_tree_parent(branch)
     if not parent:
         raise TreeError(f"{branch} is not in the tree.")
 
@@ -624,9 +641,7 @@ def cmd_detach(args: argparse.Namespace) -> None:
     if not confirm("Proceed?"):
         return
 
-    git("config", "--unset", f"branch.{branch}.tree-parent-branch", check=False)
-    git("config", "--unset", f"branch.{branch}.tree-parent", check=False)
-    git("config", "--unset", f"branch.{branch}.tree-fork-commit", check=False)
+    _unset_tree_config(branch)
     print(f"Detached {branch} (was child of {parent})")
 
     if children:
@@ -708,9 +723,7 @@ def cmd_remove(args: argparse.Namespace) -> None:
             if not git_echo_ok("worktree", "remove", str(info.worktree)):
                 raise TreeError(f"failed to remove {b}'s worktree — stopping (see output above).")
             removed_worktrees += 1
-        git("config", "--unset", f"branch.{b}.tree-parent-branch", check=False)
-        git("config", "--unset", f"branch.{b}.tree-parent", check=False)
-        git("config", "--unset", f"branch.{b}.tree-fork-commit", check=False)
+        _unset_tree_config(b)
 
     print(
         f"\nDetached {len(subtree)} branch(es) from the tree; "
@@ -947,11 +960,7 @@ def cmd_rebase(args: argparse.Namespace) -> None:
     target: str = args.target
     graph = discover()
 
-    old_parent = graph.parent_of.get(branch)
-    if not old_parent:
-        old_parent = git("config", f"branch.{branch}.tree-parent-branch", check=False) or git(
-            "config", f"branch.{branch}.tree-parent", check=False
-        )
+    old_parent = graph.parent_of.get(branch) or _get_tree_parent(branch)
     if not old_parent:
         raise TreeError(f"{branch} has no tree-parent-branch configured.")
 
@@ -1018,9 +1027,7 @@ def cmd_rebase(args: argparse.Namespace) -> None:
 
 def cmd_split(_args: argparse.Namespace) -> None:
     branch = current_branch()
-    parent = git("config", f"branch.{branch}.tree-parent-branch", check=False) or git(
-        "config", f"branch.{branch}.tree-parent", check=False
-    )
+    parent = _get_tree_parent(branch)
 
     # A child splits the commits above its fork from `parent`; that fork is inherited by
     # the new parent, which takes the child's old position. A root has no fork, so its
