@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from git_tree.cli import cmd_split, discover, roots
+from git_tree.cli import _root_remote, cmd_split, discover, roots
 
 from .conftest import RepoHelper
 
@@ -58,6 +58,47 @@ class TestSplit:
         # The split point is base-bottom's tip.
         split_hash = split_line.split()[0]
         assert repo.git("rev-parse", "base-bottom").startswith(split_hash)
+
+    def test_split_root_carries_remote_to_new_root(self, repo: RepoHelper, monkeypatch) -> None:
+        # The tree's remote lives on its root. Splitting a root inserts a new root above
+        # it, so the anchor must follow or push can no longer resolve it.
+        repo.git("branch", "base")
+        repo.git("config", "branch.base.remote", "origin")
+        repo.checkout("base")
+        repo.commit("a1.txt", "a1", "first on base")
+        repo.commit("a2.txt", "a2", "second on base")
+        repo.commit("a3.txt", "a3", "third on base")
+
+        split_line = repo.git("log", "--oneline", "--reverse", "base").splitlines()[1]
+        inputs = iter(["base-bottom", "n"])
+        monkeypatch.setattr("git_tree.cli.fzf_select", lambda items, **kw: [split_line])
+        monkeypatch.setattr("builtins.input", lambda _: next(inputs))
+
+        cmd_split(None)
+
+        # Resolution (what push uses) now anchors on the new root.
+        assert _root_remote(discover(), "base") == ("base-bottom", "origin")
+        assert repo.git("config", "branch.base-bottom.remote") == "origin"
+
+    def test_split_child_does_not_create_remote(self, repo: RepoHelper, monkeypatch) -> None:
+        # A child split keeps the same root, so nothing should migrate. The new mid-tree
+        # parent must not acquire a remote key.
+        repo.git("config", "branch.main.remote", "origin")
+        repo.branch("feature", parent="main")
+        repo.checkout("feature")
+        repo.commit("f1.txt", "f1", "first on feature")
+        repo.commit("f2.txt", "f2", "second on feature")
+        repo.commit("f3.txt", "f3", "third on feature")
+
+        split_line = repo.git("log", "--oneline", "--reverse", "main..HEAD").splitlines()[1]
+        inputs = iter(["feature-base", "n"])
+        monkeypatch.setattr("git_tree.cli.fzf_select", lambda items, **kw: [split_line])
+        monkeypatch.setattr("builtins.input", lambda _: next(inputs))
+
+        cmd_split(None)
+
+        assert repo.git("config", "branch.feature-base.remote", check=False) == ""
+        assert _root_remote(discover(), "feature") == ("main", "origin")
 
     def test_single_commit_exits(self, repo: RepoHelper) -> None:
         repo.branch("feature", parent="main")

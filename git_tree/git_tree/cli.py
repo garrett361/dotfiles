@@ -264,6 +264,25 @@ def _root_remote(graph: Graph, branch: str) -> tuple[str, str | None]:
     return root, remote
 
 
+def _carry_remote_to_root(old_root: str, new_root: str) -> None:
+    """Carry a tree's remote anchor (branch.<root>.remote) onto a new root.
+
+    A tree has one remote, on its root; an operation that inserts a new root above the
+    old one (root split, or rebase onto a branch outside the tree) must carry the anchor
+    or push can no longer resolve it. No-op when the roots match, the old root had no
+    remote, or the new root already has its own (it brought its own tree's remote). The
+    old root keeps its key: it may still root sibling branches, and push reads only the
+    root's.
+    """
+    if old_root == new_root:
+        return
+    old_remote = git("config", f"branch.{old_root}.remote", check=False)
+    if not old_remote or git("config", f"branch.{new_root}.remote", check=False):
+        return
+    git("config", f"branch.{new_root}.remote", old_remote)
+    print(f"Carried tree remote '{old_remote}' to new root '{new_root}'.")
+
+
 def _find_cycles(graph: Graph) -> list[list[str]]:
     """Return each parent-chain cycle (in loop order), or [] if the tree is acyclic.
 
@@ -1065,6 +1084,10 @@ def cmd_rebase(args: argparse.Namespace) -> None:
 
     r = _rebase_branch(branch, target, fork_point, info, auto_rerere=auto_rerere)
     git("config", f"branch.{branch}.tree-parent-branch", target)
+    # Reparenting onto an out-of-tree target re-roots branch's tree; carry the remote
+    # anchor. Both roots come from the pre-rebase graph (in-memory, so the config write
+    # above doesn't perturb it): root_of(branch) is the old root, root_of(target) the new.
+    _carry_remote_to_root(root_of(graph, branch), root_of(graph, target))
     if r.pop_conflicted:
         print(
             f"Warning: could not pop worktree stash — run: cd {info.worktree} && git stash pop",
@@ -1129,9 +1152,13 @@ def cmd_split(_args: argparse.Namespace) -> None:
     _set_fork_commit(branch, git("rev-parse", commit_hash))
     if old_fork is not None:
         # Child split: the new parent inherits the child's former parent and fork point.
-        # For a root split, the new parent is itself a root, so it gets neither.
         git("config", f"branch.{parent_name}.tree-parent-branch", parent)
         _set_fork_commit(parent_name, old_fork)
+    else:
+        # Root split: parent_name becomes the tree's new root, so the remote anchor that
+        # lived on the old root (`branch`) moves onto it. branch keeps neither parent nor
+        # fork — it is now the new root's child, recorded above.
+        _carry_remote_to_root(branch, parent_name)
 
     if worktree_path and worktree_path.lower() != "n":
         # The split (branch + config) is already applied; a worktree-add failure
