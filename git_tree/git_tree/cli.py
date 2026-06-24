@@ -1542,7 +1542,16 @@ def main(argv: list[str] | None = None) -> None:  # explicit argv for tests
     }
 
     handler = commands.get(args.command, cmd_tree)
-    handler(args)
+    try:
+        handler(args)
+    except subprocess.CalledProcessError as e:
+        # A bare git() (check=True) failed somewhere unexpected. Surface git's own command
+        # and stderr as a clean error instead of dumping a CalledProcessError traceback.
+        cmd = " ".join(e.cmd) if isinstance(e.cmd, (list, tuple)) else str(e.cmd)
+        stderr = (e.stderr or "").strip()
+        raise TreeError(
+            f"git command failed (exit {e.returncode}): {cmd}" + (f"\n{stderr}" if stderr else "")
+        ) from e
 
 
 if __name__ == "__main__":

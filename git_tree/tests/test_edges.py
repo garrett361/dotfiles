@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from git_tree.cli import TreeError, discover
+from git_tree.cli import TreeError, discover, main
 
 from .conftest import RepoHelper
 
@@ -20,6 +20,24 @@ class TestEdgeCases:
         graph = discover()
         assert graph.parent_of == {}
         assert graph.children_of == {}
+
+
+class TestGitFailureSurfacesCleanly:
+    def test_outside_repo_reports_git_error_not_traceback(
+        self, tmp_path, monkeypatch, capsys
+    ) -> None:
+        # Outside any git repo the first git() in discover() exits 128. main() must surface
+        # git's own message as a clean error, not a raw CalledProcessError traceback.
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path))  # don't find a parent repo
+
+        with pytest.raises(SystemExit):
+            main(["remove", "whatever"])
+
+        err = capsys.readouterr().err
+        assert "git command failed" in err
+        assert "git worktree list --porcelain" in err
+        assert "fatal" in err  # git's own stderr is included
 
 
 class TestCycles:
