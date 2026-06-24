@@ -1220,6 +1220,7 @@ def cmd_push(args: argparse.Namespace) -> None:
 
     stale: list[str] = []
     ahead: dict[str, int] = {}
+    new_roots: set[str] = set()
 
     for b in push_set:
         parent = graph.parent_of.get(b)
@@ -1232,11 +1233,14 @@ def cmd_push(args: argparse.Namespace) -> None:
 
         remote_ref = f"{root_remote}/{b}"
         if git_ok("rev-parse", "--verify", remote_ref):
-            count = len(git_lines("rev-list", f"{remote_ref}..{b}"))
+            ahead[b] = len(git_lines("rev-list", f"{remote_ref}..{b}"))
+        elif parent:
+            base = git("merge-base", parent, b)
+            ahead[b] = len(git_lines("rev-list", f"{base}..{b}"))
         else:
-            base = git("merge-base", graph.parent_of.get(b, b), b)
-            count = len(git_lines("rev-list", f"{base}..{b}"))
-        ahead[b] = count
+            # Never-pushed root: no remote ref and no parent to count against, so an
+            # "ahead" number is meaningless (merge-base(b, b) is b -> a bogus 0). It's new.
+            new_roots.add(b)
 
     pushable = [b for b in push_set if b not in stale]
 
@@ -1258,6 +1262,8 @@ def cmd_push(args: argparse.Namespace) -> None:
             print(f"  {b}  (stale - run propagate first)")
         elif b in blocked:
             print(f"  {b}  (skipped - ancestor not pushed)")
+        elif b in new_roots:
+            print(f"  {b}  (new)")
         else:
             print(f"  {b}  [{ahead.get(b, 0)} ahead]")
     print()

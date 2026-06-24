@@ -64,11 +64,12 @@ class TestPush:
         # git prints the ref update on stderr; it must reach the user, not be swallowed.
         assert "feature -> feature" in captured.err
 
-    def test_unpushed_root_reports_zero_ahead(
+    def test_unpushed_root_reports_new(
         self, repo: RepoHelper, monkeypatch, capsys, tmp_path
     ) -> None:
-        # A standalone root (no tree-parent) never pushed: the ahead-count falls back to a
-        # self-base (0) instead of anchoring on main, and the push still succeeds.
+        # A never-pushed root (no tree-parent) has no baseline for an ahead count, so it
+        # shows as "(new)" rather than a misleading "0 ahead". A never-pushed non-root
+        # still reports its commits since its fork. The push succeeds either way.
         repo.git("branch", "base")  # root: has a tree-child below but no tree-parent
         repo.git("config", "branch.base.remote", "origin")  # tree remote lives on the root
         repo.branch("child", parent="base")
@@ -82,7 +83,8 @@ class TestPush:
         cmd_push(_ns())
 
         out = capsys.readouterr().out
-        assert "base  [0 ahead]" in out
+        assert "base  (new)" in out
+        assert "child  [1 ahead]" in out
         remote = repo.git("ls-remote", "--heads", str(repo.origin))
         assert "refs/heads/base" in remote
 
