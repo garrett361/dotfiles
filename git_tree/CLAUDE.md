@@ -4,6 +4,8 @@ Cascading rebase tool for branch dependency chains. Manages branches that form t
 
 ## Design philosophy
 
+**Goal**: edit any branch in a dependency tree (each in its own worktree) with plain git and propagate the change to all descendants, replaying only each branch's own commits so already-upstream work never re-conflicts. See README "Goals".
+
 git-tree is a deliberately **light wrapper around plain git**. It automates the bookkeeping of cascading rebases but should never obscure what git is doing. Two principles guide changes:
 
 - **Minimal state**: dependency edges live in git config (see Architecture), not external files or commit labels. Anything git already knows is read from git, never duplicated.

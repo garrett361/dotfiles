@@ -4,6 +4,21 @@ Cascading rebase tool for branch dependency chains.
 
 When you work with stacked branches (A → B → C), adding commits to A means B and C need rebasing. `git-tree` tracks these dependencies and automates the cascade.
 
+## Goals
+
+git-tree manages branches that form a **dependency tree** — each branch stacks on one
+parent, and a parent may have many children (a plain stack is the linear case). Each branch
+lives in its own git worktree, so the whole tree stays checked out at once and you move
+between branches without stashing.
+
+Edit any branch with plain git (rebase, reorder, amend, add or drop commits, pull its
+parent) and git-tree propagates that edit to every descendant, replaying only each branch's
+own work so you never re-resolve a conflict you've already handled. It also provides the
+commands to build and reshape the tree: create child branches with worktrees, split a branch
+into parent and child, attach or detach branches, and tear down a subtree's worktrees.
+
+It rewrites history, so it's for stacks you control and force-push, not shared branches.
+
 ## Install
 
 ```sh
