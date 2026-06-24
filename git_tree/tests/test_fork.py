@@ -16,7 +16,15 @@ import argparse
 
 import pytest
 
-from git_tree.cli import cmd_attach, cmd_branch, cmd_propagate, cmd_split, discover
+from git_tree.cli import (
+    BranchInfo,
+    _get_fork_commit,
+    cmd_attach,
+    cmd_branch,
+    cmd_propagate,
+    cmd_split,
+    discover,
+)
 
 from .conftest import RepoHelper
 
@@ -263,6 +271,68 @@ class TestLegacyConfig:
         assert repo.git("config", "branch.b.tree-parent") == "main"
         assert not repo.git("config", "branch.b.tree-parent-branch", check=False)
         assert not repo.git("config", "branch.b.tree-fork-commit", check=False)
+
+
+class TestForkAncestorGuard:
+    """The stored fork is honored only when it is an ancestor of the branch; otherwise
+    _get_fork_commit falls back to merge-base so the --onto range stays correct."""
+
+    def _build_off_line_fork(self, repo: RepoHelper) -> str:
+        """main=c0; child=c0+c1+c2 (fork=c0); side=c0+c1+s. Return side's tip, which
+        shares c1 with child but is NOT on child's line (non-ancestral)."""
+        repo.git("checkout", "-b", "child")
+        repo.commit("g.txt", "c1", "c1")
+        c1 = repo.head
+        repo.commit("h.txt", "c2", "c2")
+        repo.checkout("main")
+        repo.set_parent("child", "main")  # fork = merge-base(main, child) = c0
+        repo.git("checkout", c1, "-b", "side")
+        repo.commit("s.txt", "s", "side commit")
+        side_tip = repo.head
+        repo.checkout("main")
+        return side_tip
+
+    def test_non_ancestral_stored_fork_falls_back_to_merge_base(self, repo: RepoHelper) -> None:
+        side_tip = self._build_off_line_fork(repo)
+        repo.git("config", "branch.child.tree-fork-commit", side_tip)
+
+        mb = repo.git("merge-base", "main", "child")
+        assert _get_fork_commit("child", "main") == mb
+        assert _get_fork_commit("child", "main") != side_tip
+
+    def test_non_ancestral_guard_applies_on_info_path(self, repo: RepoHelper) -> None:
+        # The path propagate actually uses: stored fork arrives via BranchInfo.
+        side_tip = self._build_off_line_fork(repo)
+        info = BranchInfo(name="child", fork_commit=side_tip)
+
+        mb = repo.git("merge-base", "main", "child")
+        assert _get_fork_commit("child", "main", info) == mb
+
+    def test_ancestral_fork_honored_despite_merge_base_drift(self, repo: RepoHelper) -> None:
+        # main=c0+m1; b=c0+m1+b1 with fork=m1. Reword m1 so merge-base(main, b) drifts
+        # back to c0, but m1 stays an ancestor of b — the stored fork must be honored.
+        repo.commit("m.txt", "m1", "m1")
+        m1 = repo.head
+        repo.branch("b", parent="main")  # fork = merge-base(main, b) = m1
+        repo.checkout("b")
+        repo.commit("b1.txt", "b1", "b1")
+        repo.checkout("main")
+        repo.git("commit", "--amend", "-m", "m1 reworded")
+
+        mb = repo.git("merge-base", "main", "b")
+        assert mb != m1  # merge-base drifted below the fork
+        assert _get_fork_commit("b", "main") == m1
+
+    def test_fork_equal_to_branch_tip_is_kept(self, repo: RepoHelper) -> None:
+        # A fork equal to the branch tip is its own ancestor (empty replay range); it
+        # must stay stored, not be downgraded to merge-base.
+        repo.git("checkout", "-b", "b")
+        repo.commit("b1.txt", "b1", "b1")
+        tip = repo.head
+        repo.checkout("main")
+        repo.git("config", "branch.b.tree-fork-commit", tip)
+
+        assert _get_fork_commit("b", "main") == tip
 
 
 class TestCleanCascade:

@@ -121,12 +121,23 @@ def git_echo_ok(
 
 
 def _get_fork_commit(branch: str, parent: str, info: BranchInfo | None = None) -> str:
-    """Stored fork commit; merge-base fallback for un-migrated/legacy branches."""
+    """Stored fork commit, else a merge-base fallback.
+
+    The stored fork is honored only when it is an ancestor of `branch`, so that the
+    `git rebase --onto <parent> <fork>` range (`fork..branch`) is exactly branch's own
+    commits. A history rewrite (a manual rebase, or an amend of the fork commit) can
+    leave the stored fork off branch's line; merge-base(parent, branch) — always an
+    ancestor of branch — is the safe boundary then, as it is for legacy branches.
+    """
     if info is not None:
         stored = info.fork_commit
     else:
         stored = git("config", f"branch.{branch}.tree-fork-commit", check=False)
-    if stored and git_ok("rev-parse", "--verify", stored):
+    if (
+        stored
+        and git_ok("rev-parse", "--verify", stored)
+        and git_ok("merge-base", "--is-ancestor", stored, branch)
+    ):
         return stored
     return git("merge-base", parent, branch, check=False) or git("merge-base", parent, branch)
 
