@@ -157,6 +157,25 @@ def _unset_tree_config(branch: str) -> None:
         git("config", "--unset", f"branch.{branch}.{key}", check=False)
 
 
+def _would_cycle(branch: str, new_parent: str) -> bool:
+    """True if making `new_parent` the tree-parent of `branch` would close a cycle.
+
+    Setting that edge points `branch` up at `new_parent`, so it loops iff `branch` is
+    already at or above `new_parent`: walk `new_parent`'s parent chain and stop if it
+    reaches `branch` (`new_parent == branch` is the self-parent case). Reads config
+    directly so it works before the edge exists and even from an already-cyclic state;
+    `seen` bounds the walk against a pre-existing cycle.
+    """
+    node = new_parent
+    seen: set[str] = set()
+    while node and node not in seen:
+        if node == branch:
+            return True
+        seen.add(node)
+        node = _get_tree_parent(node)
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Data model
 # ---------------------------------------------------------------------------
@@ -612,6 +631,14 @@ def cmd_attach(args: argparse.Namespace) -> None:
             raise SystemExit(1)
         parent = selected[0]
 
+    if parent == branch:
+        raise TreeError(f"Cannot attach {branch} to itself.")
+    if _would_cycle(branch, parent):
+        raise TreeError(
+            f"Cannot attach {branch} to {parent}: {parent} descends from {branch} "
+            f"in the tree (would create a cycle)."
+        )
+
     if not git_ok("merge-base", "--is-ancestor", parent, branch):
         merge_base = git("merge-base", parent, branch, check=False)
         if not merge_base:
@@ -966,6 +993,14 @@ def cmd_rebase(args: argparse.Namespace) -> None:
 
     if not git_ok("rev-parse", "--verify", old_parent):
         raise TreeError(f"Old parent {old_parent} does not exist.")
+
+    if target == branch:
+        raise TreeError(f"Cannot rebase {branch} onto itself.")
+    if _would_cycle(branch, target):
+        raise TreeError(
+            f"Cannot rebase {branch} onto {target}: {target} descends from {branch} "
+            f"in the tree (would create a cycle)."
+        )
 
     fork_point = _get_fork_commit(branch, old_parent, graph.branches.get(branch))
     commit_count = len(git_lines("rev-list", f"{fork_point}..{branch}"))

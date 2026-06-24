@@ -4,7 +4,7 @@ import argparse
 
 import pytest
 
-from git_tree.cli import cmd_rebase, discover
+from git_tree.cli import TreeError, cmd_rebase, discover
 
 from .conftest import RepoHelper
 
@@ -228,3 +228,29 @@ class TestRebase:
         log = repo.git("log", "--oneline", "feature")
         assert "first on feature" in log
         assert "second on feature" in log
+
+    def test_rebase_onto_descendant_raises_before_side_effects(
+        self, repo: RepoHelper, monkeypatch
+    ) -> None:
+        # main <- a <- b; rebasing a onto its own descendant b would loop. The guard
+        # must fire before any rebase: a's tip stays put and its parent stays main.
+        repo.branch("a", parent="main")
+        repo.branch("b", parent="a")
+        repo.checkout("a")
+        tip_before = repo.git("rev-parse", "a")
+
+        # input must never be consulted — the guard aborts before the confirm prompt.
+        monkeypatch.setattr("builtins.input", lambda _: pytest.fail("reached confirm"))
+        with pytest.raises(TreeError):
+            cmd_rebase(_ns(target="b"))
+
+        assert repo.git("rev-parse", "a") == tip_before
+        assert discover().parent_of["a"] == "main"
+
+    def test_rebase_onto_self_raises(self, repo: RepoHelper, monkeypatch) -> None:
+        repo.branch("a", parent="main")
+        repo.checkout("a")
+        monkeypatch.setattr("builtins.input", lambda _: pytest.fail("reached confirm"))
+        with pytest.raises(TreeError):
+            cmd_rebase(_ns(target="a"))
+        assert discover().parent_of["a"] == "main"

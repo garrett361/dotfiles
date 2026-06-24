@@ -47,6 +47,40 @@ class TestAttach:
         err = capsys.readouterr().err
         assert "Warning" in err or "does not appear to descend" in err
 
+    def test_attach_to_branch_with_parent_chain_succeeds(self, repo: RepoHelper) -> None:
+        # main <- base <- mid; attaching a fresh `feature` under mid makes the cycle
+        # walk climb mid -> base -> main without finding feature. Must NOT be blocked.
+        repo.branch("base", parent="main")
+        repo.branch("mid", parent="base")
+        repo.git("branch", "feature")
+        repo.checkout("feature")
+        cmd_attach(_ns(parent="mid"))
+        assert discover().parent_of["feature"] == "mid"
+
+    def test_self_attach_raises_and_writes_no_config(self, repo: RepoHelper) -> None:
+        repo.git("branch", "feature")
+        repo.checkout("feature")
+        with pytest.raises(TreeError):
+            cmd_attach(_ns(parent="feature"))
+        result = subprocess.run(
+            ["git", "config", "branch.feature.tree-parent-branch"],
+            cwd=repo.work,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode != 0
+
+    def test_attach_to_descendant_raises_keeps_parent(self, repo: RepoHelper) -> None:
+        # main <- a <- b; attaching a under its own descendant b would loop. Must raise
+        # and leave a's parent unchanged.
+        repo.branch("a", parent="main")
+        repo.branch("b", parent="a")
+        repo.checkout("a")
+        with pytest.raises(TreeError):
+            cmd_attach(_ns(parent="b"))
+        assert discover().parent_of["a"] == "main"
+
     def test_attach_disjoint_history_clean_error(self, repo: RepoHelper, capsys, tmp_path) -> None:
         """Attaching to a branch with no common history is a TreeError, not a traceback."""
         orphan_wt = tmp_path / "orphan-wt"
