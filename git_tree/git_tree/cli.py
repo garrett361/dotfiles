@@ -139,7 +139,7 @@ def _get_fork_commit(branch: str, parent: str, info: BranchInfo | None = None) -
         and git_ok("merge-base", "--is-ancestor", stored, branch)
     ):
         return stored
-    return git("merge-base", parent, branch, check=False) or git("merge-base", parent, branch)
+    return git("merge-base", parent, branch)
 
 
 def _set_fork_commit(branch: str, commit: str) -> None:
@@ -538,6 +538,17 @@ def _format_subtree(
             )
 
 
+def _subtree_lines(graph: Graph, root: str, *, show_counts: bool = False) -> list[str]:
+    """The rendered tree rows below `root`, with its header line dropped."""
+    return format_tree(graph, root=root, show_counts=show_counts).splitlines()[1:]
+
+
+def _print_results(results: list[tuple[str, str]]) -> None:
+    print("Results:")
+    for name, status in results:
+        print(f"  {name}: {status}")
+
+
 # ---------------------------------------------------------------------------
 # Confirmation
 # ---------------------------------------------------------------------------
@@ -825,7 +836,7 @@ def cmd_remove(args: argparse.Namespace) -> None:
 #    several empty patches in sequence.
 
 
-def _skip_empty_commits(child: str, parent: str, cwd: Path) -> str | None:
+def _skip_empty_commits(cwd: Path) -> str | None:
     """Loop --skip until rebase finishes or a real conflict appears. Returns None if
     a real conflict was hit (rebase left in progress for the user to resolve).
 
@@ -866,7 +877,7 @@ def _rebase_onto(
 
     unmerged = git("ls-files", "--unmerged", cwd=cwd, check=False)
     if not unmerged.strip():
-        status = _skip_empty_commits(child, parent, cwd)
+        status = _skip_empty_commits(cwd)
         if status is not None:
             return status
         _conflict_exit(child, parent, cwd, stashed)
@@ -890,7 +901,7 @@ def _rebase_onto(
         # --continue stopped again — new conflict or empty patch?
         new_unmerged = git("ls-files", "--unmerged", cwd=cwd, check=False)
         if not new_unmerged.strip():
-            status = _skip_empty_commits(child, parent, cwd)
+            status = _skip_empty_commits(cwd)
             if status is not None:
                 return "ok (rerere)"
             _conflict_exit(child, parent, cwd, stashed)
@@ -1021,8 +1032,7 @@ def cmd_propagate(args: argparse.Namespace) -> None:
     _require_clean_state(descendants, graph)
 
     print(f"Propagating from {branch}:")
-    subtree_lines = format_tree(graph, root=branch, show_counts=True).splitlines()[1:]
-    for line in subtree_lines:
+    for line in _subtree_lines(graph, branch, show_counts=True):
         print(line)
     print()
 
@@ -1033,9 +1043,7 @@ def cmd_propagate(args: argparse.Namespace) -> None:
     results = _propagate_descendants(branch, graph, auto_rerere=auto_rerere)
 
     print()
-    print("Results:")
-    for name, status in results:
-        print(f"  {name}: {status}")
+    _print_results(results)
 
 
 def cmd_rebase(args: argparse.Namespace) -> None:
@@ -1071,8 +1079,7 @@ def cmd_rebase(args: argparse.Namespace) -> None:
     if descendants:
         print()
         print("Will propagate to:")
-        subtree_lines = format_tree(graph, root=branch).splitlines()[1:]
-        for line in subtree_lines:
+        for line in _subtree_lines(graph, branch):
             print(f"  {line}")
 
     if siblings:
@@ -1115,9 +1122,7 @@ def cmd_rebase(args: argparse.Namespace) -> None:
         print("Cascading to descendants...")
         results = _propagate_descendants(branch, graph, auto_rerere=auto_rerere)
         print()
-        print("Results:")
-        for name, status in results:
-            print(f"  {name}: {status}")
+        _print_results(results)
 
 
 def cmd_split(_args: argparse.Namespace) -> None:
@@ -1286,9 +1291,7 @@ def cmd_push(args: argparse.Namespace) -> None:
         results.append((b, "ok" if ok else "FAILED"))
 
     print()
-    print("Results:")
-    for name, status in results:
-        print(f"  {name}: {status}")
+    _print_results(results)
 
 
 def cmd_log(args: argparse.Namespace) -> None:
