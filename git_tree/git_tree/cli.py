@@ -620,6 +620,14 @@ def _fallback_select(items: list[str], *, multi: bool) -> list[str]:
     return selected
 
 
+def _select_one(items: list[str], *, prompt: str, header: str) -> str:
+    """fzf-pick exactly one item; exit (code 1, no message) if nothing was selected."""
+    selected = fzf_select(items, prompt=prompt, header=header)
+    if not selected:
+        raise SystemExit(1)
+    return selected[0]
+
+
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
@@ -671,10 +679,7 @@ def cmd_attach(args: argparse.Namespace) -> None:
         candidates = [b for b in all_branch_names() if b != branch]
         if not candidates:
             raise TreeError("No other branches available.")
-        selected = fzf_select(candidates, prompt="Select parent> ", header="Choose parent branch")
-        if not selected:
-            raise SystemExit(1)
-        parent = selected[0]
+        parent = _select_one(candidates, prompt="Select parent> ", header="Choose parent branch")
 
     if parent == branch:
         raise TreeError(f"Cannot attach {branch} to itself.")
@@ -766,14 +771,11 @@ def cmd_remove(args: argparse.Namespace) -> None:
         )
         if not candidates:
             raise TreeError("No tree-branch worktrees available to remove.")
-        selected = fzf_select(
+        target = _select_one(
             candidates,
             prompt="Remove worktree> ",
             header="Select a tree-branch to remove (its worktree + subtree)",
         )
-        if not selected:
-            raise SystemExit(1)
-        target = selected[0]
 
     # Only non-root tree-branches: this never touches a tree's trunk / main worktree.
     if target not in graph.parent_of:
@@ -1143,15 +1145,11 @@ def cmd_split(_args: argparse.Namespace) -> None:
     if len(commits) < 2:
         raise TreeError("Need at least 2 commits to split.")
 
-    selected = fzf_select(
+    commit_hash = _select_one(
         commits,
         prompt="Split after> ",
         header="Select the last commit for the new parent branch",
-    )
-    if not selected:
-        raise SystemExit(1)
-
-    commit_hash = selected[0].split()[0]
+    ).split()[0]
 
     try:
         parent_name = input("New parent branch name: ").strip()
