@@ -109,6 +109,12 @@ def git_echo_ok(
     return git_echo(*args, cwd=cwd, env=env).returncode == 0
 
 
+def _git_dir(cwd: Path) -> Path:
+    """Absolute path to the git dir of the working tree containing `cwd`."""
+    git_dir = git("rev-parse", "--git-dir", cwd=cwd)
+    return Path(git_dir) if Path(git_dir).is_absolute() else cwd / git_dir
+
+
 # ---------------------------------------------------------------------------
 # Fork point storage
 # ---------------------------------------------------------------------------
@@ -346,8 +352,7 @@ def discover() -> Graph:
 
     # Recover branch names for detached worktrees (mid-rebase)
     for wt_path in detached_worktrees:
-        git_dir = git("rev-parse", "--git-dir", cwd=wt_path)
-        git_dir_path = Path(git_dir) if Path(git_dir).is_absolute() else wt_path / git_dir
+        git_dir_path = _git_dir(wt_path)
         head_name_file = git_dir_path / "rebase-merge" / "head-name"
         if not head_name_file.exists():
             head_name_file = git_dir_path / "rebase-apply" / "head-name"
@@ -933,8 +938,7 @@ def _require_worktrees(branches: list[str], graph: Graph) -> None:
 
 
 def _has_active_rebase(cwd: Path) -> bool:
-    git_dir = git("rev-parse", "--git-dir", cwd=cwd)
-    git_dir_path = Path(git_dir) if Path(git_dir).is_absolute() else cwd / git_dir
+    git_dir_path = _git_dir(cwd)
     return (git_dir_path / "rebase-merge").is_dir() or (git_dir_path / "rebase-apply").is_dir()
 
 
