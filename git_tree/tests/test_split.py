@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from git_tree.cli import _root_remote, cmd_split, discover, roots
+from git_tree.cli import TreeError, _root_remote, cmd_split, discover, roots
 
 from .conftest import RepoHelper
 
@@ -99,6 +99,25 @@ class TestSplit:
 
         assert repo.git("config", "branch.feature-base.remote", check=False) == ""
         assert _root_remote(discover(), "feature") == ("main", "origin")
+
+    def test_existing_parent_name_errors_cleanly(self, repo: RepoHelper, monkeypatch) -> None:
+        # An already-taken parent name must surface a clean TreeError, not a raw
+        # CalledProcessError traceback, and must fail before the worktree prompt
+        # (only the name is read) without rewriting the child's tree-parent.
+        repo.branch("feature", parent="main")
+        repo.checkout("feature")
+        repo.commit("f1.txt", "f1", "first on feature")
+        repo.commit("f2.txt", "f2", "second on feature")
+
+        split_line = repo.git("log", "--oneline", "--reverse", "main..HEAD").splitlines()[0]
+        inputs = iter(["main"])  # "main" already exists; no worktree prompt should follow
+        monkeypatch.setattr("git_tree.cli.fzf_select", lambda items, **kw: [split_line])
+        monkeypatch.setattr("builtins.input", lambda _: next(inputs))
+
+        with pytest.raises(TreeError):
+            cmd_split(None)
+
+        assert discover().parent_of["feature"] == "main"
 
     def test_single_commit_exits(self, repo: RepoHelper) -> None:
         repo.branch("feature", parent="main")

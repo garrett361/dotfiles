@@ -1175,9 +1175,13 @@ def cmd_split(_args: argparse.Namespace) -> None:
     if not parent_name:
         raise SystemExit(1)
 
+    # Create the branch before prompting for a worktree, so a bad name (already taken or
+    # invalid) fails fast with git's own message instead of a traceback from a bare git().
+    if not git_echo_ok("branch", parent_name, commit_hash):
+        raise TreeError(f"Could not create branch '{parent_name}' (see output above).")
+
     worktree_path = _prompt("Create worktree for parent? [path / N]: ") or ""
 
-    git("branch", parent_name, commit_hash)
     git("config", f"branch.{branch}.tree-parent-branch", parent_name)
     _set_fork_commit(branch, git("rev-parse", commit_hash))
     if old_fork is not None:
