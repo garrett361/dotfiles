@@ -115,6 +115,11 @@ def _git_dir(cwd: Path) -> Path:
     return Path(git_dir) if Path(git_dir).is_absolute() else cwd / git_dir
 
 
+def _is_conflict(xy: str) -> bool:
+    """True if a porcelain status XY pair marks an unmerged (conflicted) path."""
+    return "U" in xy or xy in ("DD", "AA")
+
+
 # ---------------------------------------------------------------------------
 # Fork point storage
 # ---------------------------------------------------------------------------
@@ -427,7 +432,7 @@ def _git_status_summary(branch: str, info: BranchInfo, remote: str | None) -> st
         for line in out.splitlines():
             xy = line[:2]
             x, y = xy[0], xy[1]
-            if "U" in xy or xy in ("DD", "AA"):
+            if _is_conflict(xy):
                 conflicted += 1
             elif x in "MADRCT":  # include T (type-change), e.g. file <-> symlink
                 staged += 1
@@ -962,7 +967,7 @@ def _require_clean_state(branches: list[str], graph: Graph) -> None:
             continue
         wt = info.worktree
         out = git("status", "--porcelain", cwd=wt)
-        if out and any("U" in line[:2] or line[:2] in ("DD", "AA") for line in out.splitlines()):
+        if out and any(_is_conflict(line[:2]) for line in out.splitlines()):
             problems.append((b, wt, "unresolved conflicts"))
         elif _has_active_rebase(wt):
             problems.append((b, wt, "rebase in progress"))
