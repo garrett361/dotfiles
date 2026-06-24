@@ -159,6 +159,28 @@ class TestDetach:
         assert "Remaining tree(s):" in out
         assert "topic" in out  # still under main
 
+    def test_detach_breaks_manual_cycle(self, repo: RepoHelper, monkeypatch, capsys) -> None:
+        # A hand-edited config can hold a cycle that makes discover() raise. detach is
+        # the documented recovery path, so it must still unset config rather than choke.
+        repo.git("branch", "a")
+        repo.git("branch", "b")
+        repo.set_parent("a", "b")
+        repo.set_parent("b", "a")  # a <-> b cycle
+        monkeypatch.setattr("builtins.input", lambda _: "y")
+
+        cmd_detach(_ns(branch="a"))
+
+        captured = capsys.readouterr()
+        # The cycle warning on stderr proves discover() raised and the degraded
+        # (config-only) path ran rather than the normal graph path.
+        assert "cycle" in captured.err
+        assert "b" in captured.out  # child listed via the degraded flat preview
+
+        assert self._branch_config(repo, "a").returncode != 0
+        graph = discover()  # raises if the cycle survived
+        assert "a" not in graph.parent_of
+        assert graph.parent_of["b"] == "a"
+
     def test_detach_not_in_tree_exits(self, repo: RepoHelper) -> None:
         repo.git("branch", "orphan")
         repo.checkout("orphan")

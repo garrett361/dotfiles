@@ -658,12 +658,31 @@ def cmd_detach(args: argparse.Namespace) -> None:
     if not parent:
         raise TreeError(f"{branch} is not in the tree.")
 
-    graph = discover()
-    children = graph.children_of.get(branch, [])
+    # detach is the recovery path for a hand-edited cyclic config, so it must work even
+    # when discover() refuses to build a graph. Fall back to a config-only child lookup
+    # and skip the subtree preview (which can't safely render a cyclic graph).
+    try:
+        graph: Graph | None = discover()
+    except TreeError:
+        graph = None
+
+    if graph is not None:
+        children = graph.children_of.get(branch, [])
+    else:
+        children = [
+            b
+            for b in git_lines("for-each-ref", "--format=%(refname:short)", "refs/heads/")
+            if _get_tree_parent(b) == branch
+        ]
+
     print(f"Detaching {branch} from {parent}.")
     if children:
         print(f"{branch} has children — they will form a separate tree:")
-        print(format_tree(graph, root=branch))
+        if graph is not None:
+            print(format_tree(graph, root=branch))
+        else:
+            for child in children:
+                print(f"  {child}")
 
     if not confirm("Proceed?"):
         return
@@ -672,7 +691,10 @@ def cmd_detach(args: argparse.Namespace) -> None:
     print(f"Detached {branch} (was child of {parent})")
 
     if children:
-        graph = discover()
+        try:
+            graph = discover()
+        except TreeError:
+            return
         other_roots = [r for r in roots(graph) if r != branch]
         if other_roots:
             print("\nRemaining tree(s):")
