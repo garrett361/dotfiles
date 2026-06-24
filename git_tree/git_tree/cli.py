@@ -120,6 +120,35 @@ def _is_conflict(xy: str) -> bool:
     return "U" in xy or xy in ("DD", "AA")
 
 
+@dataclass(frozen=True)
+class WorktreeStatus:
+    """Tallied `git status --porcelain` XY codes for a worktree."""
+
+    staged: int
+    modified: int
+    untracked: int
+    conflicted: int
+    dirty: bool  # any porcelain output at all
+
+
+def _worktree_status(wt: Path) -> WorktreeStatus:
+    """Run `git status --porcelain` once and tally its XY codes."""
+    out = git("status", "--porcelain", cwd=wt)
+    staged = modified = untracked = conflicted = 0
+    for line in out.splitlines():
+        xy = line[:2]
+        x, y = xy[0], xy[1]
+        if _is_conflict(xy):
+            conflicted += 1
+        elif x in "MADRCT":  # include T (type-change), e.g. file <-> symlink
+            staged += 1
+        if y == "?":
+            untracked += 1
+        elif y not in (" ", "!", "U"):
+            modified += 1
+    return WorktreeStatus(staged, modified, untracked, conflicted, dirty=bool(out))
+
+
 # ---------------------------------------------------------------------------
 # Fork point storage
 # ---------------------------------------------------------------------------
@@ -205,10 +234,7 @@ class BranchInfo:
 
     @property
     def is_dirty(self) -> bool:
-        if self.worktree is None:
-            return False
-        out = git("status", "--porcelain", cwd=self.worktree)
-        return bool(out)
+        return self.worktree is not None and _worktree_status(self.worktree).dirty
 
 
 @dataclass
@@ -429,28 +455,15 @@ def _git_status_summary(branch: str, info: BranchInfo, remote: str | None) -> st
 
     parts: list[str] = []
 
-    out = git("status", "--porcelain", cwd=worktree)
-    if out:
-        staged = modified = untracked = conflicted = 0
-        for line in out.splitlines():
-            xy = line[:2]
-            x, y = xy[0], xy[1]
-            if _is_conflict(xy):
-                conflicted += 1
-            elif x in "MADRCT":  # include T (type-change), e.g. file <-> symlink
-                staged += 1
-            if y == "?":
-                untracked += 1
-            elif y not in (" ", "!", "U"):
-                modified += 1
-        if conflicted:
-            parts.append(_color(f"✘{conflicted}", Color.RED))
-        if staged:
-            parts.append(_color(f"+{staged}", Color.GREEN))
-        if modified:
-            parts.append(_color(f"!{modified}", Color.RED))
-        if untracked:
-            parts.append(_color(f"?{untracked}", Color.RED))
+    status = _worktree_status(worktree)
+    if status.conflicted:
+        parts.append(_color(f"✘{status.conflicted}", Color.RED))
+    if status.staged:
+        parts.append(_color(f"+{status.staged}", Color.GREEN))
+    if status.modified:
+        parts.append(_color(f"!{status.modified}", Color.RED))
+    if status.untracked:
+        parts.append(_color(f"?{status.untracked}", Color.RED))
 
     remote_ref = f"{remote}/{branch}" if remote else None
     if remote_ref and git_ok("rev-parse", "--verify", remote_ref, cwd=worktree):
@@ -974,8 +987,7 @@ def _require_clean_state(branches: list[str], graph: Graph) -> None:
         if not info or not info.worktree:
             continue
         wt = info.worktree
-        out = git("status", "--porcelain", cwd=wt)
-        if out and any(_is_conflict(line[:2]) for line in out.splitlines()):
+        if _worktree_status(wt).conflicted:
             problems.append((b, wt, "unresolved conflicts"))
         elif _has_active_rebase(wt):
             problems.append((b, wt, "rebase in progress"))

@@ -2,7 +2,15 @@ from __future__ import annotations
 
 import argparse
 
-from git_tree.cli import BranchInfo, _git_status_summary, cmd_tree, discover, format_tree, main
+from git_tree.cli import (
+    BranchInfo,
+    _git_status_summary,
+    _worktree_status,
+    cmd_tree,
+    discover,
+    format_tree,
+    main,
+)
 
 from .conftest import RepoHelper
 
@@ -134,6 +142,31 @@ class TestStatusSummary:
 
         summary = _git_status_summary("feat", BranchInfo(name="feat", worktree=wt), remote=None)
         assert "+1" in summary  # counted as staged (T was previously ignored)
+
+
+class TestWorktreeStatus:
+    def test_tallies_staged_modified_untracked(self, repo: RepoHelper, tmp_path) -> None:
+        repo.branch("feat", parent="main")
+        wt = repo.worktree("feat", str(tmp_path / "wt-feat"))
+        (wt / "t").write_text("tracked")
+        repo.git("add", "t", cwd=wt)
+        repo.git("commit", "-m", "add t", cwd=wt)
+
+        (wt / "s").write_text("staged new")
+        repo.git("add", "s", cwd=wt)  # "A " -> staged
+        (wt / "t").write_text("changed")  # " M" -> modified (unstaged)
+        (wt / "u").write_text("untracked")  # "??" -> untracked
+
+        status = _worktree_status(wt)
+        assert (status.staged, status.modified, status.untracked, status.conflicted) == (1, 1, 1, 0)
+        assert status.dirty is True
+
+    def test_clean_worktree_is_not_dirty(self, repo: RepoHelper, tmp_path) -> None:
+        repo.branch("feat", parent="main")
+        wt = repo.worktree("feat", str(tmp_path / "wt-feat"))
+        status = _worktree_status(wt)
+        assert (status.staged, status.modified, status.untracked, status.conflicted) == (0, 0, 0, 0)
+        assert status.dirty is False
 
 
 class TestStatusRemote:
