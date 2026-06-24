@@ -280,6 +280,15 @@ def root_of(graph: Graph, branch: str) -> str:
     return branch
 
 
+def _branch_remote(branch: str) -> str:
+    """The branch's configured remote (branch.<name>.remote), or "" if unset."""
+    return git("config", f"branch.{branch}.remote", check=False)
+
+
+def _set_branch_remote(branch: str, remote: str) -> None:
+    git("config", f"branch.{branch}.remote", remote)
+
+
 def _root_remote(graph: Graph, branch: str) -> tuple[str, str | None]:
     """The tree root for `branch` and that root's configured remote (None if unset).
 
@@ -287,7 +296,7 @@ def _root_remote(graph: Graph, branch: str) -> tuple[str, str | None]:
     and shows ahead/behind against it.
     """
     root = root_of(graph, branch)
-    remote = git("config", f"branch.{root}.remote", check=False) or None
+    remote = _branch_remote(root) or None
     return root, remote
 
 
@@ -303,10 +312,10 @@ def _carry_remote_to_root(old_root: str, new_root: str) -> None:
     """
     if old_root == new_root:
         return
-    old_remote = git("config", f"branch.{old_root}.remote", check=False)
-    if not old_remote or git("config", f"branch.{new_root}.remote", check=False):
+    old_remote = _branch_remote(old_root)
+    if not old_remote or _branch_remote(new_root):
         return
-    git("config", f"branch.{new_root}.remote", old_remote)
+    _set_branch_remote(new_root, old_remote)
     print(f"Carried tree remote '{old_remote}' to new root '{new_root}'.")
 
 
