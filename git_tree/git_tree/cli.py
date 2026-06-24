@@ -245,6 +245,11 @@ def current_branch() -> str:
     return name
 
 
+def all_branch_names() -> list[str]:
+    """All local branch names (refs/heads), in git's default ordering."""
+    return git_lines("for-each-ref", "--format=%(refname:short)", "refs/heads/")
+
+
 def roots(graph: Graph) -> list[str]:
     """Every tree root: a tree-branch with children but no tracked parent."""
     return sorted(p for p in graph.children_of if p not in graph.parent_of)
@@ -351,7 +356,7 @@ def discover() -> Graph:
             if ref.startswith("refs/heads/"):
                 worktree_map[ref.removeprefix("refs/heads/")] = wt_path
 
-    all_branches = git_lines("for-each-ref", "--format=%(refname:short)", "refs/heads/")
+    all_branches = all_branch_names()
     all_branches_set = set(all_branches)
 
     orphaned: list[tuple[str, str]] = []
@@ -663,8 +668,7 @@ def cmd_attach(args: argparse.Namespace) -> None:
     parent: str | None = args.parent
 
     if not parent:
-        all_branches = git_lines("for-each-ref", "--format=%(refname:short)", "refs/heads/")
-        candidates = [b for b in all_branches if b != branch]
+        candidates = [b for b in all_branch_names() if b != branch]
         if not candidates:
             raise TreeError("No other branches available.")
         selected = fzf_select(candidates, prompt="Select parent> ", header="Choose parent branch")
@@ -710,11 +714,7 @@ def cmd_detach(args: argparse.Namespace) -> None:
     if graph is not None:
         children = graph.children_of.get(branch, [])
     else:
-        children = [
-            b
-            for b in git_lines("for-each-ref", "--format=%(refname:short)", "refs/heads/")
-            if _get_tree_parent(b) == branch
-        ]
+        children = [b for b in all_branch_names() if _get_tree_parent(b) == branch]
 
     print(f"Detaching {branch} from {parent}.")
     if children:
