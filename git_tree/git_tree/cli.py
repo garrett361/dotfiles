@@ -221,6 +221,21 @@ def _would_cycle(branch: str, new_parent: str) -> bool:
     return False
 
 
+def _register_child(child: str, parent: str, *, fork: str | None = None) -> None:
+    """Register `child` under `parent`: write the tree-parent edge and the fork point
+    (the merge-base, where propagate/rebase replay from), warning if `child` doesn't
+    descend from `parent` and raising if they share no history. Pass `fork` to reuse an
+    already-computed merge-base. Callers handle the self/cycle checks."""
+    base = fork or git("merge-base", parent, child, check=False)
+    if not base:
+        raise TreeError(f"No common history between {parent} and {child}.")
+    is_ancestor = git_ok("merge-base", "--is-ancestor", parent, child)
+    if not is_ancestor and base != git("rev-parse", parent):
+        print(f"Warning: {child} does not appear to descend from {parent}.", file=sys.stderr)
+    git("config", f"branch.{child}.tree-parent-branch", parent)
+    _set_fork_commit(child, base)
+
+
 # ---------------------------------------------------------------------------
 # Data model
 # ---------------------------------------------------------------------------
@@ -279,6 +294,14 @@ def current_branch() -> str:
 def all_branch_names() -> list[str]:
     """All local branch names (refs/heads), in git's default ordering."""
     return git_lines("for-each-ref", "--format=%(refname:short)", "refs/heads/")
+
+
+def _is_tree_branch(name: str) -> bool:
+    """True if `name` already participates in the tree, as a tracked child (it has a
+    tree-parent) or as some branch's tree-parent (a root or interior node)."""
+    return bool(_get_tree_parent(name)) or any(
+        _get_tree_parent(b) == name for b in all_branch_names()
+    )
 
 
 def roots(graph: Graph) -> list[str]:
@@ -694,12 +717,34 @@ def cmd_branch(args: argparse.Namespace) -> None:
     name: str = args.name
     path: str = args.path
 
-    if not git_echo_ok("worktree", "add", path, "-b", name):
-        raise TreeError(f"failed to create worktree at {path}")
-    git("config", f"branch.{name}.tree-parent-branch", parent)
-    _set_fork_commit(name, git("rev-parse", parent))
+    if not git_ok("rev-parse", "--verify", "--quiet", f"refs/heads/{name}"):
+        # New branch: create it at the current tip, parented here.
+        if not git_echo_ok("worktree", "add", path, "-b", name):
+            raise TreeError(f"failed to create worktree at {path}")
+        git("config", f"branch.{name}.tree-parent-branch", parent)
+        _set_fork_commit(name, git("rev-parse", parent))
+        print(f"Created branch {name} with worktree at {path} (parent: {parent})")
+        return
 
-    print(f"Created branch {name} with worktree at {path} (parent: {parent})")
+    # Existing branch: adopt it into the tree under the current branch and give it a
+    # worktree. Validate before creating the worktree so a rejected adopt leaves nothing
+    # behind; refuse one already in the tree (use plain `git worktree add` for just a
+    # worktree, which `git tree` then discovers).
+    if name == parent:
+        raise TreeError(f"Cannot make {name} its own parent.")
+    if _is_tree_branch(name):
+        raise TreeError(
+            f"{name} is already a tree-branch. Run `git worktree add {path} {name}` to give "
+            f"it a worktree (git tree discovers it automatically)."
+        )
+    base = git("merge-base", parent, name, check=False)
+    if not base:
+        raise TreeError(f"No common history between {parent} and {name}.")
+
+    if not git_echo_ok("worktree", "add", path, name):
+        raise TreeError(f"failed to create worktree at {path}")
+    _register_child(name, parent, fork=base)
+    print(f"Adopted existing branch {name} with worktree at {path} (parent: {parent})")
 
 
 def cmd_attach(args: argparse.Namespace) -> None:
@@ -720,16 +765,7 @@ def cmd_attach(args: argparse.Namespace) -> None:
             f"in the tree (would create a cycle)."
         )
 
-    if not git_ok("merge-base", "--is-ancestor", parent, branch):
-        merge_base = git("merge-base", parent, branch, check=False)
-        if not merge_base:
-            raise TreeError(f"No common history between {parent} and {branch}.")
-        parent_tip = git("rev-parse", parent)
-        if merge_base != parent_tip:
-            print(f"Warning: {branch} does not appear to descend from {parent}.", file=sys.stderr)
-
-    git("config", f"branch.{branch}.tree-parent-branch", parent)
-    _set_fork_commit(branch, git("merge-base", parent, branch))
+    _register_child(branch, parent)
     print(f"Attached {branch} to {parent}")
 
 
@@ -1364,7 +1400,7 @@ _git-tree() {
     subcmds=(
         'propagate:Propagate changes to all descendants'
         'rebase:Rebase current branch + descendants onto new base'
-        'branch:Create a child branch'
+        'branch:Create or adopt a child branch with a worktree'
         'attach:Attach current branch to tree'
         'detach:Remove a branch from tree'
         'remove:Remove a subtree’s worktrees, keep the branch refs'
@@ -1496,9 +1532,9 @@ def main(argv: list[str] | None = None) -> None:  # explicit argv for tests
         "--no-auto-rerere", action="store_true", help="Disable auto-continue via rerere"
     )
 
-    branch_p = sub.add_parser("branch", help="Create a child branch")
-    branch_p.add_argument("name", help="Name for the new branch")
-    branch_p.add_argument("path", help="Worktree path for the new branch")
+    branch_p = sub.add_parser("branch", help="Create or adopt a child branch with a worktree")
+    branch_p.add_argument("name", help="Branch name (new, or an existing branch to adopt)")
+    branch_p.add_argument("path", help="Worktree path for the branch")
 
     attach_p = sub.add_parser("attach", help="Attach current branch to tree")
     attach_p.add_argument("parent", nargs="?", help="Parent branch (fzf if omitted)")

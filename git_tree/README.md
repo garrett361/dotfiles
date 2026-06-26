@@ -34,7 +34,7 @@ This creates an isolated venv, installs `git-tree` in editable mode, and symlink
 ```sh
 git tree                               # show the current branch's tree
 git tree --all                         # show every tree
-git tree branch <name> <path>          # create child branch with worktree
+git tree branch <name> <path>          # create or adopt a child branch with a worktree
 git tree attach [parent]               # attach current branch to tree
 git tree detach                        # remove current branch from tree (keeps branch + worktree)
 git tree remove [branch]               # remove a subtree's worktrees + unregister its branches (keeps refs)
