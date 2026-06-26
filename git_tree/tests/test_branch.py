@@ -90,9 +90,7 @@ class TestBranchExisting:
         assert fork == repo.git("merge-base", "main", "feature")
         assert fork != repo.git("rev-parse", "main")  # the merge-base, not the parent tip
 
-    def test_no_common_history_raises_no_worktree(
-        self, repo: RepoHelper, capsys, tmp_path
-    ) -> None:
+    def test_no_common_history_raises_no_worktree(self, repo: RepoHelper, capsys, tmp_path) -> None:
         orphan_wt = tmp_path / "orphan-wt"
         repo.git("worktree", "add", "--detach", str(orphan_wt))
         _git("checkout", "--orphan", "orphan", cwd=orphan_wt)
