@@ -17,3 +17,6 @@ These govern your replies to me, prose, and docs alike.
 - Challenge my assumptions. Push back when something doesn't hold up.
 - If multiple interpretations exist, present them; don't pick silently.
 - If something is unclear, stop, name what's confusing, and ask.
+
+## My tools
+- `git tree`: my stacked-branch / cascading-rebase CLI (worktree-per-branch, `propagate`, stacked `push`). Installed globally; source in `~/github/garrett361/dotfiles/git_tree`. Reach for it for stacked/dependent-branch work in any repo; read `git_tree/CLAUDE.md` before modifying it.
