@@ -9,11 +9,47 @@ from git_tree.cli import cmd_propagate
 from .conftest import RepoHelper
 
 
-def _ns(*, dry: bool = False, no_auto_rerere: bool = False, branch: str | None = None) -> object:
-    return argparse.Namespace(dry=dry, no_auto_rerere=no_auto_rerere, branch=branch)
+def _ns(
+    *, dry: bool = False, no_auto_rerere: bool = False, branch: str | None = None, yes: bool = False
+) -> object:
+    return argparse.Namespace(dry=dry, no_auto_rerere=no_auto_rerere, branch=branch, yes=yes)
+
+
+def _no_confirm(_message: str) -> bool:
+    raise AssertionError("confirm should not be consulted")
 
 
 class TestPropagate:
+    def test_yes_skips_confirmation(self, repo: RepoHelper, monkeypatch, tmp_path) -> None:
+        repo.commit("a1.txt", "a1", "commit on main for b")
+        repo.branch("b", parent="main")
+        wt_b = repo.worktree("b", str(tmp_path / "wt-b"))
+        (wt_b / "b1.txt").write_text("b1")
+        repo.git("add", "b1.txt", cwd=wt_b)
+        repo.git("commit", "-m", "commit on b", cwd=wt_b)
+        repo.checkout("main")
+        repo.commit("a2.txt", "a2", "new commit on main")
+
+        monkeypatch.setattr("git_tree.cli.confirm", _no_confirm)
+        cmd_propagate(_ns(yes=True))
+
+        assert "new commit on main" in repo.git("log", "--oneline", "b")
+
+    def test_dry_overrides_yes(self, repo: RepoHelper, monkeypatch, tmp_path) -> None:
+        repo.commit("a1.txt", "a1", "commit on main for b")
+        repo.branch("b", parent="main")
+        wt_b = repo.worktree("b", str(tmp_path / "wt-b"))
+        (wt_b / "b1.txt").write_text("b1")
+        repo.git("add", "b1.txt", cwd=wt_b)
+        repo.git("commit", "-m", "commit on b", cwd=wt_b)
+        repo.checkout("main")
+        repo.commit("a2.txt", "a2", "new commit on main")
+
+        monkeypatch.setattr("git_tree.cli.confirm", _no_confirm)
+        cmd_propagate(_ns(dry=True, yes=True))  # preview only, no cascade
+
+        assert "new commit on main" not in repo.git("log", "--oneline", "b")
+
     def test_linear_cascade(self, repo: RepoHelper, monkeypatch, tmp_path) -> None:
         repo.commit("a1.txt", "a1", "commit on main for b")
         repo.branch("b", parent="main")

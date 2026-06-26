@@ -44,6 +44,11 @@ git tree split                         # split current branch into parent + chil
 git tree push                          # push current branch + descendants (--force-with-lease)
 ```
 
+Interactive commands also take flags so they can run unattended:
+
+- `git tree split --after <commit> --name <branch> [--worktree <path> | --no-worktree]` — split with no prompts (omit any flag to be prompted for just that piece).
+- `propagate`, `rebase`, `push`, `remove`, `detach` accept `-y`/`--yes` to skip the confirmation prompt. (`--dry` on `propagate`/`rebase`/`push` previews without executing.)
+
 ## How it works
 
 Each branch records two things in git config — no external files, no commit labels, no hooks:

@@ -9,11 +9,34 @@ from git_tree.cli import TreeError, _root_remote, cmd_push, cmd_rebase, discover
 from .conftest import RepoHelper
 
 
-def _ns(target: str) -> object:
-    return argparse.Namespace(command="rebase", target=target, dry=False, no_auto_rerere=False)
+def _ns(target: str, yes: bool = False) -> object:
+    return argparse.Namespace(
+        command="rebase", target=target, dry=False, no_auto_rerere=False, yes=yes
+    )
+
+
+def _no_confirm(_message: str) -> bool:
+    raise AssertionError("confirm should not be consulted with --yes")
 
 
 class TestRebase:
+    def test_yes_skips_confirmation(self, repo: RepoHelper, monkeypatch, tmp_path) -> None:
+        repo.branch("feature", parent="main")
+        wt = repo.worktree("feature", str(tmp_path / "wt-feature"))
+        repo.checkout("main")
+        repo.commit("m2.txt", "m2", "advance main")
+        (wt / "f1.txt").write_text("f1")
+        repo.git("add", "f1.txt", cwd=wt)
+        repo.git("commit", "-m", "feature commit", cwd=wt)
+        monkeypatch.chdir(wt)
+
+        monkeypatch.setattr("git_tree.cli.confirm", _no_confirm)
+        cmd_rebase(_ns(target="main", yes=True))
+
+        log = repo.git("log", "--oneline", "feature")
+        assert "advance main" in log
+        assert "feature commit" in log
+
     def test_rebases_onto_target(self, repo: RepoHelper, monkeypatch, tmp_path) -> None:
         repo.branch("feature", parent="main")
         wt = repo.worktree("feature", str(tmp_path / "wt-feature"))

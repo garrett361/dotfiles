@@ -622,6 +622,11 @@ def confirm(message: str) -> bool:
     return response is not None and response.lower() in ("y", "yes")
 
 
+def _proceed(args: argparse.Namespace, message: str) -> bool:
+    """True if the user opted in via --yes or an interactive y/N confirmation."""
+    return getattr(args, "yes", False) or confirm(message)
+
+
 # ---------------------------------------------------------------------------
 # fzf helpers
 # ---------------------------------------------------------------------------
@@ -797,7 +802,7 @@ def cmd_detach(args: argparse.Namespace) -> None:
             for child in children:
                 print(f"  {child}")
 
-    if not confirm("Proceed?"):
+    if not _proceed(args, "Proceed?"):
         return
 
     _unset_tree_config(branch)
@@ -871,7 +876,7 @@ def cmd_remove(args: argparse.Namespace) -> None:
     print(f"Removing worktrees and unregistering {target} + its subtree (branch refs kept):")
     print(format_tree(graph, root=target))
     print()
-    if not confirm("Remove these worktrees and detach the branches?"):
+    if not _proceed(args, "Remove these worktrees and detach the branches?"):
         return
 
     # Children-first; stop on the first git failure rather than report false success.
@@ -1103,7 +1108,7 @@ def cmd_propagate(args: argparse.Namespace) -> None:
         print(line)
     print()
 
-    if getattr(args, "dry", False) or not confirm("Proceed?"):
+    if getattr(args, "dry", False) or not _proceed(args, "Proceed?"):
         return
     auto_rerere = not getattr(args, "no_auto_rerere", False)
 
@@ -1169,7 +1174,7 @@ def cmd_rebase(args: argparse.Namespace) -> None:
         _require_clean_state(descendants, graph)
 
     print()
-    if args.dry or not confirm("Proceed?"):
+    if args.dry or not _proceed(args, "Proceed?"):
         return
 
     auto_rerere = not getattr(args, "no_auto_rerere", False)
@@ -1195,7 +1200,24 @@ def cmd_rebase(args: argparse.Namespace) -> None:
         _print_results(results)
 
 
-def cmd_split(_args: argparse.Namespace) -> None:
+def _resolve_split_point(after: str, old_fork: str | None) -> str:
+    """Resolve a `--after` commit-ish to a full hash and require it to sit in the
+    splittable range (`old_fork..HEAD`, or all of HEAD's history for a root). Raises
+    TreeError if it doesn't resolve or falls outside that range."""
+    resolved = git("rev-parse", "--verify", "--quiet", f"{after}^{{commit}}", check=False)
+    if not resolved:
+        raise TreeError(f"--after: '{after}' is not a valid commit.")
+    if not git_ok("merge-base", "--is-ancestor", resolved, "HEAD"):
+        raise TreeError(f"--after: {after} is not an ancestor of HEAD.")
+    if old_fork is not None and git_ok("merge-base", "--is-ancestor", resolved, old_fork):
+        raise TreeError(
+            f"--after: {after} is at or below this branch's fork point; "
+            f"pick a commit unique to this branch."
+        )
+    return resolved
+
+
+def cmd_split(args: argparse.Namespace) -> None:
     branch = current_branch()
     parent = _get_tree_parent(branch)
 
@@ -1213,13 +1235,17 @@ def cmd_split(_args: argparse.Namespace) -> None:
     if len(commits) < 2:
         raise TreeError("Need at least 2 commits to split.")
 
-    commit_hash = _select_one(
-        commits,
-        prompt="Split after> ",
-        header="Select the last commit for the new parent branch",
-    ).split()[0]
+    after = getattr(args, "after", None)
+    if after:
+        commit_hash = _resolve_split_point(after, old_fork)
+    else:
+        commit_hash = _select_one(
+            commits,
+            prompt="Split after> ",
+            header="Select the last commit for the new parent branch",
+        ).split()[0]
 
-    parent_name = _prompt("New parent branch name: ")
+    parent_name = getattr(args, "name", None) or _prompt("New parent branch name: ")
     if not parent_name:
         raise SystemExit(1)
 
@@ -1228,7 +1254,14 @@ def cmd_split(_args: argparse.Namespace) -> None:
     if not git_echo_ok("branch", parent_name, commit_hash):
         raise TreeError(f"Could not create branch '{parent_name}' (see output above).")
 
-    worktree_path = _prompt("Create worktree for parent? [path / N]: ") or ""
+    wt = getattr(args, "worktree", None)
+    if wt:
+        worktree_path = wt
+    elif getattr(args, "no_worktree", False):
+        worktree_path = ""
+    else:
+        reply = _prompt("Create worktree for parent? [path / N]: ") or ""
+        worktree_path = "" if reply.lower() == "n" else reply
 
     git("config", f"branch.{branch}.tree-parent-branch", parent_name)
     _set_fork_commit(branch, git("rev-parse", commit_hash))
@@ -1242,7 +1275,7 @@ def cmd_split(_args: argparse.Namespace) -> None:
         # fork — it is now the new root's child, recorded above.
         _carry_remote_to_root(branch, parent_name)
 
-    if worktree_path and worktree_path.lower() != "n":
+    if worktree_path:
         # The split (branch + config) is already applied; a worktree-add failure
         # must not abort and leave the user unsure whether the split happened.
         if git_echo_ok("worktree", "add", worktree_path, parent_name):
@@ -1335,7 +1368,7 @@ def cmd_push(args: argparse.Namespace) -> None:
             print(f"  {b}  [{ahead.get(b, 0)} ahead]")
     print()
 
-    if args.dry or not confirm("Proceed?"):
+    if args.dry or not _proceed(args, "Proceed?"):
         return
 
     results: list[tuple[str, str]] = []
@@ -1420,22 +1453,38 @@ _git-tree() {
             _arguments \
                 '--dry[Show what would be done]' \
                 '--no-auto-rerere[Disable auto-continue via rerere]' \
+                '(-y --yes)'{-y,--yes}'[Skip the confirmation prompt]' \
                 ':branch:__git_heads'
             ;;
         push)
-            _arguments '--dry[Show what would be done]'
+            _arguments \
+                '--dry[Show what would be done]' \
+                '(-y --yes)'{-y,--yes}'[Skip the confirmation prompt]'
             ;;
         rebase)
             _arguments \
                 '--dry[Show what would be done]' \
                 '--no-auto-rerere[Disable auto-continue via rerere]' \
+                '(-y --yes)'{-y,--yes}'[Skip the confirmation prompt]' \
                 ':target:__git_heads'
             ;;
         branch)
             _arguments ':name:' ':path:_directories'
             ;;
-        attach|detach|remove)
+        split)
+            _arguments \
+                '--after[Commit to split after]:commit:__git_heads' \
+                '--name[New parent branch name]:name:' \
+                '--worktree[Create the new parent worktree]:path:_directories' \
+                '--no-worktree[Do not create a worktree for the new parent]'
+            ;;
+        attach)
             _arguments ':branch:__git_heads'
+            ;;
+        detach|remove)
+            _arguments \
+                '(-y --yes)'{-y,--yes}'[Skip the confirmation prompt]' \
+                ':branch:__git_heads'
             ;;
         completions)
             _arguments ':shell:(zsh bash)'
@@ -1461,18 +1510,18 @@ _git_tree() {
     case "${COMP_WORDS[1]}" in
         propagate)
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "--dry --no-auto-rerere" -- "$cur"))
+                COMPREPLY=($(compgen -W "--dry --no-auto-rerere -y --yes" -- "$cur"))
             else
                 local branches=$(git for-each-ref --format='%(refname:short)' refs/heads/)
                 COMPREPLY=($(compgen -W "$branches" -- "$cur"))
             fi
             ;;
         push)
-            COMPREPLY=($(compgen -W "--dry" -- "$cur"))
+            COMPREPLY=($(compgen -W "--dry -y --yes" -- "$cur"))
             ;;
         rebase)
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "--dry --no-auto-rerere" -- "$cur"))
+                COMPREPLY=($(compgen -W "--dry --no-auto-rerere -y --yes" -- "$cur"))
             else
                 local branches=$(git for-each-ref --format='%(refname:short)' refs/heads/)
                 COMPREPLY=($(compgen -W "$branches" -- "$cur"))
@@ -1481,9 +1530,22 @@ _git_tree() {
         branch)
             COMPREPLY=($(compgen -d -- "$cur"))
             ;;
-        attach|detach|remove)
+        split)
+            if [[ "$cur" == -* ]]; then
+                COMPREPLY=($(compgen -W "--after --name --worktree --no-worktree" -- "$cur"))
+            fi
+            ;;
+        attach)
             local branches=$(git for-each-ref --format='%(refname:short)' refs/heads/)
             COMPREPLY=($(compgen -W "$branches" -- "$cur"))
+            ;;
+        detach|remove)
+            if [[ "$cur" == -* ]]; then
+                COMPREPLY=($(compgen -W "-y --yes" -- "$cur"))
+            else
+                local branches=$(git for-each-ref --format='%(refname:short)' refs/heads/)
+                COMPREPLY=($(compgen -W "$branches" -- "$cur"))
+            fi
             ;;
         completions)
             COMPREPLY=($(compgen -W "zsh bash" -- "$cur"))
@@ -1524,6 +1586,9 @@ def main(argv: list[str] | None = None) -> None:  # explicit argv for tests
     propagate_p.add_argument(
         "--no-auto-rerere", action="store_true", help="Disable auto-continue via rerere"
     )
+    propagate_p.add_argument(
+        "-y", "--yes", action="store_true", help="Skip the confirmation prompt"
+    )
 
     rebase_p = sub.add_parser("rebase", help="Rebase current branch + descendants onto new base")
     rebase_p.add_argument("target", help="Branch or ref to rebase onto")
@@ -1531,6 +1596,7 @@ def main(argv: list[str] | None = None) -> None:  # explicit argv for tests
     rebase_p.add_argument(
         "--no-auto-rerere", action="store_true", help="Disable auto-continue via rerere"
     )
+    rebase_p.add_argument("-y", "--yes", action="store_true", help="Skip the confirmation prompt")
 
     branch_p = sub.add_parser("branch", help="Create or adopt a child branch with a worktree")
     branch_p.add_argument("name", help="Branch name (new, or an existing branch to adopt)")
@@ -1541,16 +1607,30 @@ def main(argv: list[str] | None = None) -> None:  # explicit argv for tests
 
     detach_p = sub.add_parser("detach", help="Remove a branch from tree")
     detach_p.add_argument("branch", nargs="?", help="Branch to detach (default: current)")
+    detach_p.add_argument("-y", "--yes", action="store_true", help="Skip the confirmation prompt")
 
     remove_p = sub.add_parser(
         "remove", help="Remove a subtree's worktrees and unregister its branches (keeps refs)"
     )
     remove_p.add_argument("branch", nargs="?", help="Branch to remove (default: pick via fzf)")
+    remove_p.add_argument("-y", "--yes", action="store_true", help="Skip the confirmation prompt")
 
-    sub.add_parser("split", help="Split current branch into parent + child")
+    split_p = sub.add_parser("split", help="Split current branch into parent + child")
+    split_p.add_argument("--after", metavar="COMMIT", help="Commit to split after (fzf if omitted)")
+    split_p.add_argument(
+        "--name", metavar="BRANCH", help="New parent branch name (prompt if omitted)"
+    )
+    split_wt = split_p.add_mutually_exclusive_group()
+    split_wt.add_argument(
+        "--worktree", metavar="PATH", help="Create the new parent's worktree at PATH"
+    )
+    split_wt.add_argument(
+        "--no-worktree", action="store_true", help="Don't create a worktree for the new parent"
+    )
 
     push_p = sub.add_parser("push", help="Push current branch + descendants")
     push_p.add_argument("--dry", action="store_true", help="Show what would be done")
+    push_p.add_argument("-y", "--yes", action="store_true", help="Skip the confirmation prompt")
 
     sub.add_parser("log", help="Show git log graph for all tree-branches")
 

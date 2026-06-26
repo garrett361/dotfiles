@@ -9,15 +9,32 @@ from git_tree.cli import TreeError, cmd_remove, discover
 from .conftest import RepoHelper
 
 
-def _ns(branch: str | None = None) -> object:
-    return argparse.Namespace(branch=branch)
+def _ns(branch: str | None = None, yes: bool = False) -> object:
+    return argparse.Namespace(branch=branch, yes=yes)
 
 
 def _branch_exists(repo: RepoHelper, name: str) -> bool:
     return repo.git("rev-parse", "--verify", "--quiet", name, check=False) != ""
 
 
+def _no_confirm(_message: str) -> bool:
+    raise AssertionError("confirm should not be consulted with --yes")
+
+
 class TestRemove:
+    def test_yes_skips_confirmation(self, repo: RepoHelper, monkeypatch, tmp_path) -> None:
+        repo.branch("A", parent="main")
+        wt = repo.worktree("A", str(tmp_path / "wt-A"))
+        (wt / "a.txt").write_text("a")
+        repo.git("add", "a.txt", cwd=wt)
+        repo.git("commit", "-m", "a work", cwd=wt)
+
+        monkeypatch.setattr("git_tree.cli.confirm", _no_confirm)
+        cmd_remove(_ns("A", yes=True))
+
+        assert not wt.exists()
+        assert "A" not in discover().parent_of
+
     def test_removes_worktree_keeps_branch_and_detaches(
         self, repo: RepoHelper, monkeypatch, tmp_path
     ) -> None:

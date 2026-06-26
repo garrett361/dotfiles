@@ -9,8 +9,12 @@ from git_tree.cli import TreeError, cmd_push
 from .conftest import RepoHelper
 
 
-def _ns(dry: bool = False) -> object:
-    return argparse.Namespace(dry=dry)
+def _ns(dry: bool = False, yes: bool = False) -> object:
+    return argparse.Namespace(dry=dry, yes=yes)
+
+
+def _no_confirm(_message: str) -> bool:
+    raise AssertionError("confirm should not be consulted with --yes")
 
 
 def _add_remote(repo: RepoHelper, name: str, tmp_path) -> object:
@@ -23,6 +27,19 @@ def _add_remote(repo: RepoHelper, name: str, tmp_path) -> object:
 
 
 class TestPush:
+    def test_yes_skips_confirmation(self, repo: RepoHelper, monkeypatch, tmp_path) -> None:
+        repo.branch("b", parent="main")
+        wt_b = repo.worktree("b", str(tmp_path / "wt-b"))
+        (wt_b / "b1.txt").write_text("b1")
+        repo.git("add", "b1.txt", cwd=wt_b)
+        repo.git("commit", "-m", "b commit", cwd=wt_b)
+        monkeypatch.chdir(wt_b)
+
+        monkeypatch.setattr("git_tree.cli.confirm", _no_confirm)
+        cmd_push(_ns(yes=True))
+
+        assert "refs/heads/b" in repo.git("ls-remote", "--heads", str(repo.origin))
+
     def test_pushes_current_and_descendants(self, repo: RepoHelper, monkeypatch, tmp_path) -> None:
         repo.branch("b", parent="main")
         wt_b = repo.worktree("b", str(tmp_path / "wt-b"))

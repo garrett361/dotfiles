@@ -116,6 +116,18 @@ class TestDetach:
         cmd_detach(_ns())
         assert self._branch_config(repo, "feature").returncode != 0
 
+    def test_yes_skips_confirmation(self, repo: RepoHelper, monkeypatch) -> None:
+        repo.branch("feature", parent="main")
+        repo.checkout("main")
+
+        def _no_confirm(_message: str) -> bool:
+            raise AssertionError("confirm should not be consulted with --yes")
+
+        monkeypatch.setattr("git_tree.cli.confirm", _no_confirm)
+        cmd_detach(_ns(branch="feature", yes=True))
+
+        assert self._branch_config(repo, "feature").returncode != 0
+
     def test_detach_by_name_from_different_branch(self, repo: RepoHelper, monkeypatch) -> None:
         repo.branch("feature", parent="main")
         repo.checkout("main")
