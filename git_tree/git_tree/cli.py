@@ -1217,6 +1217,89 @@ def _resolve_split_point(after: str, old_fork: str | None) -> str:
     return resolved
 
 
+def _worktree_choice(args: argparse.Namespace, name: str) -> str:
+    """Worktree path for the new branch, or "" for none: `--worktree PATH` / `--no-worktree`,
+    else the interactive `[path / N]` prompt (where 'n' means none)."""
+    wt = getattr(args, "worktree", None)
+    if wt:
+        return wt
+    if getattr(args, "no_worktree", False):
+        return ""
+    reply = _prompt(f"Create worktree for {name}? [path / N]: ") or ""
+    return "" if reply.lower() == "n" else reply
+
+
+def _split_child(
+    args: argparse.Namespace, branch: str, old_fork: str | None, commit_hash: str
+) -> None:
+    """`git tree split --child`: keep `branch` (and its worktree) for the commits up to
+    `commit_hash`, peeling the later commits onto a new child branch. `branch` rewinds to
+    `commit_hash`; the new branch is created at the old tip first so no commit is lost, and
+    `branch`'s existing tree-children re-point onto it (forks left as-is — the new branch
+    inherits the old tip's full history). `branch`'s own parent/fork are untouched."""
+    new_name = getattr(args, "name", None) or _prompt("New child branch name: ")
+    if not new_name:
+        raise SystemExit(1)
+
+    # The rewind resets the worktree, so refuse tracked changes (untracked survive it).
+    st = _worktree_status(Path(git("rev-parse", "--show-toplevel")))
+    if st.staged or st.modified or st.conflicted:
+        raise TreeError(
+            f"{branch} has uncommitted changes; --child rewinds the worktree to the split "
+            f"commit. Commit or stash them first."
+        )
+
+    old_head = git("rev-parse", "HEAD")
+    children = [b for b in all_branch_names() if _get_tree_parent(b) == branch]
+
+    # Best-effort: rewinding past what was pushed will diverge from the remote.
+    upstream = git("rev-parse", "--verify", "--quiet", f"{branch}@{{upstream}}", check=False)
+    if upstream and not git_ok("merge-base", "--is-ancestor", upstream, commit_hash):
+        print(
+            f"Warning: {branch} is pushed; rewinding past its upstream. The remote will "
+            f"diverge until your next `git tree push`.",
+            file=sys.stderr,
+        )
+
+    # Create the new child at the old tip BEFORE rewinding, so no commit is lost.
+    if not git_echo_ok("branch", new_name, old_head):
+        raise TreeError(f"Could not create branch '{new_name}' (see output above).")
+    if not git_echo_ok("reset", "--hard", commit_hash):
+        raise TreeError(
+            f"Failed to rewind {branch} to {commit_hash} (see output above); "
+            f"'{new_name}' was created at the old tip."
+        )
+
+    # New child hangs off `branch` (now at the split); `branch` keeps its own parent/fork.
+    _register_child(new_name, branch, fork=commit_hash)
+    # `branch`'s children were tracking its old tip, which `new_name` now carries (with the
+    # full old history). Re-point them so a later propagate lands each child where it would
+    # have before the split; their fork commits stay valid because `new_name` holds them.
+    for c in children:
+        git("config", f"branch.{c}.tree-parent-branch", new_name)
+
+    worktree_path = _worktree_choice(args, new_name)
+    if worktree_path:
+        if git_echo_ok("worktree", "add", worktree_path, new_name):
+            print(f"Created worktree at {worktree_path}")
+        else:
+            print(
+                f"Warning: could not create worktree at {worktree_path} "
+                f"(the split itself succeeded; add one later with "
+                f"`git worktree add <path> {new_name}`).",
+                file=sys.stderr,
+            )
+
+    kept_range = f"{old_fork}..{commit_hash}" if old_fork is not None else commit_hash
+    kept = git_lines("log", "--oneline", kept_range)
+    moved = git_lines("log", "--oneline", f"{commit_hash}..{old_head}")
+    print("\nSplit complete:")
+    print(f"  {branch} ({len(kept)} commits) → keeps the work up to the split")
+    print(f"  {new_name} ({len(moved)} commits) → new child branch")
+    if children:
+        print(f"  reparented onto {new_name}: {', '.join(children)}")
+
+
 def cmd_split(args: argparse.Namespace) -> None:
     branch = current_branch()
     parent = _get_tree_parent(branch)
@@ -1235,15 +1318,22 @@ def cmd_split(args: argparse.Namespace) -> None:
     if len(commits) < 2:
         raise TreeError("Need at least 2 commits to split.")
 
+    child_mode = getattr(args, "child", False)
+
     after = getattr(args, "after", None)
     if after:
         commit_hash = _resolve_split_point(after, old_fork)
     else:
-        commit_hash = _select_one(
-            commits,
-            prompt="Split after> ",
-            header="Select the last commit for the new parent branch",
-        ).split()[0]
+        header = (
+            f"Select the last commit to keep on {branch}"
+            if child_mode
+            else "Select the last commit for the new parent branch"
+        )
+        commit_hash = _select_one(commits, prompt="Split after> ", header=header).split()[0]
+
+    if child_mode:
+        _split_child(args, branch, old_fork, commit_hash)
+        return
 
     parent_name = getattr(args, "name", None) or _prompt("New parent branch name: ")
     if not parent_name:
@@ -1254,14 +1344,7 @@ def cmd_split(args: argparse.Namespace) -> None:
     if not git_echo_ok("branch", parent_name, commit_hash):
         raise TreeError(f"Could not create branch '{parent_name}' (see output above).")
 
-    wt = getattr(args, "worktree", None)
-    if wt:
-        worktree_path = wt
-    elif getattr(args, "no_worktree", False):
-        worktree_path = ""
-    else:
-        reply = _prompt("Create worktree for parent? [path / N]: ") or ""
-        worktree_path = "" if reply.lower() == "n" else reply
+    worktree_path = _worktree_choice(args, parent_name)
 
     git("config", f"branch.{branch}.tree-parent-branch", parent_name)
     _set_fork_commit(branch, git("rev-parse", commit_hash))
@@ -1474,9 +1557,10 @@ _git-tree() {
         split)
             _arguments \
                 '--after[Commit to split after]:commit:__git_heads' \
-                '--name[New parent branch name]:name:' \
-                '--worktree[Create the new parent worktree]:path:_directories' \
-                '--no-worktree[Do not create a worktree for the new parent]'
+                '--name[New branch name]:name:' \
+                '--child[Keep current branch for early commits; new branch takes the rest]' \
+                '--worktree[Create the new branch worktree]:path:_directories' \
+                '--no-worktree[Do not create a worktree for the new branch]'
             ;;
         attach)
             _arguments ':branch:__git_heads'
@@ -1532,7 +1616,8 @@ _git_tree() {
             ;;
         split)
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "--after --name --worktree --no-worktree" -- "$cur"))
+                local opts="--after --name --child --worktree --no-worktree"
+                COMPREPLY=($(compgen -W "$opts" -- "$cur"))
             fi
             ;;
         attach)
@@ -1617,15 +1702,18 @@ def main(argv: list[str] | None = None) -> None:  # explicit argv for tests
 
     split_p = sub.add_parser("split", help="Split current branch into parent + child")
     split_p.add_argument("--after", metavar="COMMIT", help="Commit to split after (fzf if omitted)")
+    split_p.add_argument("--name", metavar="BRANCH", help="New branch name (prompt if omitted)")
     split_p.add_argument(
-        "--name", metavar="BRANCH", help="New parent branch name (prompt if omitted)"
+        "--child",
+        action="store_true",
+        help="Keep the current branch for the early commits; new branch takes the rest",
     )
     split_wt = split_p.add_mutually_exclusive_group()
     split_wt.add_argument(
-        "--worktree", metavar="PATH", help="Create the new parent's worktree at PATH"
+        "--worktree", metavar="PATH", help="Create the new branch's worktree at PATH"
     )
     split_wt.add_argument(
-        "--no-worktree", action="store_true", help="Don't create a worktree for the new parent"
+        "--no-worktree", action="store_true", help="Don't create a worktree for the new branch"
     )
 
     push_p = sub.add_parser("push", help="Push current branch + descendants")

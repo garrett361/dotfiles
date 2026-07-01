@@ -47,6 +47,7 @@ git tree push                          # push current branch + descendants (--fo
 Interactive commands also take flags so they can run unattended:
 
 - `git tree split --after <commit> --name <branch> [--worktree <path> | --no-worktree]` — split with no prompts (omit any flag to be prompted for just that piece).
+- `git tree split --child` inverts the split: the current branch (and its worktree) keeps the commits *up to* the split and stays the parent, while the new branch takes the *later* commits as a child; existing children follow the new branch. Default split does the reverse (the new branch is the parent, holding the earlier commits).
 - `propagate`, `rebase`, `push`, `remove`, `detach` accept `-y`/`--yes` to skip the confirmation prompt. (`--dry` on `propagate`/`rebase`/`push` previews without executing.)
 
 ## How it works
