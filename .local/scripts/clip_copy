@@ -1,0 +1,16 @@
+#!/bin/sh
+# Copy stdin to system clipboard. Falls back to OSC 52 for remote/headless.
+input=$(cat)
+
+if command -v pbcopy >/dev/null 2>&1; then
+    printf '%s' "$input" | pbcopy
+elif [ -n "$WAYLAND_DISPLAY" ] && command -v wl-copy >/dev/null 2>&1; then
+    printf '%s' "$input" | wl-copy
+elif [ -n "$DISPLAY" ] && command -v xclip >/dev/null 2>&1; then
+    printf '%s' "$input" | xclip -selection clipboard
+elif [ -n "$DISPLAY" ] && command -v xsel >/dev/null 2>&1; then
+    printf '%s' "$input" | xsel --clipboard --input
+else
+    data=$(printf '%s' "$input" | base64 | tr -d '\n')
+    printf '\033]52;c;%s\a' "$data" > /dev/tty
+fi
