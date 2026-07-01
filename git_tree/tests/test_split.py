@@ -506,3 +506,24 @@ class TestSplitChild:
         assert discover().parent_of["topic"] == "later"  # reparented
         assert wt.exists()  # its worktree left in place
         assert repo.git("rev-parse", "topic") == topic_tip  # its ref untouched
+
+    def test_child_warns_when_pushed(self, repo: RepoHelper, monkeypatch, capsys) -> None:
+        # Rewinding a pushed branch past its upstream will diverge the remote → warn.
+        c1, _c2, _c3 = self._feature(repo)
+        repo.push("feature")  # sets feature@{upstream} = origin/feature at the old tip
+        monkeypatch.setattr("git_tree.cli.fzf_select", _no_prompt)
+        monkeypatch.setattr("builtins.input", _no_prompt)
+
+        cmd_split(_ns(child=True, after=c1, name="later", no_worktree=True))
+
+        assert "pushed" in capsys.readouterr().err
+        assert repo.git("rev-parse", "feature") == c1  # split still applied
+
+    def test_child_no_warn_when_unpushed(self, repo: RepoHelper, monkeypatch, capsys) -> None:
+        c1, _c2, _c3 = self._feature(repo)  # never pushed → no upstream
+        monkeypatch.setattr("git_tree.cli.fzf_select", _no_prompt)
+        monkeypatch.setattr("builtins.input", _no_prompt)
+
+        cmd_split(_ns(child=True, after=c1, name="later", no_worktree=True))
+
+        assert "pushed" not in capsys.readouterr().err
