@@ -82,7 +82,8 @@ slurm_logs() {
     local selected_files
     selected_files=$(printf '%s\n' "${cands[@]}" \
         | fzf -m --bind ctrl-a:select-all \
-        --header="Select log files for job $jobid (Tab=multi-select, Ctrl-A=all)" \
+        --bind 'ctrl-y:execute-silent(printf %s {} | clip_copy)' \
+        --header="Select log files for job $jobid (Tab=multi, Ctrl-A=all, Ctrl-Y=copy path)" \
         --preview="echo '{}'; echo; tail -50 -- '{}'" \
         --preview-window=down)
     [ -z "$selected_files" ] && return 0
@@ -113,7 +114,8 @@ slurm_logs_all() {
     \) -printf '%T@ %p\n' 2>/dev/null | sort -rn | cut -d' ' -f2- | sed 's|^\./||' \
         | if [ -n "$query" ]; then rg "$query"; else cat; fi \
         | fzf -m --bind ctrl-a:select-all \
-        --header="Select log files from $LOG_DIR (Tab=multi-select, Ctrl-A=all)" \
+        --bind 'ctrl-y:execute-silent(printf "%s/%s" "$LOG_DIR" {} | clip_copy)' \
+        --header="Select log files from $LOG_DIR (Tab=multi, Ctrl-A=all, Ctrl-Y=copy path)" \
         --preview="echo '$LOG_DIR/{}'; echo; tail -50 -- '$LOG_DIR/{}'" \
         --preview-window=down)
     [ -z "$selected_files" ] && return 0
