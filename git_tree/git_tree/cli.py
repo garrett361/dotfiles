@@ -313,7 +313,7 @@ def root_of(graph: Graph, branch: str) -> str:
     """Walk the (functional, acyclic) parent chain up to this branch's root.
 
     Returns `branch` unchanged when it has no parent — it is itself a root, or it is
-    not registered in the tree at all (callers distinguish the two). `discover` rejects
+    not registered in the tree at all (callers distinguish the two). `discover` prunes
     cycles, so the `seen` guard is purely defensive against a malformed graph.
     """
     seen: set[str] = set()
@@ -391,21 +391,37 @@ def discover() -> Graph:
     graph = Graph()
 
     worktree_map: dict[str, Path] = {}
-    porcelain = git("worktree", "list", "--porcelain")
-    current_path: Path | None = None
-    worktree_count = 0
     detached_worktrees: list[Path] = []
-    for line in porcelain.splitlines():
-        if line.startswith("worktree "):
-            current_path = Path(line.split(" ", 1)[1])
-            worktree_count += 1
-        elif line.startswith("branch refs/heads/"):
-            branch_name = line.removeprefix("branch refs/heads/")
-            if current_path is not None:
-                worktree_map[branch_name] = current_path
-        elif line == "detached":
-            if current_path is not None and worktree_count > 1:
-                detached_worktrees.append(current_path)
+    porcelain = git("worktree", "list", "--porcelain")
+    # Records are separated by a blank line. Parse each independently so the `prunable`
+    # marker (which git emits *after* the branch/detached line) is known before we decide
+    # what to do with the entry.
+    for entry in porcelain.split("\n\n"):
+        path: Path | None = None
+        branch_name: str | None = None
+        detached = False
+        prunable = False
+        for line in entry.splitlines():
+            if line.startswith("worktree "):
+                path = Path(line.split(" ", 1)[1])
+            elif line.startswith("branch refs/heads/"):
+                branch_name = line.removeprefix("branch refs/heads/")
+            elif line == "detached":
+                detached = True
+            elif line.startswith("prunable"):
+                prunable = True
+        # A prunable worktree's directory is gone (rm -rf'd but not `git worktree prune`d).
+        # Skip it entirely: mapping it, or reading its git dir in the recovery loop below,
+        # would run git with cwd=<deleted path> and raise FileNotFoundError. Dropping it
+        # degrades to "no worktree", which surfaces a clean error downstream.
+        if path is None or prunable:
+            continue
+        if branch_name is not None:
+            worktree_map[branch_name] = path
+        elif detached:
+            # Detached mid-rebase: recover its branch name below. Applies to the primary
+            # worktree too (it reports `detached` as the first record), not just linked ones.
+            detached_worktrees.append(path)
 
     # Recover branch names for detached worktrees (mid-rebase)
     for wt_path in detached_worktrees:
@@ -452,10 +468,22 @@ def discover() -> Graph:
 
     cycles = _find_cycles(graph)
     if cycles:
-        lines = ["Branches form a dependency cycle (fix with `git tree attach`/`git tree detach`):"]
+        lines = [
+            "Warning: these branches form a dependency cycle; the cyclic links were dropped "
+            "so the rest of the tree still works (fix with `git tree attach`/`git tree detach`):"
+        ]
         for cycle in cycles:
             lines.append("  " + " → ".join(cycle + [cycle[0]]))
-        raise TreeError("\n".join(lines))
+        print("\n".join(lines), file=sys.stderr)
+        # Prune the cyclic edges so an unrelated cycle can't block a healthy tree. Splice
+        # each cyclic node out of its parent's children list, then drop its parent edge;
+        # keep its `branches` entry. Non-cyclic children of a cyclic node keep valid edges.
+        for node in {b for cycle in cycles for b in cycle}:
+            parent = graph.parent_of.pop(node, None)
+            if parent is not None and node in graph.children_of.get(parent, []):
+                graph.children_of[parent].remove(node)
+                if not graph.children_of[parent]:
+                    del graph.children_of[parent]
 
     return graph
 
@@ -553,7 +581,7 @@ def _format_subtree(
     current: str | None = None,
     remote: str | None = None,
 ) -> None:
-    # The graph is acyclic: discover() raises on a cycle, so this recursion is bounded.
+    # The graph is acyclic: discover() prunes any cycle, so this recursion is bounded.
     for i, child in enumerate(children):
         is_last = i == len(children) - 1
         connector = BOX_ELBOW if is_last else BOX_TEE
@@ -960,13 +988,16 @@ def _rebase_onto(
         _conflict_exit(child, parent, cwd, stashed)
 
     while True:
-        git("rerere", cwd=cwd, check=False)
+        git_echo("rerere", cwd=cwd)
 
         remaining = git("rerere", "remaining", cwd=cwd, check=False)
         if remaining.strip():
             _conflict_exit(child, parent, cwd, stashed)
 
-        git("add", "-u", cwd=cwd)
+        # git_echo swallows failures (check=False); a failed staging would otherwise loop
+        # here forever, so treat it as an unresolvable conflict and stop.
+        if not git_echo_ok("add", "-u", cwd=cwd):
+            _conflict_exit(child, parent, cwd, stashed)
 
         continued = git_echo_ok("rebase", "--continue", cwd=cwd, env={"GIT_EDITOR": "true"})
         if continued:
@@ -1382,6 +1413,11 @@ def cmd_split(args: argparse.Namespace) -> None:
 def cmd_push(args: argparse.Namespace) -> None:
     branch = current_branch()
     graph = discover()
+
+    # Hard-error (unlike cmd_log's benign exit) so a stray `git tree push` on a plain
+    # branch like `main` can never force-push it to the branch's own `branch.remote`.
+    if branch not in graph.parent_of and branch not in graph.children_of:
+        raise TreeError("Not on a tree-branch.")
 
     descendants = graph.downstream_from(branch)
     push_set = [branch] + descendants

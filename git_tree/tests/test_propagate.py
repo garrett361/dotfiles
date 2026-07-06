@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 
 import pytest
 
-from git_tree.cli import cmd_propagate
+from git_tree.cli import cmd_propagate, discover
 
 from .conftest import RepoHelper
 
@@ -276,6 +277,8 @@ class TestPropagateRerere:
 
         out = capsys.readouterr().out
         assert "rerere" in out
+        # The side-effecting rerere staging is echoed, not run silently (transparency goal).
+        assert "+ git add -u" in out
         b_log = repo.git("log", "--oneline", "b")
         assert "main modifies shared" in b_log
 
@@ -513,3 +516,67 @@ class TestPropagateMainWorktree:
         b_log = repo.git("log", "--oneline", "b")
         assert "advance main" in b_log
         assert "on b" in b_log
+
+    def test_rebase_in_primary_worktree_reported_as_unclean(
+        self, repo: RepoHelper, monkeypatch, capsys
+    ) -> None:
+        # A tree-child mid-rebase in the PRIMARY worktree (no linked worktree) must be
+        # detected as unclean, not misreported as "needs a worktree".
+        repo.commit("shared.txt", "base", "base commit")
+        repo.branch("b", parent="main")
+        repo.checkout("b")
+        repo.commit("shared.txt", "from b", "b modifies shared")
+
+        repo.checkout("main")
+        repo.commit("shared.txt", "from main", "main modifies shared")
+
+        # Start a conflicting rebase of b in the primary worktree, resolve but don't
+        # continue → HEAD detached, rebase still in progress.
+        repo.checkout("b")
+        repo.git("rebase", "main", check=False)
+        (repo.work / "shared.txt").write_text("resolved")
+        repo.git("add", "shared.txt")
+
+        monkeypatch.setattr("builtins.input", lambda _: "y")
+        with pytest.raises(SystemExit):
+            cmd_propagate(_ns(branch="main"))
+
+        err = capsys.readouterr().err
+        assert "not in a clean state" in err
+        assert "rebase in progress" in err
+        assert "need worktrees" not in err  # the pre-fix misreport
+
+
+class TestPropagatePrunableWorktree:
+    def test_deleted_worktree_dir_degrades_cleanly(
+        self, repo: RepoHelper, monkeypatch, capsys, tmp_path
+    ) -> None:
+        # A worktree dir removed with `rm -rf` (not `git worktree prune`) is still listed
+        # by git as prunable. discovery must skip it and degrade to "needs a worktree"
+        # rather than crash with an uncaught FileNotFoundError.
+        repo.commit("a1.txt", "a1", "advance main")
+        repo.branch("b", parent="main")
+        wt_b = repo.worktree("b", str(tmp_path / "wt-b"))
+        (wt_b / "b1.txt").write_text("b1")
+        repo.git("add", "b1.txt", cwd=wt_b)
+        repo.git("commit", "-m", "on b", cwd=wt_b)
+        repo.checkout("main")
+        repo.commit("a2.txt", "a2", "new on main")
+
+        shutil.rmtree(wt_b)  # dir gone; git still reports the worktree as prunable
+
+        monkeypatch.setattr("builtins.input", lambda _: "y")
+        with pytest.raises(SystemExit):  # a FileNotFoundError would not be a SystemExit
+            cmd_propagate(_ns(branch="main"))
+        assert "need worktrees" in capsys.readouterr().err
+
+    def test_detached_prunable_worktree_does_not_crash(self, repo: RepoHelper, tmp_path) -> None:
+        # git's canonical prunable example is a DETACHED worktree; its head-name recovery
+        # path (_git_dir) would FileNotFoundError on the deleted dir if not skipped.
+        repo.branch("b", parent="main")
+        det = tmp_path / "det"
+        repo.git("worktree", "add", "--detach", str(det))
+        shutil.rmtree(det)
+
+        graph = discover()  # must not raise FileNotFoundError
+        assert graph.parent_of["b"] == "main"

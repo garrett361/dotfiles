@@ -27,6 +27,19 @@ def _add_remote(repo: RepoHelper, name: str, tmp_path) -> object:
 
 
 class TestPush:
+    def test_push_on_non_tree_branch_refuses(self, repo: RepoHelper, capsys) -> None:
+        # `git tree push` on a plain branch (e.g. main, which has branch.main.remote from
+        # the clone) must refuse — never force-push it to the remote.
+        before = repo.git("ls-remote", str(repo.origin), "refs/heads/main").split()[0]
+        repo.commit("local.txt", "local", "local-only commit on main")  # diverge locally
+
+        with pytest.raises(SystemExit):
+            cmd_push(_ns())
+
+        assert "tree-branch" in capsys.readouterr().err
+        after = repo.git("ls-remote", str(repo.origin), "refs/heads/main").split()[0]
+        assert after == before  # origin/main untouched
+
     def test_yes_skips_confirmation(self, repo: RepoHelper, monkeypatch, tmp_path) -> None:
         repo.branch("b", parent="main")
         wt_b = repo.worktree("b", str(tmp_path / "wt-b"))
