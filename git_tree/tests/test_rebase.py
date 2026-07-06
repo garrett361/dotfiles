@@ -11,7 +11,7 @@ from .conftest import RepoHelper
 
 def _ns(target: str, yes: bool = False) -> object:
     return argparse.Namespace(
-        command="rebase", target=target, dry=False, no_auto_rerere=False, yes=yes
+        command="rebase", target=target, dry_run=False, no_auto_rerere=False, yes=yes
     )
 
 
@@ -152,7 +152,7 @@ class TestRebase:
 
         monkeypatch.chdir(wt)
         cmd_rebase(
-            argparse.Namespace(command="rebase", target="main", dry=True, no_auto_rerere=False)
+            argparse.Namespace(command="rebase", target="main", dry_run=True, no_auto_rerere=False)
         )
 
         assert repo.git("rev-parse", "feature") == head_before
@@ -320,7 +320,7 @@ class TestRebase:
         assert _root_remote(discover(), "feature") == ("new-base", "origin")
         # The actual symptom of the bug: push could not resolve a remote. Now it can.
         capsys.readouterr()
-        cmd_push(argparse.Namespace(dry=True))
+        cmd_push(argparse.Namespace(dry_run=True))
         assert "Pushing to origin" in capsys.readouterr().out
 
     def test_rebase_within_tree_leaves_remote_untouched(

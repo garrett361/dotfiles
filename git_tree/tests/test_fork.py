@@ -29,8 +29,10 @@ from git_tree.cli import (
 from .conftest import RepoHelper
 
 
-def _ns(*, dry: bool = False, no_auto_rerere: bool = False, branch: str | None = None) -> object:
-    return argparse.Namespace(dry=dry, no_auto_rerere=no_auto_rerere, branch=branch)
+def _ns(
+    *, dry_run: bool = False, no_auto_rerere: bool = False, branch: str | None = None
+) -> object:
+    return argparse.Namespace(dry_run=dry_run, no_auto_rerere=no_auto_rerere, branch=branch)
 
 
 def _commit_in(repo: RepoHelper, wt, filename: str, content: str, message: str) -> None:

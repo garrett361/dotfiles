@@ -11,9 +11,15 @@ from .conftest import RepoHelper
 
 
 def _ns(
-    *, dry: bool = False, no_auto_rerere: bool = False, branch: str | None = None, yes: bool = False
+    *,
+    dry_run: bool = False,
+    no_auto_rerere: bool = False,
+    branch: str | None = None,
+    yes: bool = False,
 ) -> object:
-    return argparse.Namespace(dry=dry, no_auto_rerere=no_auto_rerere, branch=branch, yes=yes)
+    return argparse.Namespace(
+        dry_run=dry_run, no_auto_rerere=no_auto_rerere, branch=branch, yes=yes
+    )
 
 
 def _no_confirm(_message: str) -> bool:
@@ -47,7 +53,7 @@ class TestPropagate:
         repo.commit("a2.txt", "a2", "new commit on main")
 
         monkeypatch.setattr("git_tree.cli.confirm", _no_confirm)
-        cmd_propagate(_ns(dry=True, yes=True))  # preview only, no cascade
+        cmd_propagate(_ns(dry_run=True, yes=True))  # preview only, no cascade
 
         assert "new commit on main" not in repo.git("log", "--oneline", "b")
 
@@ -190,7 +196,7 @@ class TestPropagate:
         repo.commit("a2.txt", "a2", "advance main")
 
         b_tip_before = repo.git("rev-parse", "b")
-        cmd_propagate(_ns(dry=True))
+        cmd_propagate(_ns(dry_run=True))
 
         assert repo.git("rev-parse", "b") == b_tip_before
         out = capsys.readouterr().out
@@ -206,7 +212,7 @@ class TestPropagate:
         repo.commit("m2.txt", "m2", "first new on main")
         repo.commit("m3.txt", "m3", "second new on main")
 
-        cmd_propagate(_ns(dry=True))
+        cmd_propagate(_ns(dry_run=True))
 
         out = capsys.readouterr().out
         assert "[2 new]" in out
@@ -219,7 +225,7 @@ class TestPropagate:
         repo.git("commit", "-m", "on b", cwd=wt_b)
 
         repo.checkout("main")
-        cmd_propagate(_ns(dry=True))
+        cmd_propagate(_ns(dry_run=True))
 
         out = capsys.readouterr().out
         assert "[" not in out

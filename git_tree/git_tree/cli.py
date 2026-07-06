@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -13,11 +14,15 @@ from typing import NoReturn
 
 
 class TreeError(SystemExit):
-    """Raised by helpers to exit with a user-facing message."""
+    """Raised by helpers to exit with a user-facing message.
 
-    def __init__(self, msg: str):
+    `code` is the process exit status, letting an agent branch on failure class:
+    1 generic, 3 resumable conflict, 4 precondition/state, 5 not-a-tree-branch.
+    """
+
+    def __init__(self, msg: str, code: int = 1):
         print(msg, file=sys.stderr)
-        super().__init__(1)
+        super().__init__(code)
 
 
 # ---------------------------------------------------------------------------
@@ -179,7 +184,10 @@ def _get_fork_commit(branch: str, parent: str, info: BranchInfo | None = None) -
         and git_ok("merge-base", "--is-ancestor", stored, branch)
     ):
         return stored
-    return git("merge-base", parent, branch)
+    # check=False: a branch whose configured parent shares no history (malformed config)
+    # has no merge-base; return "" rather than crashing, so read-only paths like `--json`
+    # degrade gracefully (callers treat "" as "no fork point").
+    return git("merge-base", parent, branch, check=False)
 
 
 def _set_fork_commit(branch: str, commit: str) -> None:
@@ -257,6 +265,13 @@ class Graph:
     parent_of: dict[str, str] = field(default_factory=dict)
     children_of: dict[str, list[str]] = field(default_factory=dict)
     branches: dict[str, BranchInfo] = field(default_factory=dict)
+    # Worktree path per branch for every worktree git knows about, roots included (roots
+    # have no BranchInfo, so this is the only place their worktree is recorded).
+    worktree_of: dict[str, Path] = field(default_factory=dict)
+    # Diagnostics surfaced by discover(): dependency cycles (each a node list) and
+    # branches whose configured tree-parent no longer exists.
+    cycles: list[list[str]] = field(default_factory=list)
+    orphans: list[tuple[str, str]] = field(default_factory=list)
 
     def downstream_from(self, branch: str) -> list[str]:
         """Return all descendants in topological order (BFS, parents before children)."""
@@ -434,6 +449,8 @@ def discover() -> Graph:
             if ref.startswith("refs/heads/"):
                 worktree_map[ref.removeprefix("refs/heads/")] = wt_path
 
+    graph.worktree_of = worktree_map
+
     all_branches = all_branch_names()
     all_branches_set = set(all_branches)
 
@@ -457,6 +474,7 @@ def discover() -> Graph:
         graph.parent_of[branch] = parent
         graph.children_of.setdefault(parent, []).append(branch)
 
+    graph.orphans = orphaned
     if orphaned:
         lines = [
             "Warning: these branches have a deleted parent "
@@ -467,6 +485,7 @@ def discover() -> Graph:
         print("\n".join(lines), file=sys.stderr)
 
     cycles = _find_cycles(graph)
+    graph.cycles = cycles
     if cycles:
         lines = [
             "Warning: these branches form a dependency cycle; the cyclic links were dropped "
@@ -499,6 +518,20 @@ BOX_SPACE = "   "
 BOX_PIPE_SPACE = "│  "
 
 
+def _ahead_behind(branch: str, remote: str | None, worktree: Path) -> tuple[int, int] | None:
+    """(ahead, behind) of `branch` vs its remote-tracking ref, or None if no remote ref."""
+    remote_ref = f"{remote}/{branch}" if remote else None
+    if not remote_ref or not git_ok("rev-parse", "--verify", remote_ref, cwd=worktree):
+        return None
+    counts = git(
+        "rev-list", "--left-right", "--count", f"{branch}...{remote_ref}", cwd=worktree, check=False
+    )
+    parts = counts.split() if counts else []
+    if len(parts) == 2 and all(p.isdigit() for p in parts):
+        return int(parts[0]), int(parts[1])
+    return None
+
+
 def _git_status_summary(branch: str, info: BranchInfo, remote: str | None) -> str:
     worktree = info.worktree
     if not worktree:
@@ -516,23 +549,13 @@ def _git_status_summary(branch: str, info: BranchInfo, remote: str | None) -> st
     if status.untracked:
         parts.append(_color(f"?{status.untracked}", Color.RED))
 
-    remote_ref = f"{remote}/{branch}" if remote else None
-    if remote_ref and git_ok("rev-parse", "--verify", remote_ref, cwd=worktree):
-        ahead_behind = git(
-            "rev-list",
-            "--left-right",
-            "--count",
-            f"{branch}...{remote_ref}",
-            cwd=worktree,
-            check=False,
-        )
-        parts_ab = ahead_behind.split() if ahead_behind else []
-        if len(parts_ab) == 2 and all(p.isdigit() for p in parts_ab):
-            ahead, behind = parts_ab
-            if int(ahead):
-                parts.append(_color(f"⇡{ahead}", Color.GREEN))
-            if int(behind):
-                parts.append(_color(f"⇣{behind}", Color.RED))
+    ab = _ahead_behind(branch, remote, worktree)
+    if ab:
+        ahead, behind = ab
+        if ahead:
+            parts.append(_color(f"⇡{ahead}", Color.GREEN))
+        if behind:
+            parts.append(_color(f"⇣{behind}", Color.RED))
 
     if not parts:
         return ""
@@ -650,9 +673,23 @@ def confirm(message: str) -> bool:
     return response is not None and response.lower() in ("y", "yes")
 
 
+def _no_input(args: argparse.Namespace) -> bool:
+    """True if `--no-input` was passed — never prompt, error instead."""
+    return getattr(args, "no_input", False)
+
+
+def _require_input(args: argparse.Namespace, what: str, flag: str) -> None:
+    """In --no-input mode, refuse to prompt for `what`, naming the `flag` that supplies it."""
+    if _no_input(args):
+        raise TreeError(f"--no-input: {what} required; pass {flag}", code=4)
+
+
 def _proceed(args: argparse.Namespace, message: str) -> bool:
     """True if the user opted in via --yes or an interactive y/N confirmation."""
-    return getattr(args, "yes", False) or confirm(message)
+    if getattr(args, "yes", False):
+        return True
+    _require_input(args, "confirmation", "--yes")
+    return confirm(message)
 
 
 # ---------------------------------------------------------------------------
@@ -708,10 +745,10 @@ def _fallback_select(items: list[str], *, multi: bool) -> list[str]:
 
 
 def _select_one(items: list[str], *, prompt: str, header: str) -> str:
-    """fzf-pick exactly one item; exit (code 1, no message) if nothing was selected."""
+    """fzf-pick exactly one item; error (exit 4) if nothing was selected."""
     selected = fzf_select(items, prompt=prompt, header=header)
     if not selected:
-        raise SystemExit(1)
+        raise TreeError("nothing selected", code=4)
     return selected[0]
 
 
@@ -720,8 +757,74 @@ def _select_one(items: list[str], *, prompt: str, header: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _tree_json(graph: Graph) -> dict:
+    """Full-forest machine-readable state: every branch with edges, remote, and worktree
+    status. Roots come first, then descendants (topological). See `git tree --json`."""
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for r in roots(graph):
+        for b in [r, *graph.downstream_from(r)]:
+            if b not in seen:
+                seen.add(b)
+                ordered.append(b)
+    # Safety net for any node reachable only via edges but not from a root.
+    for b in sorted(set(graph.parent_of) | set(graph.children_of)):
+        if b not in seen:
+            seen.add(b)
+            ordered.append(b)
+
+    branches: list[dict] = []
+    for name in ordered:
+        parent = graph.parent_of.get(name)
+        worktree = graph.worktree_of.get(name)
+        info = graph.branches.get(name)
+        _, remote = _root_remote(graph, name)
+        entry: dict = {
+            "name": name,
+            "parent": parent,
+            "children": graph.children_of.get(name, []),
+            "root": root_of(graph, name),
+            "remote": remote,
+            "fork_commit": info.fork_commit if info else None,
+            "worktree": str(worktree) if worktree else None,
+            "dirty": None,
+            "staged": None,
+            "modified": None,
+            "untracked": None,
+            "conflicted": None,
+            "ahead": None,
+            "behind": None,
+            "pending_from_parent": _pending_commit_count(parent, name, info) if parent else None,
+        }
+        if worktree:
+            st = _worktree_status(worktree)
+            entry.update(
+                dirty=st.dirty,
+                staged=st.staged,
+                modified=st.modified,
+                untracked=st.untracked,
+                conflicted=st.conflicted,
+            )
+            ab = _ahead_behind(name, remote, worktree)
+            if ab:
+                entry["ahead"], entry["behind"] = ab
+        branches.append(entry)
+
+    return {
+        "roots": roots(graph),
+        "cycles": graph.cycles,
+        "orphans": [list(o) for o in graph.orphans],
+        "branches": branches,
+    }
+
+
 def cmd_tree(args: argparse.Namespace) -> None:
     graph = discover()
+    if getattr(args, "json", False):
+        # Always the full forest, regardless of current branch or --all: an agent querying
+        # state usually isn't "on" a tree branch, and JSON has no clutter cost.
+        print(json.dumps(_tree_json(graph), indent=2))
+        return
     raw = git("rev-parse", "--abbrev-ref", "HEAD", check=False)
     current = None if (not raw or raw == "HEAD") else raw
 
@@ -785,6 +888,7 @@ def cmd_attach(args: argparse.Namespace) -> None:
     parent: str | None = args.parent
 
     if not parent:
+        _require_input(args, "parent branch", "the parent argument")
         candidates = [b for b in all_branch_names() if b != branch]
         if not candidates:
             raise TreeError("No other branches available.")
@@ -806,7 +910,7 @@ def cmd_detach(args: argparse.Namespace) -> None:
     branch = getattr(args, "branch", None) or current_branch()
     parent = _get_tree_parent(branch)
     if not parent:
-        raise TreeError(f"{branch} is not in the tree.")
+        raise TreeError(f"{branch} is not in the tree.", code=5)
 
     # detach is the recovery path for a hand-edited cyclic config, so it must work even
     # when discover() refuses to build a graph. Fall back to a config-only child lookup
@@ -862,6 +966,7 @@ def cmd_remove(args: argparse.Namespace) -> None:
 
     target = getattr(args, "branch", None)
     if target is None:
+        _require_input(args, "branch to remove", "the branch argument")
         # No branch given: pick from removable tree-branches that have a worktree. The
         # picker doesn't pre-filter dirty ones — the clean gate below still catches them.
         candidates = sorted(
@@ -881,7 +986,8 @@ def cmd_remove(args: argparse.Namespace) -> None:
     if target not in graph.parent_of:
         raise TreeError(
             f"{target} is not a removable tree-branch — it has no tree-parent "
-            f"(git tree remove won't touch a tree root)."
+            f"(git tree remove won't touch a tree root).",
+            code=5,
         )
 
     subtree = [target] + graph.downstream_from(target)  # parents-first
@@ -899,11 +1005,13 @@ def cmd_remove(args: argparse.Namespace) -> None:
         lines = ["Refusing to remove — these worktrees have uncommitted changes:"]
         lines += [f"  {b}  ({graph.branches[b].worktree})" for b in dirty]
         lines.append("\nCommit, stash, or discard them first. Nothing was removed.")
-        raise TreeError("\n".join(lines))
+        raise TreeError("\n".join(lines), code=4)
 
     print(f"Removing worktrees and unregistering {target} + its subtree (branch refs kept):")
     print(format_tree(graph, root=target))
     print()
+    if getattr(args, "dry_run", False):
+        return
     if not _proceed(args, "Remove these worktrees and detach the branches?"):
         return
 
@@ -1021,7 +1129,7 @@ def _conflict_exit(child: str, parent: str, cwd: Path, stashed: bool) -> NoRetur
         f"Then resume the cascade with: git tree propagate {parent}"
         f"  (records {child}'s new fork point and continues to its descendants)"
     )
-    raise TreeError("\n".join(lines))
+    raise TreeError("\n".join(lines), code=3)
 
 
 def _require_worktrees(branches: list[str], graph: Graph) -> None:
@@ -1032,7 +1140,7 @@ def _require_worktrees(branches: list[str], graph: Graph) -> None:
     for b in missing:
         lines.append(f"  {b}")
     lines.append("\nAdd worktrees with: git worktree add <path> <branch>")
-    raise TreeError("\n".join(lines))
+    raise TreeError("\n".join(lines), code=4)
 
 
 def _has_active_rebase(cwd: Path) -> bool:
@@ -1068,7 +1176,7 @@ def _require_clean_state(branches: list[str], graph: Graph) -> None:
     lines = ["These branches are not in a clean state:"]
     for b, wt, reason in problems:
         lines.append(f"  {b}  ({reason} — resolve in: {wt})")
-    raise TreeError("\n".join(lines))
+    raise TreeError("\n".join(lines), code=4)
 
 
 @dataclass(frozen=True)
@@ -1111,12 +1219,17 @@ def _propagate_descendants(
     descendants = graph.downstream_from(branch)
     results: list[tuple[str, str]] = []
 
+    if descendants:
+        print("Results:")
     for child in descendants:
         parent = graph.parent_of[child]
         info = graph.branches[child]
         fork_point = _get_fork_commit(child, parent, info)
         r = _rebase_branch(child, parent, fork_point, info, auto_rerere=auto_rerere)
         text = "rebased (stash pop conflict - resolve manually)" if r.pop_conflicted else r.note
+        # Stream each result as it lands: a mid-cascade conflict raises before this returns,
+        # so streaming is what makes the already-rebased branches visible.
+        print(f"  {child}: {text}")
         results.append((child, text))
 
     return results
@@ -1139,14 +1252,12 @@ def cmd_propagate(args: argparse.Namespace) -> None:
         print(line)
     print()
 
-    if getattr(args, "dry", False) or not _proceed(args, "Proceed?"):
+    if getattr(args, "dry_run", False) or not _proceed(args, "Proceed?"):
         return
     auto_rerere = not getattr(args, "no_auto_rerere", False)
 
-    results = _propagate_descendants(branch, graph, auto_rerere=auto_rerere)
-
     print()
-    _print_results(results)
+    _propagate_descendants(branch, graph, auto_rerere=auto_rerere)
 
 
 def cmd_rebase(args: argparse.Namespace) -> None:
@@ -1156,7 +1267,7 @@ def cmd_rebase(args: argparse.Namespace) -> None:
 
     old_parent = graph.parent_of.get(branch) or _get_tree_parent(branch)
     if not old_parent:
-        raise TreeError(f"{branch} has no tree-parent-branch configured.")
+        raise TreeError(f"{branch} has no tree-parent-branch configured.", code=5)
 
     if not git_ok("rev-parse", "--verify", old_parent):
         raise TreeError(f"Old parent {old_parent} does not exist.")
@@ -1197,7 +1308,8 @@ def cmd_rebase(args: argparse.Namespace) -> None:
     info = graph.branches.get(branch)
     if not info or not info.worktree:
         raise TreeError(
-            f"{branch} needs a worktree. Add one with: git worktree add <path> {branch}"
+            f"{branch} needs a worktree. Add one with: git worktree add <path> {branch}",
+            code=4,
         )
     _require_clean_state([branch], graph)
     if descendants:
@@ -1205,7 +1317,7 @@ def cmd_rebase(args: argparse.Namespace) -> None:
         _require_clean_state(descendants, graph)
 
     print()
-    if args.dry or not _proceed(args, "Proceed?"):
+    if args.dry_run or not _proceed(args, "Proceed?"):
         return
 
     auto_rerere = not getattr(args, "no_auto_rerere", False)
@@ -1226,9 +1338,7 @@ def cmd_rebase(args: argparse.Namespace) -> None:
     if descendants:
         print()
         print("Cascading to descendants...")
-        results = _propagate_descendants(branch, graph, auto_rerere=auto_rerere)
-        print()
-        _print_results(results)
+        _propagate_descendants(branch, graph, auto_rerere=auto_rerere)
 
 
 def _resolve_split_point(after: str, old_fork: str | None) -> str:
@@ -1256,6 +1366,7 @@ def _worktree_choice(args: argparse.Namespace, name: str) -> str:
         return wt
     if getattr(args, "no_worktree", False):
         return ""
+    _require_input(args, "worktree choice", "--worktree PATH or --no-worktree")
     reply = _prompt(f"Create worktree for {name}? [path / N]: ") or ""
     return "" if reply.lower() == "n" else reply
 
@@ -1268,7 +1379,10 @@ def _split_child(
     `commit_hash`; the new branch is created at the old tip first so no commit is lost, and
     `branch`'s existing tree-children re-point onto it (forks left as-is — the new branch
     inherits the old tip's full history). `branch`'s own parent/fork are untouched."""
-    new_name = getattr(args, "name", None) or _prompt("New child branch name: ")
+    new_name = getattr(args, "name", None)
+    if not new_name:
+        _require_input(args, "new branch name", "--name")
+        new_name = _prompt("New child branch name: ")
     if not new_name:
         raise SystemExit(1)
 
@@ -1277,7 +1391,8 @@ def _split_child(
     if st.staged or st.modified or st.conflicted:
         raise TreeError(
             f"{branch} has uncommitted changes; --child rewinds the worktree to the split "
-            f"commit. Commit or stash them first."
+            f"commit. Commit or stash them first.",
+            code=4,
         )
 
     old_head = git("rev-parse", "HEAD")
@@ -1355,6 +1470,7 @@ def cmd_split(args: argparse.Namespace) -> None:
     if after:
         commit_hash = _resolve_split_point(after, old_fork)
     else:
+        _require_input(args, "split commit", "--after COMMIT")
         header = (
             f"Select the last commit to keep on {branch}"
             if child_mode
@@ -1366,7 +1482,10 @@ def cmd_split(args: argparse.Namespace) -> None:
         _split_child(args, branch, old_fork, commit_hash)
         return
 
-    parent_name = getattr(args, "name", None) or _prompt("New parent branch name: ")
+    parent_name = getattr(args, "name", None)
+    if not parent_name:
+        _require_input(args, "new branch name", "--name")
+        parent_name = _prompt("New parent branch name: ")
     if not parent_name:
         raise SystemExit(1)
 
@@ -1417,7 +1536,7 @@ def cmd_push(args: argparse.Namespace) -> None:
     # Hard-error (unlike cmd_log's benign exit) so a stray `git tree push` on a plain
     # branch like `main` can never force-push it to the branch's own `branch.remote`.
     if branch not in graph.parent_of and branch not in graph.children_of:
-        raise TreeError("Not on a tree-branch.")
+        raise TreeError("Not on a tree-branch.", code=5)
 
     descendants = graph.downstream_from(branch)
     push_set = [branch] + descendants
@@ -1487,7 +1606,7 @@ def cmd_push(args: argparse.Namespace) -> None:
             print(f"  {b}  [{ahead.get(b, 0)} ahead]")
     print()
 
-    if args.dry or not _proceed(args, "Proceed?"):
+    if args.dry_run or not _proceed(args, "Proceed?"):
         return
 
     results: list[tuple[str, str]] = []
@@ -1570,19 +1689,19 @@ _git-tree() {
     case $words[2] in
         propagate)
             _arguments \
-                '--dry[Show what would be done]' \
+                '--dry-run[Show what would be done]' \
                 '--no-auto-rerere[Disable auto-continue via rerere]' \
                 '(-y --yes)'{-y,--yes}'[Skip the confirmation prompt]' \
                 ':branch:__git_heads'
             ;;
         push)
             _arguments \
-                '--dry[Show what would be done]' \
+                '--dry-run[Show what would be done]' \
                 '(-y --yes)'{-y,--yes}'[Skip the confirmation prompt]'
             ;;
         rebase)
             _arguments \
-                '--dry[Show what would be done]' \
+                '--dry-run[Show what would be done]' \
                 '--no-auto-rerere[Disable auto-continue via rerere]' \
                 '(-y --yes)'{-y,--yes}'[Skip the confirmation prompt]' \
                 ':target:__git_heads'
@@ -1601,8 +1720,14 @@ _git-tree() {
         attach)
             _arguments ':branch:__git_heads'
             ;;
-        detach|remove)
+        detach)
             _arguments \
+                '(-y --yes)'{-y,--yes}'[Skip the confirmation prompt]' \
+                ':branch:__git_heads'
+            ;;
+        remove)
+            _arguments \
+                '--dry-run[Show what would be done]' \
                 '(-y --yes)'{-y,--yes}'[Skip the confirmation prompt]' \
                 ':branch:__git_heads'
             ;;
@@ -1630,18 +1755,18 @@ _git_tree() {
     case "${COMP_WORDS[1]}" in
         propagate)
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "--dry --no-auto-rerere -y --yes" -- "$cur"))
+                COMPREPLY=($(compgen -W "--dry-run --no-auto-rerere -y --yes" -- "$cur"))
             else
                 local branches=$(git for-each-ref --format='%(refname:short)' refs/heads/)
                 COMPREPLY=($(compgen -W "$branches" -- "$cur"))
             fi
             ;;
         push)
-            COMPREPLY=($(compgen -W "--dry -y --yes" -- "$cur"))
+            COMPREPLY=($(compgen -W "--dry-run -y --yes" -- "$cur"))
             ;;
         rebase)
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "--dry --no-auto-rerere -y --yes" -- "$cur"))
+                COMPREPLY=($(compgen -W "--dry-run --no-auto-rerere -y --yes" -- "$cur"))
             else
                 local branches=$(git for-each-ref --format='%(refname:short)' refs/heads/)
                 COMPREPLY=($(compgen -W "$branches" -- "$cur"))
@@ -1660,9 +1785,17 @@ _git_tree() {
             local branches=$(git for-each-ref --format='%(refname:short)' refs/heads/)
             COMPREPLY=($(compgen -W "$branches" -- "$cur"))
             ;;
-        detach|remove)
+        detach)
             if [[ "$cur" == -* ]]; then
                 COMPREPLY=($(compgen -W "-y --yes" -- "$cur"))
+            else
+                local branches=$(git for-each-ref --format='%(refname:short)' refs/heads/)
+                COMPREPLY=($(compgen -W "$branches" -- "$cur"))
+            fi
+            ;;
+        remove)
+            if [[ "$cur" == -* ]]; then
+                COMPREPLY=($(compgen -W "--dry-run -y --yes" -- "$cur"))
             else
                 local branches=$(git for-each-ref --format='%(refname:short)' refs/heads/)
                 COMPREPLY=($(compgen -W "$branches" -- "$cur"))
@@ -1690,20 +1823,53 @@ def cmd_completions(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 
 
+_EPILOG = """\
+tree state (git config, no external files):
+  branch.<name>.tree-parent-branch   the branch it stacks on
+  branch.<name>.tree-fork-commit     where it forks from that parent
+  branch.<root>.remote               the tree's single remote (on the root)
+
+agent use: `git tree --json` prints the full forest as JSON; `--no-input` errors
+instead of prompting; exit codes: 3 conflict, 4 precondition, 5 not-a-tree-branch.
+"""
+
+
 def main(argv: list[str] | None = None) -> None:  # explicit argv for tests
-    parser = argparse.ArgumentParser(prog="git-tree", description=__doc__)
+    parser = argparse.ArgumentParser(
+        prog="git-tree",
+        description=__doc__,
+        epilog=_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument(
         "--all",
         action="store_true",
         help="With no subcommand, show all trees instead of just the current one",
     )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="With no subcommand, print the full forest as JSON instead of the tree display",
+    )
+    parser.add_argument(
+        "--no-input",
+        action="store_true",
+        help="Never prompt; error (exit 4) if a value would be asked for interactively",
+    )
+    # --no-input is accepted both before the subcommand (top-level, above) and after it
+    # (via this shared parent). SUPPRESS on the parent copy means an absent flag leaves the
+    # top-level value intact instead of clobbering it with the subparser's default.
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--no-input", action="store_true", default=argparse.SUPPRESS)
     sub = parser.add_subparsers(dest="command")
 
-    propagate_p = sub.add_parser("propagate", help="Propagate changes to all descendants")
+    propagate_p = sub.add_parser(
+        "propagate", help="Propagate changes to all descendants", parents=[common]
+    )
     propagate_p.add_argument(
         "branch", nargs="?", help="Branch to propagate from (default: current)"
     )
-    propagate_p.add_argument("--dry", action="store_true", help="Show what would be done")
+    propagate_p.add_argument("--dry-run", action="store_true", help="Show what would be done")
     propagate_p.add_argument(
         "--no-auto-rerere", action="store_true", help="Disable auto-continue via rerere"
     )
@@ -1711,32 +1877,41 @@ def main(argv: list[str] | None = None) -> None:  # explicit argv for tests
         "-y", "--yes", action="store_true", help="Skip the confirmation prompt"
     )
 
-    rebase_p = sub.add_parser("rebase", help="Rebase current branch + descendants onto new base")
+    rebase_p = sub.add_parser(
+        "rebase", help="Rebase current branch + descendants onto new base", parents=[common]
+    )
     rebase_p.add_argument("target", help="Branch or ref to rebase onto")
-    rebase_p.add_argument("--dry", action="store_true", help="Show what would be done")
+    rebase_p.add_argument("--dry-run", action="store_true", help="Show what would be done")
     rebase_p.add_argument(
         "--no-auto-rerere", action="store_true", help="Disable auto-continue via rerere"
     )
     rebase_p.add_argument("-y", "--yes", action="store_true", help="Skip the confirmation prompt")
 
-    branch_p = sub.add_parser("branch", help="Create or adopt a child branch with a worktree")
+    branch_p = sub.add_parser(
+        "branch", help="Create or adopt a child branch with a worktree", parents=[common]
+    )
     branch_p.add_argument("name", help="Branch name (new, or an existing branch to adopt)")
     branch_p.add_argument("path", help="Worktree path for the branch")
 
-    attach_p = sub.add_parser("attach", help="Attach current branch to tree")
+    attach_p = sub.add_parser("attach", help="Attach current branch to tree", parents=[common])
     attach_p.add_argument("parent", nargs="?", help="Parent branch (fzf if omitted)")
 
-    detach_p = sub.add_parser("detach", help="Remove a branch from tree")
+    detach_p = sub.add_parser("detach", help="Remove a branch from tree", parents=[common])
     detach_p.add_argument("branch", nargs="?", help="Branch to detach (default: current)")
     detach_p.add_argument("-y", "--yes", action="store_true", help="Skip the confirmation prompt")
 
     remove_p = sub.add_parser(
-        "remove", help="Remove a subtree's worktrees and unregister its branches (keeps refs)"
+        "remove",
+        help="Remove a subtree's worktrees and unregister its branches (keeps refs)",
+        parents=[common],
     )
     remove_p.add_argument("branch", nargs="?", help="Branch to remove (default: pick via fzf)")
+    remove_p.add_argument("--dry-run", action="store_true", help="Show what would be done")
     remove_p.add_argument("-y", "--yes", action="store_true", help="Skip the confirmation prompt")
 
-    split_p = sub.add_parser("split", help="Split current branch into parent + child")
+    split_p = sub.add_parser(
+        "split", help="Split current branch into parent + child", parents=[common]
+    )
     split_p.add_argument("--after", metavar="COMMIT", help="Commit to split after (fzf if omitted)")
     split_p.add_argument("--name", metavar="BRANCH", help="New branch name (prompt if omitted)")
     split_p.add_argument(
@@ -1752,13 +1927,15 @@ def main(argv: list[str] | None = None) -> None:  # explicit argv for tests
         "--no-worktree", action="store_true", help="Don't create a worktree for the new branch"
     )
 
-    push_p = sub.add_parser("push", help="Push current branch + descendants")
-    push_p.add_argument("--dry", action="store_true", help="Show what would be done")
+    push_p = sub.add_parser("push", help="Push current branch + descendants", parents=[common])
+    push_p.add_argument("--dry-run", action="store_true", help="Show what would be done")
     push_p.add_argument("-y", "--yes", action="store_true", help="Skip the confirmation prompt")
 
-    sub.add_parser("log", help="Show git log graph for all tree-branches")
+    sub.add_parser("log", help="Show git log graph for all tree-branches", parents=[common])
 
-    completions_p = sub.add_parser("completions", help="Emit shell completion script")
+    completions_p = sub.add_parser(
+        "completions", help="Emit shell completion script", parents=[common]
+    )
     completions_p.add_argument("shell", choices=["zsh", "bash"], help="Shell type")
 
     args, unknown = parser.parse_known_args(argv)

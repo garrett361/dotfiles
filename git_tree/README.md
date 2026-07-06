@@ -48,7 +48,35 @@ Interactive commands also take flags so they can run unattended:
 
 - `git tree split --after <commit> --name <branch> [--worktree <path> | --no-worktree]` — split with no prompts (omit any flag to be prompted for just that piece).
 - `git tree split --child` inverts the split: the current branch (and its worktree) keeps the commits *up to* the split and stays the parent, while the new branch takes the *later* commits as a child; existing children follow the new branch. Default split does the reverse (the new branch is the parent, holding the earlier commits).
-- `propagate`, `rebase`, `push`, `remove`, `detach` accept `-y`/`--yes` to skip the confirmation prompt. (`--dry` on `propagate`/`rebase`/`push` previews without executing.)
+- `propagate`, `rebase`, `push`, `remove`, `detach` accept `-y`/`--yes` to skip the confirmation prompt. (`--dry-run` on `propagate`/`rebase`/`push`/`remove` previews without executing.)
+
+## Agentic / non-interactive use
+
+git-tree is built to be driven by an AI agent (or any script) as well as by hand:
+
+- **`git tree --json`** prints the whole forest as JSON (every branch's parent, children, root, remote, fork commit, worktree, and status) — always the full forest, regardless of the current branch. Warnings go to stderr, so stdout is always valid JSON. Shape:
+
+  ```json
+  {
+    "roots": ["main"],
+    "cycles": [],
+    "orphans": [],
+    "branches": [
+      {"name": "feat", "parent": "main", "children": ["feat2"], "root": "main",
+       "remote": "origin", "fork_commit": "…", "worktree": "/abs/path",
+       "dirty": true, "staged": 0, "modified": 1, "untracked": 0, "conflicted": 0,
+       "ahead": 2, "behind": 0, "pending_from_parent": 3}
+    ]
+  }
+  ```
+
+  Worktree/status fields are `null` for a branch with no worktree; `parent`/`pending_from_parent` are `null` for a root.
+
+- **`--no-input`** (global) never prompts: if a value would be asked for interactively (a confirmation, a branch/parent selection, a name), it errors instead, naming the flag that supplies it. Compose with `--yes` to auto-confirm confirmations while still erroring on other missing input.
+
+- **Exit codes** let you branch on the failure class: `0` success, `2` usage error, `3` resumable conflict (resolve, then re-run `propagate`), `4` precondition/dirty state, `5` not a tree-branch.
+
+- **`--dry-run`** on `propagate`/`rebase`/`push`/`remove` previews without mutating.
 
 ## How it works
 
@@ -71,7 +99,7 @@ Works immediately after `git tree branch` or `git tree attach`, which record the
 
 ### Propagate
 
-After adding commits to a parent branch, run `git tree propagate` to rebase all descendants. Branches are processed in topological order (parents first). On conflict, the failing branch and its entire subtree are skipped.
+After adding commits to a parent branch, run `git tree propagate` to rebase all descendants. Branches are processed in topological order (parents first), and each branch's result is printed as it completes. On conflict the cascade stops: the branches already rebased are shown, then git-tree exits (code 3) telling you where to resolve. After `git rebase --continue`, resume with `git tree propagate <parent>` to record the new fork point and continue to the remaining descendants.
 
 ### Rebase
 

@@ -42,9 +42,15 @@ Single module: `git_tree/cli.py`. All commands, git helpers, graph discovery, an
   back to `merge-base`.
 
 **Key abstractions**:
-- `Graph` dataclass: `parent_of`, `children_of`, `branches` dicts + `downstream_from()` BFS
+- `Graph` dataclass: `parent_of`, `children_of`, `branches` dicts + `downstream_from()` BFS. Also carries `worktree_of` (path per branch, roots included — roots have no `BranchInfo`), and `cycles`/`orphans` diagnostics surfaced by discovery.
 - `BranchInfo` dataclass: `name`, `worktree` (optional Path), `fork_commit`, `is_dirty`. A tree has one remote, defined on its **root** (`branch.<root>.remote`); push and status resolve it via `_root_remote`/`root_of` rather than per-branch.
 - `discover()`: reads worktree list + git config to build the graph
+
+**Agentic surface** (keep these working when editing — they exist for non-interactive/agent use):
+- `git tree --json` (`_tree_json`): full-forest machine-readable state on stdout, warnings on stderr.
+- `--no-input` (`_no_input`/`_require_input`, threaded via `args`): errors instead of prompting.
+- Exit codes via `TreeError(msg, code=…)`: 3 resumable conflict, 4 precondition/state, 5 not-a-tree-branch (1 generic, 2 argparse usage).
+- `--dry-run` on propagate/rebase/push/remove.
 
 ## Testing
 

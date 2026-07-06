@@ -9,8 +9,8 @@ from git_tree.cli import TreeError, cmd_push
 from .conftest import RepoHelper
 
 
-def _ns(dry: bool = False, yes: bool = False) -> object:
-    return argparse.Namespace(dry=dry, yes=yes)
+def _ns(dry_run: bool = False, yes: bool = False) -> object:
+    return argparse.Namespace(dry_run=dry_run, yes=yes)
 
 
 def _no_confirm(_message: str) -> bool:
@@ -179,7 +179,7 @@ class TestPush:
         repo.git("add", "f1.txt", cwd=wt)
         repo.git("commit", "-m", "feature commit", cwd=wt)
 
-        cmd_push(_ns(dry=True))  # dry-run: prints the preview, no actual push
+        cmd_push(_ns(dry_run=True))  # dry-run: prints the preview, no actual push
 
         out = capsys.readouterr().out
         assert "Pushing to origin (--force-with-lease):" in out
@@ -350,7 +350,7 @@ class TestPush:
         repo.git("commit", "-m", "feature commit", cwd=wt)
 
         monkeypatch.chdir(wt)
-        cmd_push(argparse.Namespace(dry=True))
+        cmd_push(argparse.Namespace(dry_run=True))
 
         remote_branches = repo.git("ls-remote", "--heads", str(repo.origin))
         assert "refs/heads/feature" not in remote_branches

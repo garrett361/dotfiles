@@ -64,9 +64,7 @@ class TestCycles:
         assert "a" not in graph.parent_of
         assert "a" not in graph.children_of
 
-    def test_cycle_node_with_external_child_stays_its_root(
-        self, repo: RepoHelper, capsys
-    ) -> None:
+    def test_cycle_node_with_external_child_stays_its_root(self, repo: RepoHelper, capsys) -> None:
         # A cyclic node that also has a non-cyclic child keeps that child: only the cyclic
         # links are dropped, so the node remains a root carrying its healthy descendant.
         repo.git("branch", "a")
