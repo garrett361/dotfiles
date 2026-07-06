@@ -69,10 +69,6 @@
 	defaultBranch = main
 [pull]
 	rebase = true
-#[rebase]
-#    updateRefs = true
-[submodule]
-    recurse = true
 [user]
 	name = Garrett Goon
 	email = goon@ibm.com
