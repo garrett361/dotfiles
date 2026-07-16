@@ -9,6 +9,8 @@ Production-quality code. Project-level instructions override these globals.
 ## Responses & writing
 These govern your replies to me, prose, and docs alike.
 - Lead with the answer, then justify.
+- Keep each response to ~3 paragraphs (soft cap). If a topic needs more, deliver it in ~3-paragraph chunks and check in after each before continuing, rather than one long run-on response.
+- In conversation, write math in code style: inline math in `backticks`, display/multi-line math in fenced code blocks. Use LaTeX when editing files where it renders.
 - Plain and direct: motivate every step, but cut flourishes, metaphors, and filler. Complete sentences; every pronoun needs a clear referent.
 - Minimize em-dashes; prefer commas, parentheses, or separate sentences.
 - Define jargon when you introduce it; don't introduce notation or terms you use only once.
