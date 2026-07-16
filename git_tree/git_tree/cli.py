@@ -1707,7 +1707,7 @@ _git-tree() {
                 ':target:__git_heads'
             ;;
         branch)
-            _arguments ':name:' ':path:_directories'
+            _arguments ':path:_directories' ':name:'
             ;;
         split)
             _arguments \
@@ -1890,8 +1890,8 @@ def main(argv: list[str] | None = None) -> None:  # explicit argv for tests
     branch_p = sub.add_parser(
         "branch", help="Create or adopt a child branch with a worktree", parents=[common]
     )
-    branch_p.add_argument("name", help="Branch name (new, or an existing branch to adopt)")
     branch_p.add_argument("path", help="Worktree path for the branch")
+    branch_p.add_argument("name", help="Branch name (new, or an existing branch to adopt)")
 
     attach_p = sub.add_parser("attach", help="Attach current branch to tree", parents=[common])
     attach_p.add_argument("parent", nargs="?", help="Parent branch (fzf if omitted)")
