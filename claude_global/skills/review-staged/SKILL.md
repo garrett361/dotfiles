@@ -42,9 +42,17 @@ concise code review.
 
 3. **Output**
 
-   Group by severity, only including non-empty categories:
+   Always lead with a `## Summary`: a few intent-level bullets on what the
+   change accomplishes and why (its effect/purpose), not a per-file restatement
+   of the diff. This shows you understood the change.
+
+   Then group findings by severity, only including non-empty categories:
 
    ```
+   ## Summary
+   - <what the change does and why>
+   - <second effect, if any>
+
    ## Critical
    - `<file>:<line>`: <issue>
 
@@ -55,13 +63,23 @@ concise code review.
    - `<file>:<line>`: <issue>
    ```
 
-   If nothing notable: output exactly `LGTM — no issues found in staged changes.`
+   If nothing notable, the Summary is still required, followed by exactly
+   `LGTM — no issues found in staged changes.`:
 
-   One line per finding. No preamble, no closing summary.
+   ```
+   ## Summary
+   - <what the change does and why>
+
+   LGTM — no issues found in staged changes.
+   ```
+
+   One line per finding. No preamble or closing filler beyond the Summary.
 
 ## Rules
 
 - No questions, no confirmation prompts. Make your best judgment.
+- The Summary must describe what the change does and why (its effect), not
+  restate the diff line-by-line. Keep it to a few bullets.
 - Read full file contents only when the diff alone is ambiguous and a few
   lines of surrounding context would clarify a real issue.
 - Stay focused on the staged diff; do not review unstaged changes.
