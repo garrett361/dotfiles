@@ -1462,6 +1462,19 @@ def cmd_rebase(args: argparse.Namespace) -> None:
 
     siblings = [b for b, p in graph.parent_of.items() if p == old_parent and b != branch]
 
+    info = graph.branches.get(branch)
+    if not info or not info.worktree:
+        raise TreeError(
+            f"{branch} needs a worktree. Add one with: git worktree add <path> {branch}",
+            code=4,
+        )
+    _require_healthy_submodules([branch], graph)
+    _require_clean_state([branch], graph)
+    if descendants:
+        _require_worktrees(descendants, graph)
+        _require_healthy_submodules(descendants, graph)
+        _require_clean_state(descendants, graph)
+
     print(f"Rebasing onto {target}:")
     print(f"  {branch}  [{commit_count} commits]  (old parent: {old_parent})")
 
@@ -1476,19 +1489,6 @@ def cmd_rebase(args: argparse.Namespace) -> None:
         print(f"Warning: these branches also have {old_parent} as parent (will NOT be updated):")
         for s in siblings:
             print(f"  {s}")
-
-    info = graph.branches.get(branch)
-    if not info or not info.worktree:
-        raise TreeError(
-            f"{branch} needs a worktree. Add one with: git worktree add <path> {branch}",
-            code=4,
-        )
-    _require_healthy_submodules([branch], graph)
-    _require_clean_state([branch], graph)
-    if descendants:
-        _require_worktrees(descendants, graph)
-        _require_healthy_submodules(descendants, graph)
-        _require_clean_state(descendants, graph)
 
     print()
     if args.dry_run or not _proceed(args, "Proceed?"):
