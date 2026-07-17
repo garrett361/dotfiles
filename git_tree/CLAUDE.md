@@ -46,6 +46,13 @@ Single module: `git_tree/cli.py`. All commands, git helpers, graph discovery, an
 - `BranchInfo` dataclass: `name`, `worktree` (optional Path), `fork_commit`, `is_dirty`. A tree has one remote, defined on its **root** (`branch.<root>.remote`); push and status resolve it via `_root_remote`/`root_of` rather than per-branch.
 - `discover()`: reads worktree list + git config to build the graph
 
+**Submodule awareness** (helpers near `_require_clean_state`):
+- `_submodule_paths(worktree)`: parses `.gitmodules` via `configparser`, returns paths that exist on disk.
+- `_check_submodule_health(worktree, submodule_path)`: resolves `.git` file → gitdir target → checks HEAD exists. Never shells out (the submodule may be corrupted).
+- `_require_healthy_submodules(branches, graph)`: pre-flight gate in `propagate`/`rebase`. Must run BEFORE `_require_clean_state` (`git status` crashes on corrupted submodules).
+- `_init_submodules(worktree)`: runs `git submodule update --init --recursive` via `git_echo_ok`.
+- `_force_remove_worktree(path, branch)`: multi-stage removal (worktree remove → shutil.rmtree + prune → verify).
+
 **Agentic surface** (keep these working when editing — they exist for non-interactive/agent use):
 - `git tree --json` (`_tree_json`): full-forest machine-readable state on stdout, warnings on stderr.
 - `--no-input` (`_no_input`/`_require_input`, threaded via `args`): errors instead of prompting.

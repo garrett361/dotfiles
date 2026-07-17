@@ -38,6 +38,7 @@ git tree branch <path> <name>          # create or adopt a child branch with a w
 git tree attach [parent]               # attach current branch to tree
 git tree detach                        # remove current branch from tree (keeps branch + worktree)
 git tree remove [branch]               # remove a subtree's worktrees + unregister its branches (keeps refs)
+git tree repair [branch]               # nuke + recreate a corrupted worktree (preserves branch ref and tree config)
 git tree propagate                     # cascade current branch's changes to descendants
 git tree rebase <target>               # rebase current branch + descendants onto new base
 git tree split                         # split current branch into parent + child
@@ -48,7 +49,8 @@ Interactive commands also take flags so they can run unattended:
 
 - `git tree split --after <commit> --name <branch> [--worktree <path> | --no-worktree]` — split with no prompts (omit any flag to be prompted for just that piece).
 - `git tree split --child` inverts the split: the current branch (and its worktree) keeps the commits *up to* the split and stays the parent, while the new branch takes the *later* commits as a child; existing children follow the new branch. Default split does the reverse (the new branch is the parent, holding the earlier commits).
-- `propagate`, `rebase`, `push`, `remove`, `detach` accept `-y`/`--yes` to skip the confirmation prompt. (`--dry-run` on `propagate`/`rebase`/`push`/`remove` previews without executing.)
+- `propagate`, `rebase`, `push`, `remove`, `repair`, `detach` accept `-y`/`--yes` to skip the confirmation prompt. (`--dry-run` on `propagate`/`rebase`/`push`/`remove` previews without executing.)
+- `git tree repair [branch] [--force]` — recreates a worktree whose submodule state is corrupted (broken `.git` pointer, missing modules dir). Refuses if the worktree has uncommitted changes unless `--force` is passed.
 
 ## Agentic / non-interactive use
 
@@ -114,6 +116,10 @@ Equivalent to: `git rebase --onto <target> <fork-point>` + `git tree attach <tar
 ## Worktrees
 
 All branches in the tree must have linked worktrees. Operations that touch multiple branches (propagate, rebase, push) verify this upfront and abort with an error listing any branches missing worktrees. Dirty worktrees are automatically stashed/popped during rebase.
+
+## Submodules
+
+`git tree branch` automatically runs `git submodule update --init --recursive` after creating the worktree (skip with `--no-submodule-init`). `propagate` and `rebase` check submodule health before starting — if a worktree's submodule `.git` state is corrupted, they abort with a message pointing to `git tree repair`.
 
 ## Development
 

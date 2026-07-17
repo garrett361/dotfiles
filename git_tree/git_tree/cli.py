@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import configparser
 import json
 import os
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -859,6 +861,8 @@ def cmd_branch(args: argparse.Namespace) -> None:
             raise TreeError(f"failed to create worktree at {path}")
         git("config", f"branch.{name}.tree-parent-branch", parent)
         _set_fork_commit(name, git("rev-parse", parent))
+        if not getattr(args, "no_submodule_init", False):
+            _init_submodules(Path(path))
         print(f"Created branch {name} with worktree at {path} (parent: {parent})")
         return
 
@@ -880,6 +884,8 @@ def cmd_branch(args: argparse.Namespace) -> None:
     if not git_echo_ok("worktree", "add", path, name):
         raise TreeError(f"failed to create worktree at {path}")
     _register_child(name, parent, fork=base)
+    if not getattr(args, "no_submodule_init", False):
+        _init_submodules(Path(path))
     print(f"Adopted existing branch {name} with worktree at {path} (parent: {parent})")
 
 
@@ -1031,6 +1037,78 @@ def cmd_remove(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_repair(args: argparse.Namespace) -> None:
+    """Nuke and recreate a corrupted worktree, preserving branch ref and tree config."""
+    graph = discover()
+
+    target = getattr(args, "branch", None)
+    if target is None:
+        _require_input(args, "branch to repair", "the branch argument")
+        candidates = sorted(
+            b
+            for b in graph.parent_of
+            if (info := graph.branches.get(b)) and info.worktree
+        )
+        if not candidates:
+            raise TreeError("No tree-branch worktrees available to repair.")
+        target = _select_one(
+            candidates,
+            prompt="Repair worktree> ",
+            header="Select a tree-branch whose worktree to rebuild",
+        )
+
+    if target not in graph.parent_of:
+        raise TreeError(
+            f"{target} is not a repairable tree-branch — it has no tree-parent "
+            f"(git tree repair won't touch a tree root).",
+            code=5,
+        )
+
+    info = graph.branches.get(target)
+    if not info or not info.worktree:
+        raise TreeError(f"{target} has no worktree registered. Nothing to repair.", code=4)
+
+    wt_path = info.worktree
+
+    # Refuse if cwd is inside the target worktree
+    try:
+        cwd = Path.cwd().resolve()
+        if cwd == wt_path.resolve() or cwd.is_relative_to(wt_path.resolve()):
+            raise TreeError(
+                f"Cannot repair {target}: your shell is inside its worktree ({wt_path}).\n"
+                f"cd to a different directory first.",
+                code=4,
+            )
+    except (OSError, ValueError):
+        pass  # cwd resolution failed; proceed anyway
+
+    # Dirty check: if git status works and shows changes, require --force
+    force = getattr(args, "force", False)
+    try:
+        if info.is_dirty and not force:
+            raise TreeError(
+                f"{target} has uncommitted changes in {wt_path}.\n"
+                f"Pass --force to repair anyway (uncommitted work will be lost).",
+                code=4,
+            )
+    except subprocess.CalledProcessError:
+        pass  # worktree too corrupted for git status; nothing to salvage
+
+    print(f"Repairing {target} at {wt_path}:")
+    print(f"  1. Remove corrupted worktree")
+    print(f"  2. Recreate worktree")
+    print(f"  3. Initialize submodules")
+    print()
+    if not _proceed(args, "Proceed?"):
+        return
+
+    _force_remove_worktree(wt_path, target)
+    if not git_echo_ok("worktree", "add", str(wt_path), target):
+        raise TreeError(f"Failed to recreate worktree at {wt_path}.")
+    _init_submodules(wt_path)
+    print(f"\nRepaired {target} — worktree at {wt_path} is healthy.")
+
+
 # [empty-patch handling]
 #
 # git rebase --onto can exit non-zero without producing merge conflicts.
@@ -1179,6 +1257,99 @@ def _require_clean_state(branches: list[str], graph: Graph) -> None:
     raise TreeError("\n".join(lines), code=4)
 
 
+# ---------------------------------------------------------------------------
+# Submodule helpers
+# ---------------------------------------------------------------------------
+
+
+def _submodule_paths(worktree: Path) -> list[str]:
+    """Parse .gitmodules in a worktree, returning submodule paths that exist on disk."""
+    gitmodules = worktree / ".gitmodules"
+    if not gitmodules.exists():
+        return []
+    cfg = configparser.ConfigParser(interpolation=None)
+    cfg.read(str(gitmodules))
+    paths = []
+    for sec in cfg.sections():
+        if cfg.has_option(sec, "path"):
+            p = cfg.get(sec, "path")
+            if (worktree / p).exists():
+                paths.append(p)
+    return paths
+
+
+def _check_submodule_health(worktree: Path, submodule_path: str) -> bool:
+    """True if a submodule's .git resolves to a valid git dir (has HEAD).
+
+    Parses the .git file directly rather than shelling out, since the submodule
+    may be in a corrupted state where git commands fail.
+    """
+    dot_git = worktree / submodule_path / ".git"
+    if not dot_git.exists():
+        return True  # Uninitialized — benign, not corrupted
+    if dot_git.is_dir():
+        return (dot_git / "HEAD").exists()
+    # It's a file containing a gitdir: pointer
+    try:
+        content = dot_git.read_text().strip()
+    except OSError:
+        return False
+    if not content.startswith("gitdir: "):
+        return False
+    target = Path(content.removeprefix("gitdir: "))
+    if not target.is_absolute():
+        target = (dot_git.parent / target).resolve()
+    return target.is_dir() and (target / "HEAD").exists()
+
+
+def _require_healthy_submodules(branches: list[str], graph: Graph) -> None:
+    """Pre-flight: verify each worktree's submodules have valid .git state."""
+    unhealthy: list[tuple[str, str]] = []
+    for b in branches:
+        info = graph.branches.get(b)
+        if not info or not info.worktree:
+            continue
+        for sub_path in _submodule_paths(info.worktree):
+            if not _check_submodule_health(info.worktree, sub_path):
+                unhealthy.append((b, sub_path))
+    if not unhealthy:
+        return
+    lines = ["These branches have corrupted submodule state:"]
+    for b, sub_path in unhealthy:
+        lines.append(f"  {b}  (submodule: {sub_path})")
+    lines.append("\nFix with: git tree repair <branch>")
+    raise TreeError("\n".join(lines), code=4)
+
+
+def _init_submodules(worktree: Path) -> None:
+    """Run `git submodule update --init --recursive` if .gitmodules exists."""
+    if not (worktree / ".gitmodules").exists():
+        return
+    git_echo_ok("submodule", "update", "--init", "--recursive", cwd=worktree)
+
+
+def _force_remove_worktree(path: Path, branch: str) -> None:
+    """Remove a worktree by any means necessary.
+
+    Stage 1: git worktree remove --force
+    Stage 2: shutil.rmtree + git worktree prune
+    Stage 3: verify gone from git worktree list
+    """
+    if git_echo_ok("worktree", "remove", "--force", str(path)):
+        return
+    if path.exists():
+        shutil.rmtree(path)
+    git_echo("worktree", "prune")
+    # Verify it's no longer registered
+    porcelain = git("worktree", "list", "--porcelain")
+    if any(line == f"branch refs/heads/{branch}" for line in porcelain.splitlines()):
+        raise TreeError(
+            f"Could not fully deregister worktree for {branch}. "
+            f"Manual cleanup may be needed in .git/worktrees/.",
+            code=4,
+        )
+
+
 @dataclass(frozen=True)
 class RebaseResult:
     note: str  # how the rebase completed, for display: "ok", "ok (rerere)", ...
@@ -1245,6 +1416,7 @@ def cmd_propagate(args: argparse.Namespace) -> None:
         return
 
     _require_worktrees(descendants, graph)
+    _require_healthy_submodules(descendants, graph)
     _require_clean_state(descendants, graph)
 
     print(f"Propagating from {branch}:")
@@ -1311,9 +1483,11 @@ def cmd_rebase(args: argparse.Namespace) -> None:
             f"{branch} needs a worktree. Add one with: git worktree add <path> {branch}",
             code=4,
         )
+    _require_healthy_submodules([branch], graph)
     _require_clean_state([branch], graph)
     if descendants:
         _require_worktrees(descendants, graph)
+        _require_healthy_submodules(descendants, graph)
         _require_clean_state(descendants, graph)
 
     print()
@@ -1892,6 +2066,11 @@ def main(argv: list[str] | None = None) -> None:  # explicit argv for tests
     )
     branch_p.add_argument("path", help="Worktree path for the branch")
     branch_p.add_argument("name", help="Branch name (new, or an existing branch to adopt)")
+    branch_p.add_argument(
+        "--no-submodule-init",
+        action="store_true",
+        help="Skip automatic `git submodule update --init --recursive` after creating the worktree",
+    )
 
     attach_p = sub.add_parser("attach", help="Attach current branch to tree", parents=[common])
     attach_p.add_argument("parent", nargs="?", help="Parent branch (fzf if omitted)")
@@ -1908,6 +2087,17 @@ def main(argv: list[str] | None = None) -> None:  # explicit argv for tests
     remove_p.add_argument("branch", nargs="?", help="Branch to remove (default: pick via fzf)")
     remove_p.add_argument("--dry-run", action="store_true", help="Show what would be done")
     remove_p.add_argument("-y", "--yes", action="store_true", help="Skip the confirmation prompt")
+
+    repair_p = sub.add_parser(
+        "repair",
+        help="Nuke and recreate a corrupted worktree (preserves branch ref and tree config)",
+        parents=[common],
+    )
+    repair_p.add_argument("branch", nargs="?", help="Branch to repair (default: pick via fzf)")
+    repair_p.add_argument(
+        "--force", action="store_true", help="Proceed even if worktree has uncommitted changes"
+    )
+    repair_p.add_argument("-y", "--yes", action="store_true", help="Skip the confirmation prompt")
 
     split_p = sub.add_parser(
         "split", help="Split current branch into parent + child", parents=[common]
@@ -1952,6 +2142,7 @@ def main(argv: list[str] | None = None) -> None:  # explicit argv for tests
         "attach": cmd_attach,
         "detach": cmd_detach,
         "remove": cmd_remove,
+        "repair": cmd_repair,
         "split": cmd_split,
         "push": cmd_push,
         "log": cmd_log,
