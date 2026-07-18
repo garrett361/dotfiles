@@ -1847,6 +1847,7 @@ _git-tree() {
         'attach:Attach current branch to tree'
         'detach:Remove a branch from tree'
         'remove:Remove a subtree’s worktrees, keep the branch refs'
+        'repair:Nuke and recreate a corrupted worktree'
         'split:Split current branch into parent + child'
         'push:Push current branch + descendants'
         'log:Show git log graph for all tree-branches'
@@ -1904,6 +1905,12 @@ _git-tree() {
                 '(-y --yes)'{-y,--yes}'[Skip the confirmation prompt]' \
                 ':branch:__git_heads'
             ;;
+        repair)
+            _arguments \
+                '--force[Proceed even if worktree has uncommitted changes]' \
+                '(-y --yes)'{-y,--yes}'[Skip the confirmation prompt]' \
+                ':branch:__git_heads'
+            ;;
         completions)
             _arguments ':shell:(zsh bash)'
             ;;
@@ -1923,7 +1930,7 @@ _git_tree() {
     local cur prev subcmds
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    subcmds="propagate rebase branch attach detach remove split push log completions manpage"
+    subcmds="propagate rebase branch attach detach remove repair split push log completions manpage"
 
     if [[ $COMP_CWORD -eq 1 ]]; then
         COMPREPLY=($(compgen -W "$subcmds" -- "$cur"))
@@ -1974,6 +1981,14 @@ _git_tree() {
         remove)
             if [[ "$cur" == -* ]]; then
                 COMPREPLY=($(compgen -W "--dry-run -y --yes" -- "$cur"))
+            else
+                local branches=$(git for-each-ref --format='%(refname:short)' refs/heads/)
+                COMPREPLY=($(compgen -W "$branches" -- "$cur"))
+            fi
+            ;;
+        repair)
+            if [[ "$cur" == -* ]]; then
+                COMPREPLY=($(compgen -W "--force -y --yes" -- "$cur"))
             else
                 local branches=$(git for-each-ref --format='%(refname:short)' refs/heads/)
                 COMPREPLY=($(compgen -W "$branches" -- "$cur"))
