@@ -19,6 +19,8 @@ uv tool install -e /path/to/dotfiles/git_tree   # editable, on PATH as git-tree
 
 Handled by `dotfiles/install.sh`. No git alias needed — git auto-discovers `git-tree` on PATH as `git tree`.
 
+**Man page**: `git tree manpage --install` writes `~/.local/share/man/man1/git-tree.1` (roff generated from the argparse parser, so it never drifts from `-h`). This is what makes `git tree --help` work: git routes `--help` to `man git-tree`. `uv tool install` can't place a discoverable page (it symlinks only the script onto PATH; the packaged page stays in the venv), so git-tree writes its own. Run by `install.sh`; keep it self-contained here (no external script) so it survives if `git_tree` becomes a standalone repo.
+
 ## Dev commands
 
 ```sh
@@ -58,6 +60,7 @@ Single module: `git_tree/cli.py`. All commands, git helpers, graph discovery, an
 - `--no-input` (`_no_input`/`_require_input`, threaded via `args`): errors instead of prompting.
 - Exit codes via `TreeError(msg, code=…)`: 3 resumable conflict, 4 precondition/state, 5 not-a-tree-branch (1 generic, 2 argparse usage).
 - `--dry-run` on propagate/rebase/push/remove.
+- `git tree manpage [--install]` (`_render_manpage`/`cmd_manpage`): roff man page generated from the argparse parser (single source of truth with `-h`/`--help`); `--install` writes it to the man path so `git tree --help` works. Handled inline in `main()` since it needs the parser.
 
 ## Testing
 

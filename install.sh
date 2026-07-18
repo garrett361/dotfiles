@@ -38,6 +38,11 @@ if command -v uv &>/dev/null; then
     uv tool install -e "$(cd git_tree && pwd)" 2>/dev/null || true
 fi
 
+# git-tree man page (makes `git tree --help` work via `man git-tree`). Absolute path: a fresh
+# bootstrap may not have ~/.local/bin on PATH yet. Command is git_tree-owned; see git_tree/CLAUDE.md.
+gt_bin="$HOME/.local/bin/git-tree"
+[ -x "$gt_bin" ] && "$gt_bin" manpage --install &>/dev/null || true
+
 vscode_settings=$(readlink -f settings.json)
 if [ $is_linux -eq 1 ]; then
     echo "linux"

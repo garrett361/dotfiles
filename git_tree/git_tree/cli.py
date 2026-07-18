@@ -1853,6 +1853,7 @@ _git-tree() {
         'push:Push current branch + descendants'
         'log:Show git log graph for all tree-branches'
         'completions:Emit shell completion script'
+        'manpage:Emit a man page (roff); --install writes it to the man path'
     )
 
     if (( CURRENT == 2 )); then
@@ -1908,6 +1909,11 @@ _git-tree() {
         completions)
             _arguments ':shell:(zsh bash)'
             ;;
+        manpage)
+            _arguments \
+                '--install[Write the man page to the man path]' \
+                '--dir[Install directory]:dir:_directories'
+            ;;
     esac
 }
 
@@ -1919,7 +1925,7 @@ _git_tree() {
     local cur prev subcmds
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    subcmds="propagate rebase branch attach detach remove split push log completions"
+    subcmds="propagate rebase branch attach detach remove split push log completions manpage"
 
     if [[ $COMP_CWORD -eq 1 ]]; then
         COMPREPLY=($(compgen -W "$subcmds" -- "$cur"))
@@ -1978,6 +1984,9 @@ _git_tree() {
         completions)
             COMPREPLY=($(compgen -W "zsh bash" -- "$cur"))
             ;;
+        manpage)
+            COMPREPLY=($(compgen -W "--install --dir" -- "$cur"))
+            ;;
     esac
 }
 
@@ -1992,6 +2001,58 @@ def cmd_completions(args: argparse.Namespace) -> None:
         print(_BASH_COMPLETION)
 
 
+def _render_manpage(parser: argparse.ArgumentParser) -> str:
+    """Render a roff man page whose body is the argparse help, verbatim.
+
+    Single source of truth: the same parser feeds `-h`, `--help`, and this page. Width is
+    pinned (argparse otherwise wraps usage/options to the generating terminal's width, so the
+    output would vary by environment). Installing this page is what makes `git tree --help`
+    work: git routes `--help` to `man git-tree`.
+    """
+    prev_columns = os.environ.get("COLUMNS")
+    os.environ["COLUMNS"] = "80"
+    try:
+        help_text = parser.format_help()
+    finally:
+        if prev_columns is None:
+            del os.environ["COLUMNS"]
+        else:
+            os.environ["COLUMNS"] = prev_columns
+
+    # Escape for roff, order matters: backslash first; then literal grave/apostrophe (groff
+    # renders bare `/' as typographic quotes, mandoc does not); then neutralize any line a
+    # roff parser would read as a request (leading `.` or `'`) so it prints literally.
+    lines = []
+    for raw in help_text.split("\n"):
+        line = raw.replace("\\", "\\e").replace("`", "\\(ga").replace("'", "\\(aq")
+        if line[:1] in (".", "'"):
+            line = "\\&" + line
+        lines.append(line)
+    body = "\n".join(lines)
+
+    return (
+        ".TH GIT-TREE 1\n"
+        ".SH NAME\n"
+        "git-tree \\- Cascading rebase tool for branch dependency chains\n"
+        ".SH DESCRIPTION\n"
+        ".nf\n"
+        f"{body}"
+        ".fi\n"
+    )
+
+
+def cmd_manpage(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    roff = _render_manpage(parser)
+    if not getattr(args, "install", False):
+        sys.stdout.write(roff)
+        return
+    man_dir = Path(args.dir).expanduser() if args.dir else Path.home() / ".local/share/man/man1"
+    man_dir.mkdir(parents=True, exist_ok=True)
+    dest = man_dir / "git-tree.1"
+    dest.write_text(roff)
+    print(f"Installed man page to {dest}")
+
+
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
@@ -2003,8 +2064,13 @@ tree state (git config, no external files):
   branch.<name>.tree-fork-commit     where it forks from that parent
   branch.<root>.remote               the tree's single remote (on the root)
 
-agent use: `git tree --json` prints the full forest as JSON; `--no-input` errors
-instead of prompting; exit codes: 3 conflict, 4 precondition, 5 not-a-tree-branch.
+FOR AGENTS:
+  git tree --json    machine-readable forest on stdout (each branch's parent, children,
+                     root, remote, fork commit, worktree, status); warnings on stderr
+  --no-input         never prompt; error instead of asking for a value
+  --dry-run          preview propagate/rebase/push/remove without mutating
+  exit codes         3 resumable conflict, 4 precondition/state, 5 not-a-tree-branch
+  full contract      see CLAUDE.md in the git-tree source repo
 """
 
 
@@ -2128,11 +2194,31 @@ def main(argv: list[str] | None = None) -> None:  # explicit argv for tests
     )
     completions_p.add_argument("shell", choices=["zsh", "bash"], help="Shell type")
 
+    manpage_p = sub.add_parser(
+        "manpage",
+        help="Emit a man page (roff); --install writes it to the man path",
+        parents=[common],
+    )
+    manpage_p.add_argument(
+        "--install",
+        action="store_true",
+        help="Write the man page under the man path instead of printing to stdout",
+    )
+    manpage_p.add_argument(
+        "--dir", metavar="DIR", help="Directory to install into (default: ~/.local/share/man/man1)"
+    )
+
     args, unknown = parser.parse_known_args(argv)
     if unknown and getattr(args, "command", None) != "log":
         parser.error(f"unrecognized arguments: {' '.join(unknown)}")
     if getattr(args, "command", None) == "log":
         args.extra = unknown
+
+    # manpage needs the parser itself (single source of truth for the help text), so it is
+    # handled here where `parser` is in scope rather than through the args-only dispatch below.
+    if args.command == "manpage":
+        cmd_manpage(args, parser)
+        return
 
     commands = {
         None: cmd_tree,

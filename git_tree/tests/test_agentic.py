@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 
 import pytest
 
@@ -219,6 +220,54 @@ class TestStreamingResults:
         out = capsys.readouterr().out
         assert "Results:" in out
         assert "  a:" in out  # a's completed result printed before b's conflict raised
+
+
+class TestManpage:
+    def test_stdout_is_roff_with_escaped_help(self, capsys) -> None:
+        main(["manpage"])
+        out = capsys.readouterr().out
+        assert out.startswith(".TH GIT-TREE 1\n")
+        assert ".SH NAME\n" in out and ".SH DESCRIPTION\n" in out
+        assert ".nf\n" in out and out.rstrip().endswith(".fi")
+        # Help content is carried verbatim (single source of truth with `-h`).
+        assert "Cascading rebase tool" in out
+        assert "git tree --json" in out
+        # Roff escaping applied: apostrophes in the help ("tree's", "subtree's") become \(aq
+        # so man renders them literally, not as typographic quotes; no bare apostrophe or
+        # backtick leaks through to be reinterpreted by roff.
+        assert "\\(aq" in out
+        assert "'" not in out
+        assert "`" not in out
+
+    def test_install_writes_file_and_reports_path(self, capsys, tmp_path) -> None:
+        man_dir = tmp_path / "man1"
+        main(["manpage", "--install", "--dir", str(man_dir)])
+        dest = man_dir / "git-tree.1"
+        assert dest.is_file()
+        assert dest.read_text().startswith(".TH GIT-TREE 1\n")
+        assert str(dest) in capsys.readouterr().out
+
+    def test_output_deterministic_across_columns(self, capsys, monkeypatch) -> None:
+        # argparse wraps usage/options to COLUMNS; the man page must pin width so its content
+        # does not vary with the environment that generates it.
+        monkeypatch.setenv("COLUMNS", "40")
+        main(["manpage"])
+        narrow = capsys.readouterr().out
+        monkeypatch.setenv("COLUMNS", "200")
+        main(["manpage"])
+        wide = capsys.readouterr().out
+        assert narrow == wide
+        # The ambient COLUMNS is restored after generation, not left clobbered at 80.
+        assert os.environ["COLUMNS"] == "200"
+
+    def test_help_epilog_has_for_agents_pointers(self, capsys) -> None:
+        with pytest.raises(SystemExit) as exc:
+            main(["-h"])
+        assert exc.value.code == 0
+        out = capsys.readouterr().out
+        assert "FOR AGENTS" in out
+        assert "git tree --json" in out
+        assert "CLAUDE.md" in out
 
 
 class TestDryRun:

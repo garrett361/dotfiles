@@ -29,6 +29,14 @@ uv tool install -e /path/to/dotfiles/git_tree
 
 This creates an isolated venv, installs `git-tree` in editable mode, and symlinks the executable to `~/.local/bin/git-tree`. Git auto-discovers it as `git tree`. The dotfiles `install.sh` handles this automatically.
 
+To make `git tree --help` work, install the man page once:
+
+```sh
+git tree manpage --install   # writes ~/.local/share/man/man1/git-tree.1
+```
+
+Without it, `git tree --help` fails (git looks for a man page); use `git tree -h` or `git-tree --help` instead.
+
 ## Usage
 
 ```sh
@@ -43,6 +51,7 @@ git tree propagate                     # cascade current branch's changes to des
 git tree rebase <target>               # rebase current branch + descendants onto new base
 git tree split                         # split current branch into parent + child
 git tree push                          # push current branch + descendants (--force-with-lease)
+git tree manpage [--install]           # emit the man page (roff); --install writes it to the man path
 ```
 
 Interactive commands also take flags so they can run unattended:
@@ -79,6 +88,8 @@ git-tree is built to be driven by an AI agent (or any script) as well as by hand
 - **Exit codes** let you branch on the failure class: `0` success, `2` usage error, `3` resumable conflict (resolve, then re-run `propagate`), `4` precondition/dirty state, `5` not a tree-branch.
 
 - **`--dry-run`** on `propagate`/`rebase`/`push`/`remove` previews without mutating.
+
+- **Discovering the command surface**: `git tree -h` (or `git-tree --help`) lists every subcommand and flag; the help epilog has a `FOR AGENTS` section. `git tree --help` works too once the man page is installed (see Install). All three share one source, the argparse parser.
 
 ## How it works
 
