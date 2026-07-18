@@ -114,6 +114,48 @@ class TestRepair:
         graph = discover()
         assert graph.parent_of["child"] == "main"
 
+    def test_repair_points_to_recovery_for_deleted_worktree_dir(
+        self, repo: RepoHelper, tmp_path, capsys
+    ) -> None:
+        # A deleted worktree dir leaves a prunable registration that discover() drops, so the
+        # branch looks worktree-less. repair can't rebuild it in place; it must point the user
+        # at recovery instead of the misleading "nothing to repair".
+        repo.branch("child", parent="main")
+        wt = repo.worktree("child", str(tmp_path / "wt-child"))
+        shutil.rmtree(wt)
+
+        with pytest.raises(TreeError) as exc:
+            cmd_repair(self._ns("child"))
+        assert exc.value.code == 4
+        err = capsys.readouterr().err
+        assert "git worktree prune" in err
+        assert "git worktree add" in err and "child" in err
+
+    def test_repair_omits_submodule_step_without_submodules(
+        self, repo: RepoHelper, tmp_path, capsys
+    ) -> None:
+        repo.branch("child", parent="main")
+        repo.worktree("child", str(tmp_path / "wt-child"))
+
+        cmd_repair(self._ns("child"))
+        out = capsys.readouterr().out
+        assert "Recreate worktree" in out
+        assert "Initialize submodules" not in out
+
+    def test_repair_shows_submodule_step_with_submodules(
+        self, repo: RepoHelper, tmp_path, monkeypatch, capsys
+    ) -> None:
+        monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+        monkeypatch.setenv("GIT_CONFIG_KEY_0", "protocol.file.allow")
+        monkeypatch.setenv("GIT_CONFIG_VALUE_0", "always")
+
+        _add_submodule(repo, "mysub", tmp_path)
+        repo.branch("child", parent="main")
+        repo.worktree("child", str(tmp_path / "wt-child"))
+
+        cmd_repair(self._ns("child"))
+        assert "Initialize submodules" in capsys.readouterr().out
+
 
 class TestBranchSubmoduleInit:
     def test_branch_inits_submodules(self, repo: RepoHelper, tmp_path, monkeypatch) -> None:

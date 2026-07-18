@@ -1037,6 +1037,25 @@ def cmd_remove(args: argparse.Namespace) -> None:
     )
 
 
+def _prunable_worktree_path(branch: str) -> Path | None:
+    """Path of a stale (prunable) worktree registration for `branch`, if any.
+
+    Its directory was deleted (rm -rf'd) without `git worktree prune`, so `discover()`
+    drops it and the branch looks worktree-less. `cmd_repair` uses this to point the user
+    at recovery rather than a bare "nothing to repair"."""
+    porcelain = git("worktree", "list", "--porcelain")
+    for entry in porcelain.split("\n\n"):
+        lines = entry.splitlines()
+        if not any(line == f"branch refs/heads/{branch}" for line in lines):
+            continue
+        if not any(line.startswith("prunable") for line in lines):
+            continue
+        path = next((line.split(" ", 1)[1] for line in lines if line.startswith("worktree ")), None)
+        if path:
+            return Path(path)
+    return None
+
+
 def cmd_repair(args: argparse.Namespace) -> None:
     """Nuke and recreate a corrupted worktree, preserving branch ref and tree config."""
     graph = discover()
@@ -1064,6 +1083,17 @@ def cmd_repair(args: argparse.Namespace) -> None:
 
     info = graph.branches.get(target)
     if not info or not info.worktree:
+        stale = _prunable_worktree_path(target)
+        if stale is not None:
+            raise TreeError(
+                f"{target}'s worktree at {stale} is gone, but git still has a stale "
+                f"registration for it. `git tree repair` rebuilds a corrupted worktree in "
+                f"place; it can't resurrect a deleted directory.\n"
+                f"Recover with:\n"
+                f"  git worktree prune\n"
+                f"  git worktree add {stale} {target}",
+                code=4,
+            )
         raise TreeError(f"{target} has no worktree registered. Nothing to repair.", code=4)
 
     wt_path = info.worktree
@@ -1092,10 +1122,15 @@ def cmd_repair(args: argparse.Namespace) -> None:
     except subprocess.CalledProcessError:
         pass  # worktree too corrupted for git status; nothing to salvage
 
+    # The branch's committed .gitmodules is the reliable signal: the (possibly corrupted)
+    # worktree may be missing files, but the recreated one checks out the branch tip.
+    has_submodules = git_ok("cat-file", "-e", f"{target}:.gitmodules")
+    steps = ["Remove corrupted worktree", "Recreate worktree"]
+    if has_submodules:
+        steps.append("Initialize submodules")
     print(f"Repairing {target} at {wt_path}:")
-    print("  1. Remove corrupted worktree")
-    print("  2. Recreate worktree")
-    print("  3. Initialize submodules")
+    for i, step in enumerate(steps, 1):
+        print(f"  {i}. {step}")
     print()
     if not _proceed(args, "Proceed?"):
         return
