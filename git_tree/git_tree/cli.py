@@ -1045,9 +1045,7 @@ def cmd_repair(args: argparse.Namespace) -> None:
     if target is None:
         _require_input(args, "branch to repair", "the branch argument")
         candidates = sorted(
-            b
-            for b in graph.parent_of
-            if (info := graph.branches.get(b)) and info.worktree
+            b for b in graph.parent_of if (info := graph.branches.get(b)) and info.worktree
         )
         if not candidates:
             raise TreeError("No tree-branch worktrees available to repair.")
@@ -1095,9 +1093,9 @@ def cmd_repair(args: argparse.Namespace) -> None:
         pass  # worktree too corrupted for git status; nothing to salvage
 
     print(f"Repairing {target} at {wt_path}:")
-    print(f"  1. Remove corrupted worktree")
-    print(f"  2. Recreate worktree")
-    print(f"  3. Initialize submodules")
+    print("  1. Remove corrupted worktree")
+    print("  2. Recreate worktree")
+    print("  3. Initialize submodules")
     print()
     if not _proceed(args, "Proceed?"):
         return

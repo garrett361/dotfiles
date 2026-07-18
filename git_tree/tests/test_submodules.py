@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -65,9 +64,7 @@ class TestRepair:
         assert wt.exists()
         assert (wt / "mysub" / ".git").exists()
 
-    def test_repair_handles_corrupted_worktree_contents(
-        self, repo: RepoHelper, tmp_path
-    ) -> None:
+    def test_repair_handles_corrupted_worktree_contents(self, repo: RepoHelper, tmp_path) -> None:
         """Worktree directory exists but internals are broken (e.g. .git file deleted)."""
         repo.branch("child", parent="main")
         wt = repo.worktree("child", str(tmp_path / "wt-child"))
@@ -91,9 +88,7 @@ class TestRepair:
             cmd_repair(self._ns("orphan"))
         assert "has no worktree" in capsys.readouterr().err
 
-    def test_repair_refuses_dirty_without_force(
-        self, repo: RepoHelper, tmp_path, capsys
-    ) -> None:
+    def test_repair_refuses_dirty_without_force(self, repo: RepoHelper, tmp_path, capsys) -> None:
         repo.branch("child", parent="main")
         wt = repo.worktree("child", str(tmp_path / "wt-child"))
         repo.dirty(cwd=wt)
@@ -121,9 +116,7 @@ class TestRepair:
 
 
 class TestBranchSubmoduleInit:
-    def test_branch_inits_submodules(
-        self, repo: RepoHelper, tmp_path, monkeypatch
-    ) -> None:
+    def test_branch_inits_submodules(self, repo: RepoHelper, tmp_path, monkeypatch) -> None:
         monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
         monkeypatch.setenv("GIT_CONFIG_KEY_0", "protocol.file.allow")
         monkeypatch.setenv("GIT_CONFIG_VALUE_0", "always")
@@ -136,9 +129,7 @@ class TestBranchSubmoduleInit:
         assert (Path(wt_path) / "mysub" / ".git").exists()
         assert (Path(wt_path) / "mysub" / "readme.txt").exists()
 
-    def test_branch_no_submodule_init_flag(
-        self, repo: RepoHelper, tmp_path, monkeypatch
-    ) -> None:
+    def test_branch_no_submodule_init_flag(self, repo: RepoHelper, tmp_path, monkeypatch) -> None:
         monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
         monkeypatch.setenv("GIT_CONFIG_KEY_0", "protocol.file.allow")
         monkeypatch.setenv("GIT_CONFIG_VALUE_0", "always")
@@ -147,9 +138,7 @@ class TestBranchSubmoduleInit:
 
         wt_path = str(tmp_path / "wt-child")
         cmd_branch(
-            argparse.Namespace(
-                command="branch", name="child", path=wt_path, no_submodule_init=True
-            )
+            argparse.Namespace(command="branch", name="child", path=wt_path, no_submodule_init=True)
         )
 
         assert (Path(wt_path) / "mysub").exists()
@@ -176,9 +165,7 @@ class TestPropagateSubmoduleHealth:
 
         with pytest.raises(TreeError):
             cmd_propagate(
-                argparse.Namespace(
-                    dry_run=False, no_auto_rerere=False, branch=None, yes=True
-                )
+                argparse.Namespace(dry_run=False, no_auto_rerere=False, branch=None, yes=True)
             )
         err = capsys.readouterr().err
         assert "corrupted submodule state" in err
@@ -193,15 +180,13 @@ class TestPropagateSubmoduleHealth:
 
         _add_submodule(repo, "mysub", tmp_path)
         repo.branch("child", parent="main")
-        wt = repo.worktree("child", str(tmp_path / "wt-child"))
+        repo.worktree("child", str(tmp_path / "wt-child"))
 
         repo.checkout("main")
         repo.commit("extra.txt", "extra", "advance main")
 
         cmd_propagate(
-            argparse.Namespace(
-                dry_run=False, no_auto_rerere=False, branch=None, yes=True
-            )
+            argparse.Namespace(dry_run=False, no_auto_rerere=False, branch=None, yes=True)
         )
         log = _git("log", "--oneline", "child", cwd=repo.work)
         assert "advance main" in log
@@ -225,9 +210,7 @@ class TestPropagateSubmoduleHealth:
 
         with pytest.raises(TreeError):
             cmd_propagate(
-                argparse.Namespace(
-                    dry_run=False, no_auto_rerere=False, branch=None, yes=True
-                )
+                argparse.Namespace(dry_run=False, no_auto_rerere=False, branch=None, yes=True)
             )
         err = capsys.readouterr().err
         assert "git tree repair" in err
@@ -257,8 +240,11 @@ class TestRebaseSubmoduleHealth:
         with pytest.raises(TreeError):
             cmd_rebase(
                 argparse.Namespace(
-                    command="rebase", target="main", dry_run=False,
-                    no_auto_rerere=False, yes=True,
+                    command="rebase",
+                    target="main",
+                    dry_run=False,
+                    no_auto_rerere=False,
+                    yes=True,
                 )
             )
         err = capsys.readouterr().err
@@ -293,8 +279,11 @@ class TestRebaseSubmoduleHealth:
         with pytest.raises(TreeError):
             cmd_rebase(
                 argparse.Namespace(
-                    command="rebase", target="main", dry_run=False,
-                    no_auto_rerere=False, yes=True,
+                    command="rebase",
+                    target="main",
+                    dry_run=False,
+                    no_auto_rerere=False,
+                    yes=True,
                 )
             )
         err = capsys.readouterr().err
@@ -389,7 +378,7 @@ class TestSubmodulePaths:
         (tmp_path / ".gitmodules").write_text(
             '[submodule "exists"]\n'
             "    path = exists\n"
-            '    url = https://example.com/exists.git\n'
+            "    url = https://example.com/exists.git\n"
             '[submodule "ghost"]\n'
             "    path = ghost\n"
             "    url = https://example.com/ghost.git\n"
@@ -403,9 +392,7 @@ class TestSubmodulePaths:
     def test_handles_percent_in_paths(self, tmp_path) -> None:
         """Regression: configparser with interpolation would crash on % chars."""
         (tmp_path / ".gitmodules").write_text(
-            '[submodule "weird"]\n'
-            "    path = 100%done\n"
-            "    url = https://example.com/weird.git\n"
+            '[submodule "weird"]\n    path = 100%done\n    url = https://example.com/weird.git\n'
         )
         (tmp_path / "100%done").mkdir()
 
@@ -490,9 +477,7 @@ class TestRepairCwdGuard:
 class TestRepairCorruptedGitStatus:
     """Coverage gap #10: cmd_repair proceeds without --force when git status crashes."""
 
-    def test_repair_proceeds_when_git_status_crashes(
-        self, repo: RepoHelper, tmp_path
-    ) -> None:
+    def test_repair_proceeds_when_git_status_crashes(self, repo: RepoHelper, tmp_path) -> None:
         repo.branch("child", parent="main")
         wt = repo.worktree("child", str(tmp_path / "wt-child"))
 
