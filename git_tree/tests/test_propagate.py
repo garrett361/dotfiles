@@ -111,10 +111,9 @@ class TestPropagate:
 
         err = capsys.readouterr().err
         assert "CONFLICT" in err
-        # The message must point the user at the resume step, not leave them stranded
-        # after `git rebase --continue` (b's parent is main).
-        assert "git rebase --continue" in err
-        assert "git tree propagate main" in err
+        # The message must point the user at the single-command resume, not leave them
+        # stranded to run raw git plus a follow-up propagate.
+        assert "git tree continue" in err
 
     def test_already_up_to_date(self, repo: RepoHelper, monkeypatch, capsys, tmp_path) -> None:
         repo.branch("b", parent="main")

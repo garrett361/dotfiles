@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from git_tree.cli import SCHEMA_VERSION, main
+from git_tree.cli import SCHEMA_VERSION, _has_active_rebase, main
 
 from .conftest import RepoHelper
 
@@ -94,3 +94,43 @@ class TestErrorEnvelope:
         assert err["branch"] == "b"
         assert err["conflicted_files"] == ["shared.txt"]
         assert err["worktree"]
+
+
+class TestContinue:
+    def _stop_on_conflict(self, repo: RepoHelper, capsys, tmp_path):
+        repo.commit("shared.txt", "base", "base")
+        repo.branch("b", parent="main")
+        wt_b = repo.worktree("b", str(tmp_path / "wt-b"))
+        (wt_b / "shared.txt").write_text("from b")
+        repo.git("add", "shared.txt", cwd=wt_b)
+        repo.git("commit", "-m", "b change", cwd=wt_b)
+        repo.checkout("main")
+        repo.commit("shared.txt", "from main", "conflicting change")
+        with pytest.raises(SystemExit) as exc:
+            main(["propagate", "main", "--no-input", "-y"])
+        assert exc.value.code == 3
+        capsys.readouterr()  # drain setup output so the next envelope stands alone
+        return wt_b
+
+    def test_resumes_after_resolution(self, repo: RepoHelper, capsys, tmp_path) -> None:
+        wt_b = self._stop_on_conflict(repo, capsys, tmp_path)
+        (wt_b / "shared.txt").write_text("resolved")
+        repo.git("add", "shared.txt", cwd=wt_b)
+        main(["continue", "--json"])
+        obj = json.loads(capsys.readouterr().out)
+        assert obj["command"] == "continue" and obj["ok"] is True
+        assert "b change" in repo.git("log", "--oneline", "b")  # b is rebased onto main
+        assert not _has_active_rebase(wt_b)  # rebase finished
+
+    def test_unresolved_conflicts_errors(self, repo: RepoHelper, capsys, tmp_path) -> None:
+        self._stop_on_conflict(repo, capsys, tmp_path)  # leave it unresolved
+        with pytest.raises(SystemExit) as exc:
+            main(["continue", "--json"])
+        assert exc.value.code == 4
+        assert json.loads(capsys.readouterr().out)["error"]["kind"] == "unresolved_conflicts"
+
+    def test_no_rebase_in_progress_errors(self, repo: RepoHelper, capsys) -> None:
+        with pytest.raises(SystemExit) as exc:
+            main(["continue", "--json"])
+        assert exc.value.code == 4
+        assert json.loads(capsys.readouterr().out)["ok"] is False
