@@ -122,6 +122,73 @@ class TestContinue:
         assert "b change" in repo.git("log", "--oneline", "b")  # b is rebased onto main
         assert not _has_active_rebase(wt_b)  # rebase finished
 
+    def test_resumes_whole_cascade_not_just_stuck_subtree(
+        self, repo: RepoHelper, capsys, tmp_path
+    ) -> None:
+        # main -> {aconf, zclean}. `aconf` (alphabetically first, so processed first) conflicts;
+        # `zclean` is a clean sibling queued *after* it and thus skipped by the aborted cascade.
+        # continue must resume the whole tree, not just aconf's (empty) subtree, or zclean stays
+        # stale.
+        repo.commit("shared.txt", "base", "base")
+        repo.branch("aconf", parent="main")
+        wt_a = repo.worktree("aconf", str(tmp_path / "wt-a"))
+        (wt_a / "shared.txt").write_text("from aconf")
+        repo.git("add", "shared.txt", cwd=wt_a)
+        repo.git("commit", "-m", "aconf change", cwd=wt_a)
+        repo.branch("zclean", parent="main")
+        wt_z = repo.worktree("zclean", str(tmp_path / "wt-z"))
+        (wt_z / "z.txt").write_text("z")
+        repo.git("add", "z.txt", cwd=wt_z)
+        repo.git("commit", "-m", "zclean change", cwd=wt_z)
+        repo.checkout("main")
+        repo.commit("shared.txt", "from main", "advance main (conflicts with aconf)")
+
+        with pytest.raises(SystemExit) as exc:
+            main(["propagate", "main", "--no-input", "-y"])
+        assert exc.value.code == 3  # aconf conflicts, zclean skipped
+        capsys.readouterr()
+
+        (wt_a / "shared.txt").write_text("resolved")
+        repo.git("add", "shared.txt", cwd=wt_a)
+        main(["continue", "--json"])
+        assert json.loads(capsys.readouterr().out)["ok"] is True
+
+        main(["--json"])
+        by = {b["name"]: b for b in json.loads(capsys.readouterr().out)["branches"]}
+        assert by["aconf"]["pending_from_parent"] == 0  # resolved branch caught up
+        assert by["zclean"]["pending_from_parent"] == 0  # skipped sibling also rebased
+
+    def test_resume_errors_cleanly_on_worktreeless_branch(
+        self, repo: RepoHelper, capsys, tmp_path
+    ) -> None:
+        # The whole-tree resume can reach a worktree-less branch outside the original scope; it
+        # must produce a clean precondition error, not a raw AssertionError deep in _rebase_branch.
+        repo.commit("shared.txt", "base", "base")
+        repo.branch("sub", parent="main")
+        wt_sub = repo.worktree("sub", str(tmp_path / "wt-sub"))
+        repo.branch("achild", parent="sub")
+        wt_c = repo.worktree("achild", str(tmp_path / "wt-c"))
+        (wt_c / "shared.txt").write_text("from child")
+        repo.git("add", "shared.txt", cwd=wt_c)
+        repo.git("commit", "-m", "child change", cwd=wt_c)
+        (wt_sub / "shared.txt").write_text("from sub")
+        repo.git("add", "shared.txt", cwd=wt_sub)
+        repo.git("commit", "-m", "sub change", cwd=wt_sub)
+        repo.branch("nowt", parent="main")  # worktree-less sibling, outside `propagate sub` scope
+
+        with pytest.raises(SystemExit) as exc:
+            main(["propagate", "sub", "--no-input", "-y"])
+        assert exc.value.code == 3  # achild conflicts
+        capsys.readouterr()
+
+        (wt_c / "shared.txt").write_text("resolved")
+        repo.git("add", "shared.txt", cwd=wt_c)
+        with pytest.raises(SystemExit) as exc:
+            main(["continue", "--json"])
+        assert exc.value.code == 4  # nowt has no worktree -> clean precondition, not assert
+        err = json.loads(capsys.readouterr().out)["error"]
+        assert "nowt" in err["branches"]
+
     def test_unresolved_conflicts_errors(self, repo: RepoHelper, capsys, tmp_path) -> None:
         self._stop_on_conflict(repo, capsys, tmp_path)  # leave it unresolved
         with pytest.raises(SystemExit) as exc:

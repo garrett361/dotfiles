@@ -1665,9 +1665,21 @@ def cmd_continue(args: argparse.Namespace) -> None:
 
     _set_fork_commit(branch, git("rev-parse", onto))
     print(f"Continued {branch} onto {onto}.")
-    # Reuse the pre-continue graph: continuing `branch` moved only its own tip/fork (read live in
-    # _rebase_branch), not any descendant edge — same pattern as cmd_rebase/cmd_propagate.
-    _propagate_descendants(branch, graph, auto_rerere=not getattr(args, "no_auto_rerere", False))
+    # Resume the WHOLE cascade, not just `branch`'s subtree. A conflict aborts the flat
+    # topological walk, so branches queued after `branch` that aren't its descendants (siblings,
+    # cousins) were skipped. The original cascade's scope isn't recorded, so re-propagate from
+    # the tree root: already-current branches replay as empty and no-op, only genuinely-stale
+    # ones rebase. Re-discover first so `branch`'s just-updated tip/fork is reflected.
+    graph = discover()
+    root = root_of(graph, branch)
+    descendants = graph.downstream_from(root)
+    # Same preflight as cmd_propagate: the resume now reaches branches outside the original
+    # cascade's scope, so guard them the same way (worktrees before submodule/clean checks, since
+    # `git status` crashes on a corrupted submodule) rather than asserting deep in _rebase_branch.
+    _require_worktrees(descendants, graph)
+    _require_healthy_submodules(descendants, graph)
+    _require_clean_state(descendants, graph)
+    _propagate_descendants(root, graph, auto_rerere=not getattr(args, "no_auto_rerere", False))
 
 
 def _resolve_split_point(after: str, old_fork: str | None) -> str:
