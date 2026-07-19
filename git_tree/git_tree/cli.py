@@ -898,7 +898,7 @@ def cmd_branch(args: argparse.Namespace) -> None:
         git("config", f"branch.{name}.tree-parent-branch", parent)
         _set_fork_commit(name, git("rev-parse", parent))
         if not getattr(args, "no_submodule_init", False):
-            _init_submodules(Path(path))
+            _init_submodules_or_warn(path)
         print(f"Created branch {name} with worktree at {path} (parent: {parent})")
         return
 
@@ -921,7 +921,7 @@ def cmd_branch(args: argparse.Namespace) -> None:
         raise TreeError(f"failed to create worktree at {path}")
     _register_child(name, parent, fork=base)
     if not getattr(args, "no_submodule_init", False):
-        _init_submodules(Path(path))
+        _init_submodules_or_warn(path)
     print(f"Adopted existing branch {name} with worktree at {path} (parent: {parent})")
 
 
@@ -1174,7 +1174,14 @@ def cmd_repair(args: argparse.Namespace) -> None:
     _force_remove_worktree(wt_path, target)
     if not git_echo_ok("worktree", "add", str(wt_path), target):
         raise TreeError(f"Failed to recreate worktree at {wt_path}.")
-    _init_submodules(wt_path)
+    # Repair exists to make submodule state healthy, so a failed init is a failed repair — don't
+    # claim "is healthy" over it.
+    if not _init_submodules(wt_path):
+        raise TreeError(
+            f"Recreated {target}'s worktree at {wt_path}, but submodule init failed (see output "
+            f"above). Fix the submodule issue, then re-run `git tree repair {target}`.",
+            code=4,
+        )
     print(f"\nRepaired {target} — worktree at {wt_path} is healthy.")
 
 
@@ -1398,11 +1405,23 @@ def _require_healthy_submodules(branches: list[str], graph: Graph) -> None:
     raise TreeError("\n".join(lines), code=4)
 
 
-def _init_submodules(worktree: Path) -> None:
-    """Run `git submodule update --init --recursive` if .gitmodules exists."""
+def _init_submodules(worktree: Path) -> bool:
+    """Run `git submodule update --init --recursive` if .gitmodules exists. Returns True on
+    success (or when there are no submodules), False if the init failed."""
     if not (worktree / ".gitmodules").exists():
-        return
-    git_echo_ok("submodule", "update", "--init", "--recursive", cwd=worktree)
+        return True
+    return git_echo_ok("submodule", "update", "--init", "--recursive", cwd=worktree)
+
+
+def _init_submodules_or_warn(path: str) -> None:
+    """Init submodules after creating a worktree; warn (don't fail) if it didn't complete — the
+    branch/worktree itself was created, so this is a follow-up the user can finish by hand."""
+    if not _init_submodules(Path(path)):
+        print(
+            f"Warning: submodule init did not complete (see output above); run "
+            f"`git submodule update --init --recursive` in {path}.",
+            file=sys.stderr,
+        )
 
 
 def _force_remove_worktree(path: Path, branch: str) -> None:

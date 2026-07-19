@@ -531,3 +531,43 @@ class TestRepairCorruptedGitStatus:
         cmd_repair(argparse.Namespace(branch="child", yes=True, force=False))
         assert wt.exists()
         assert (wt / "init.txt").exists()
+
+
+class TestSubmoduleInitFailure:
+    """Init failures must be honest: repair (whose job is submodule health) errors; branch
+    (which created the worktree successfully) warns but succeeds."""
+
+    def _submodule_on_main(self, repo: RepoHelper, tmp_path, monkeypatch) -> None:
+        monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+        monkeypatch.setenv("GIT_CONFIG_KEY_0", "protocol.file.allow")
+        monkeypatch.setenv("GIT_CONFIG_VALUE_0", "always")
+        _add_submodule(repo, "mysub", tmp_path)
+
+    def test_repair_errors_when_submodule_init_fails(
+        self, repo: RepoHelper, tmp_path, monkeypatch, capsys
+    ) -> None:
+        self._submodule_on_main(repo, tmp_path, monkeypatch)
+        repo.branch("child", parent="main")
+        wt = repo.worktree("child", str(tmp_path / "wt-child"))
+        monkeypatch.setenv("GIT_CONFIG_VALUE_0", "never")  # block the re-init's file:// clone
+
+        with pytest.raises(TreeError) as exc:
+            cmd_repair(argparse.Namespace(branch="child", yes=True, force=True))
+        assert exc.value.code == 4
+        captured = capsys.readouterr()
+        assert "submodule init failed" in captured.err
+        assert "is healthy" not in captured.out  # never claims health it didn't verify
+        assert wt.exists()  # the worktree was still recreated
+
+    def test_branch_warns_but_succeeds_when_submodule_init_fails(
+        self, repo: RepoHelper, tmp_path, monkeypatch, capsys
+    ) -> None:
+        self._submodule_on_main(repo, tmp_path, monkeypatch)
+        monkeypatch.setenv("GIT_CONFIG_VALUE_0", "never")  # block the init's file:// clone
+
+        wt_path = str(tmp_path / "wt-child")
+        cmd_branch(argparse.Namespace(command="branch", name="child", path=wt_path))
+        captured = capsys.readouterr()
+        assert "Warning: submodule init did not complete" in captured.err
+        assert "Created branch child" in captured.out  # branch creation still succeeded
+        assert Path(wt_path).exists()
