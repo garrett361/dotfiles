@@ -751,51 +751,33 @@ def _proceed(args: argparse.Namespace, message: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def fzf_select(
-    items: list[str],
-    *,
-    multi: bool = False,
-    prompt: str = "> ",
-    preview: str | None = None,
-    header: str | None = None,
-) -> list[str]:
-    cmd = ["fzf"]
-    if multi:
-        cmd.extend(["--multi", "--bind", "ctrl-a:select-all,ctrl-d:deselect-all"])
-    cmd.extend(["--prompt", prompt])
-    if preview:
-        cmd.extend(["--preview", preview])
+def fzf_select(items: list[str], *, prompt: str = "> ", header: str | None = None) -> list[str]:
+    """Single-select via fzf; returns the chosen item as a 0-or-1 element list (empty on
+    cancel or when fzf is unavailable). List-valued so callers have one shape to handle."""
+    cmd = ["fzf", "--prompt", prompt]
     if header:
         cmd.extend(["--header", header])
-
     try:
         result = subprocess.run(
-            cmd,
-            input="\n".join(items),
-            capture_output=True,
-            text=True,
-            check=True,
+            cmd, input="\n".join(items), capture_output=True, text=True, check=True
         )
         return result.stdout.strip().splitlines()
     except (subprocess.CalledProcessError, FileNotFoundError):
-        return _fallback_select(items, multi=multi)
+        return _fallback_select(items)
 
 
-def _fallback_select(items: list[str], *, multi: bool) -> list[str]:
-    print("Select (comma-separated numbers):" if multi else "Select:")
+def _fallback_select(items: list[str]) -> list[str]:
+    """Numbered-list picker for when fzf isn't installed. One choice, or empty."""
+    print("Select:")
     for i, item in enumerate(items, 1):
         print(f"  {i}. {item}")
     try:
         response = input("> ").strip()
     except (EOFError, KeyboardInterrupt):
         return []
-    if not response:
-        return []
-    indices = [int(x.strip()) - 1 for x in response.split(",") if x.strip().isdigit()]
-    selected = [items[i] for i in indices if 0 <= i < len(items)]
-    if not multi:
-        return selected[:1]
-    return selected
+    if response.isdigit() and 0 <= (idx := int(response) - 1) < len(items):
+        return [items[idx]]
+    return []
 
 
 def _select_one(items: list[str], *, prompt: str, header: str) -> str:
