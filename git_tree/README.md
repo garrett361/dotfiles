@@ -48,10 +48,12 @@ git tree detach                        # remove current branch from tree (keeps 
 git tree remove [branch]               # remove a subtree's worktrees + unregister its branches (keeps refs)
 git tree repair [branch]               # nuke + recreate a corrupted worktree (preserves branch ref and tree config)
 git tree propagate                     # cascade current branch's changes to descendants
+git tree continue                      # resume a cascade after resolving a conflict
 git tree rebase <target>               # rebase current branch + descendants onto new base
 git tree split                         # split current branch into parent + child
 git tree push                          # push current branch + descendants (--force-with-lease)
 git tree manpage [--install]           # emit the man page (roff); --install writes it to the man path
+git tree --version                     # print git-tree <version>
 ```
 
 Interactive commands also take flags so they can run unattended:
@@ -61,31 +63,107 @@ Interactive commands also take flags so they can run unattended:
 - `propagate`, `rebase`, `push`, `remove`, `repair`, `detach` accept `-y`/`--yes` to skip the confirmation prompt. (`--dry-run` on `propagate`/`rebase`/`push`/`remove` previews without executing.)
 - `git tree repair [branch] [--force]` — recreates a worktree whose submodule state is corrupted (broken `.git` pointer, missing modules dir). Refuses if the worktree has uncommitted changes unless `--force` is passed.
 
-## Agentic / non-interactive use
+## Agent mode (`--json`)
 
-git-tree is built to be driven by an AI agent (or any script) as well as by hand:
+git-tree is built to be driven by an AI agent (or any script) as well as by hand. Pass `--json` in any position (`git tree --json <cmd>` or `git tree <cmd> --json`) to enter **agent mode**, which:
 
-- **`git tree --json`** prints the whole forest as JSON (every branch's parent, children, root, remote, fork commit, worktree, and status) — always the full forest, regardless of the current branch. Warnings go to stderr, so stdout is always valid JSON. Shape:
+- implies `--no-input` (never prompts — a prompt would deadlock an agent that isn't feeding stdin);
+- prints **exactly one JSON object** on stdout; every diagnostic (the `+ git …` echoes, git's own output, warnings) goes to stderr;
+- disables color.
 
-  ```json
-  {
-    "roots": ["main"],
-    "cycles": [],
-    "orphans": [],
-    "branches": [
-      {"name": "feat", "parent": "main", "children": ["feat2"], "root": "main",
-       "remote": "origin", "fork_commit": "…", "worktree": "/abs/path",
-       "dirty": true, "staged": 0, "modified": 1, "untracked": 0, "conflicted": 0,
-       "ahead": 2, "behind": 0, "pending_from_parent": 3}
-    ]
+### Envelope
+
+The object is **flat** — no nesting. A success carries the four envelope keys and nothing else:
+
+```json
+{"schema_version": 1, "tool_version": "0.1.0", "command": "propagate", "ok": true}
+```
+
+**Success is bare — re-query for state.** A mutation returns just `{ok: true}`; re-run `git tree --json` (the forest) for authoritative post-op state. The forest already carries it, so the envelope stays lean.
+
+An error sets `ok: false` and adds an `error` object; it may also carry `branches` (the ones already processed) and a `remedy` (an argv array you can run):
+
+```json
+{
+  "schema_version": 1, "tool_version": "0.1.0", "command": "push", "ok": false,
+  "error": {"kind": "precondition", "code": 4, "message": "…"}
+}
+```
+
+A conflict is `error.kind == "conflict"` plus the location and the resume command:
+
+```json
+{
+  "schema_version": 1, "tool_version": "0.1.0", "command": "propagate", "ok": false,
+  "error": {
+    "kind": "conflict", "code": 3, "message": "…",
+    "branch": "feat2", "worktree": "/abs/path",
+    "conflicted_files": ["foo.py"],
+    "remedy": ["git", "tree", "continue"]
   }
-  ```
+}
+```
 
-  Worktree/status fields are `null` for a branch with no worktree; `parent`/`pending_from_parent` are `null` for a root.
+A confirmation you must supply comes back as `confirmation_required`, whose `remedy` is the exact invocation plus `-y`:
 
-- **`--no-input`** (global) never prompts: if a value would be asked for interactively (a confirmation, a branch/parent selection, a name), it errors instead, naming the flag that supplies it. Compose with `--yes` to auto-confirm confirmations while still erroring on other missing input.
+```json
+{
+  "schema_version": 1, "tool_version": "0.1.0", "command": "remove", "ok": false,
+  "error": {
+    "kind": "confirmation_required", "code": 4, "message": "confirmation required; pass -y/--yes",
+    "remedy": ["git", "tree", "remove", "feat", "-y"]
+  }
+}
+```
 
-- **Exit codes** let you branch on the failure class: `0` success, `2` usage error, `3` resumable conflict (resolve, then re-run `propagate`), `4` precondition/dirty state, `5` not a tree-branch.
+`remedy` (and any runnable-command field) is always an argv array, never a shell string.
+
+### `error.kind`
+
+Derived from the exit code — `usage` (2), `conflict` (3), `precondition` (4), `not_a_tree_branch` (5), `error` (1) — with three specific overrides:
+
+- `input_required` — a required value or flag is missing.
+- `confirmation_required` — needs `-y`; `remedy` is the invocation argv plus `-y`.
+- `lease_rejected` — a `--force-with-lease` push was rejected because the remote moved.
+
+### Forward-compat contract
+
+Agents **must ignore unknown fields and default-arm unknown enum values**, so adding a field or a new `kind` is non-breaking. `schema_version` bumps **only** on a breaking change; `tool_version` is the package version.
+
+### `-y`/`--yes`
+
+`-y`/`--yes` skips the confirmation prompt on `propagate`/`rebase`/`push`/`remove`/`repair`/`detach` — the first-class way to run destructive ops unattended (no more `echo y | git tree …`). `--json` does **not** auto-imply it: it won't silently confirm a destructive op. Instead a needed confirmation returns `confirmation_required` with the ready-to-run `remedy`.
+
+### The forest query
+
+With no subcommand, `git tree --json` prints the whole forest (every branch's parent, children, root, remote, fork commit, worktree, and status) — always the full forest, regardless of the current branch. It stays **backward-compatible**: `command` is `"tree"` and, the envelope being flat, its `roots`/`cycles`/`orphans`/`branches` keys sit as siblings, so existing consumers are unchanged. Each branch now also carries a `rebase_in_progress` boolean.
+
+```json
+{
+  "schema_version": 1, "tool_version": "0.1.0", "command": "tree", "ok": true,
+  "roots": ["main"],
+  "cycles": [],
+  "orphans": [],
+  "branches": [
+    {"name": "feat", "parent": "main", "children": ["feat2"], "root": "main",
+     "remote": "origin", "fork_commit": "…", "worktree": "/abs/path",
+     "dirty": true, "staged": 0, "modified": 1, "untracked": 0, "conflicted": 0,
+     "rebase_in_progress": false, "ahead": 2, "behind": 0, "pending_from_parent": 3}
+  ]
+}
+```
+
+Worktree/status fields are `null` for a branch with no worktree; `parent`/`pending_from_parent` are `null` for a root.
+
+### Other agent surface
+
+- **`git tree continue`** resumes a cascade after you resolve a conflict: it finishes the in-progress rebase (editor disabled, so no `$EDITOR` hang), records the new fork point, and propagates to the branch's descendants. It replaces the old `git rebase --continue` + `git tree propagate <parent>` two-step.
+
+- **`git tree --version`** prints `git-tree <version>` (the same value as `tool_version`).
+
+- **`--no-input`** (global, without `--json`) never prompts: if a value would be asked for interactively (a confirmation, a branch/parent selection, a name), it errors instead, naming the flag that supplies it. Compose with `--yes` to auto-confirm confirmations while still erroring on other missing input.
+
+- **Exit codes** let you branch on the failure class: `0` success, `2` usage error, `3` resumable conflict (resolve, then `git tree continue`), `4` precondition/dirty state, `5` not a tree-branch.
 
 - **`--dry-run`** on `propagate`/`rebase`/`push`/`remove` previews without mutating.
 
@@ -112,7 +190,7 @@ Works immediately after `git tree branch` or `git tree attach`, which record the
 
 ### Propagate
 
-After adding commits to a parent branch, run `git tree propagate` to rebase all descendants. Branches are processed in topological order (parents first), and each branch's result is printed as it completes. On conflict the cascade stops: the branches already rebased are shown, then git-tree exits (code 3) telling you where to resolve. After `git rebase --continue`, resume with `git tree propagate <parent>` to record the new fork point and continue to the remaining descendants.
+After adding commits to a parent branch, run `git tree propagate` to rebase all descendants. Branches are processed in topological order (parents first), and each branch's result is printed as it completes. On conflict the cascade stops: the branches already rebased are shown, then git-tree exits (code 3) telling you where to resolve. Resolve the conflict and `git add` the files, then run `git tree continue` to finish the rebase, record the new fork point, and continue to the remaining descendants (it replaces the old `git rebase --continue` + `git tree propagate <parent>` two-step).
 
 ### Rebase
 

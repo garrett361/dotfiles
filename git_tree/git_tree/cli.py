@@ -2284,11 +2284,22 @@ tree state (git config, no external files):
   branch.<root>.remote               the tree's single remote (on the root)
 
 FOR AGENTS:
-  git tree --json    machine-readable forest on stdout (each branch's parent, children,
-                     root, remote, fork commit, worktree, status); warnings on stderr
+  git tree --json    agent mode: exactly one JSON envelope on stdout, all diagnostics
+                     (git echoes, warnings) on stderr; implies --no-input, disables color.
+                     The forest query keeps its roots/cycles/orphans/branches keys (each
+                     branch also has rebase_in_progress). Mutations return a bare {ok:true}
+                     — re-query the forest for post-op state.
+  -y, --yes          skip confirmation on propagate/rebase/push/remove/repair/detach;
+                     under --json a needed confirm returns kind=confirmation_required with
+                     a ready-to-run remedy argv (never auto-confirmed)
+  git tree continue  resume a cascade after resolving a conflict: finish the rebase (editor
+                     disabled), record the new fork point, propagate to descendants
   --no-input         never prompt; error instead of asking for a value
   --dry-run          preview propagate/rebase/push/remove without mutating
-  exit codes         3 resumable conflict, 4 precondition/state, 5 not-a-tree-branch
+  --version          print git-tree <version>
+  exit codes         3 resumable conflict, 4 precondition/state, 5 not-a-tree-branch;
+                     error.kind is one of usage/conflict/precondition/not_a_tree_branch/
+                     error plus input_required/confirmation_required/lease_rejected
   full contract      see CLAUDE.md in the git-tree source repo
 """
 
