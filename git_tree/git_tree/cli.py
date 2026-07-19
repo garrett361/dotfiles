@@ -46,6 +46,25 @@ class TreeError(SystemExit):
         super().__init__(code)
 
 
+class ConflictError(TreeError):
+    """A resumable rebase conflict (exit 3). Carries the stuck branch, its worktree, and the
+    unmerged files so an agent can resolve and resume without parsing prose."""
+
+    def __init__(
+        self,
+        msg: str,
+        *,
+        branch: str,
+        worktree: Path,
+        conflicted_files: list[str],
+        remedy: list[str] | None = None,
+    ):
+        super().__init__(msg, code=3, kind="conflict", remedy=remedy)
+        self.branch = branch
+        self.worktree = worktree
+        self.conflicted_files = conflicted_files
+
+
 SCHEMA_VERSION = 1
 
 
@@ -713,14 +732,25 @@ def _no_input(args: argparse.Namespace) -> bool:
 def _require_input(args: argparse.Namespace, what: str, flag: str) -> None:
     """In --no-input mode, refuse to prompt for `what`, naming the `flag` that supplies it."""
     if _no_input(args):
-        raise TreeError(f"--no-input: {what} required; pass {flag}", code=4)
+        raise TreeError(f"--no-input: {what} required; pass {flag}", code=4, kind="input_required")
+
+
+def _yes_remedy(args: argparse.Namespace) -> list[str]:
+    """The current invocation plus `-y`, as an argv an agent can re-run to auto-confirm."""
+    return ["git", "tree", *getattr(args, "_argv", []), "-y"]
 
 
 def _proceed(args: argparse.Namespace, message: str) -> bool:
     """True if the user opted in via --yes or an interactive y/N confirmation."""
     if getattr(args, "yes", False):
         return True
-    _require_input(args, "confirmation", "--yes")
+    if _no_input(args):
+        raise TreeError(
+            "confirmation required; pass -y/--yes",
+            code=4,
+            kind="confirmation_required",
+            remedy=_yes_remedy(args),
+        )
     return confirm(message)
 
 
@@ -824,6 +854,7 @@ def _tree_json(graph: Graph) -> dict:
             "modified": None,
             "untracked": None,
             "conflicted": None,
+            "rebase_in_progress": None,
             "ahead": None,
             "behind": None,
             "pending_from_parent": _pending_commit_count(parent, name, info) if parent else None,
@@ -836,6 +867,7 @@ def _tree_json(graph: Graph) -> dict:
                 modified=st.modified,
                 untracked=st.untracked,
                 conflicted=st.conflicted,
+                rebase_in_progress=_has_active_rebase(worktree),
             )
             ab = _ahead_behind(name, remote, worktree)
             if ab:
@@ -1041,7 +1073,7 @@ def cmd_remove(args: argparse.Namespace) -> None:
         lines = ["Refusing to remove — these worktrees have uncommitted changes:"]
         lines += [f"  {b}  ({graph.branches[b].worktree})" for b in dirty]
         lines.append("\nCommit, stash, or discard them first. Nothing was removed.")
-        raise TreeError("\n".join(lines), code=4)
+        raise TreeError("\n".join(lines), code=4, branches=dirty)
 
     print(f"Removing worktrees and unregistering {target} + its subtree (branch refs kept):")
     print(format_tree(graph, root=target))
@@ -1262,7 +1294,11 @@ def _rebase_onto(
 
 
 def _conflict_exit(child: str, parent: str, cwd: Path, stashed: bool) -> NoReturn:
+    files = git_lines("diff", "--name-only", "--diff-filter=U", cwd=cwd)
     lines = [f"\nCONFLICT while rebasing {child} onto {parent}"]
+    if files:
+        lines.append("Conflicted files:")
+        lines += [f"  {f}" for f in files]
     lines.append(f"Resolve conflicts in {cwd}, then run: git rebase --continue")
     if stashed:
         lines.append(f"Note: dirty worktree was stashed — run: cd {cwd} && git stash pop")
@@ -1270,7 +1306,7 @@ def _conflict_exit(child: str, parent: str, cwd: Path, stashed: bool) -> NoRetur
         f"Then resume the cascade with: git tree propagate {parent}"
         f"  (records {child}'s new fork point and continues to its descendants)"
     )
-    raise TreeError("\n".join(lines), code=3)
+    raise ConflictError("\n".join(lines), branch=child, worktree=cwd, conflicted_files=files)
 
 
 def _require_worktrees(branches: list[str], graph: Graph) -> None:
@@ -1281,7 +1317,7 @@ def _require_worktrees(branches: list[str], graph: Graph) -> None:
     for b in missing:
         lines.append(f"  {b}")
     lines.append("\nAdd worktrees with: git worktree add <path> <branch>")
-    raise TreeError("\n".join(lines), code=4)
+    raise TreeError("\n".join(lines), code=4, branches=missing)
 
 
 def _has_active_rebase(cwd: Path) -> bool:
@@ -1317,7 +1353,7 @@ def _require_clean_state(branches: list[str], graph: Graph) -> None:
     lines = ["These branches are not in a clean state:"]
     for b, wt, reason in problems:
         lines.append(f"  {b}  ({reason} — resolve in: {wt})")
-    raise TreeError("\n".join(lines), code=4)
+    raise TreeError("\n".join(lines), code=4, branches=[b for b, _, _ in problems])
 
 
 # ---------------------------------------------------------------------------
@@ -1847,6 +1883,8 @@ def cmd_push(args: argparse.Namespace) -> None:
         return
 
     results: list[tuple[str, str]] = []
+    failed: list[str] = []
+    lease_rejected = False
     for b in pushable:
         # Skip if an ancestor in this run is stale or its push failed. Re-add b so
         # the block cascades to its own descendants later in the loop.
@@ -1855,13 +1893,34 @@ def cmd_push(args: argparse.Namespace) -> None:
             blocked.add(b)
             continue
 
-        ok = git_echo_ok("push", "--force-with-lease", "-u", root_remote, b)
-        if not ok:
+        res = git_echo("push", "--force-with-lease", "-u", root_remote, b)
+        if res.returncode == 0:
+            results.append((b, "ok"))
+        else:
             blocked.add(b)
-        results.append((b, "ok" if ok else "FAILED"))
+            failed.append(b)
+            if "stale info" in (res.stderr or ""):
+                lease_rejected = True  # the lease caught a remote that moved under us
+            results.append((b, "FAILED"))
 
     print()
     _print_results(results)
+
+    if failed:
+        # A push that fails must not exit 0 (latent bug). A lease rejection means the remote
+        # advanced — fetch + propagate, then retry — which is distinct from a transport/hook
+        # failure, so an agent gets a specific `kind`.
+        hint = (
+            " (lease rejected: the remote moved — fetch, `git tree propagate`, then retry)"
+            if lease_rejected
+            else ""
+        )
+        raise TreeError(
+            f"push failed for: {', '.join(failed)}{hint}",
+            code=1,
+            kind="lease_rejected" if lease_rejected else None,
+            branches=failed,
+        )
 
 
 def cmd_log(args: argparse.Namespace) -> None:
@@ -2181,6 +2240,10 @@ def _error_envelope(args: argparse.Namespace, err: TreeError) -> dict:
     }
     if err.branches:
         error["branches"] = err.branches
+    if isinstance(err, ConflictError):
+        error["branch"] = err.branch
+        error["worktree"] = str(err.worktree)
+        error["conflicted_files"] = err.conflicted_files
     if err.remedy:
         error["remedy"] = err.remedy
     env["error"] = error
@@ -2332,6 +2395,8 @@ def main(argv: list[str] | None = None) -> None:  # explicit argv for tests
     )
 
     args, unknown = parser.parse_known_args(argv)
+    # Stash the raw invocation so a confirmation error can hand back an argv + `-y` remedy.
+    args._argv = list(argv) if argv is not None else sys.argv[1:]
     if unknown and getattr(args, "command", None) != "log":
         parser.error(f"unrecognized arguments: {' '.join(unknown)}")
     if getattr(args, "command", None) == "log":

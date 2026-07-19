@@ -63,4 +63,34 @@ class TestErrorEnvelope:
             main(["attach", "--json"])
         assert exc.value.code == 4
         obj = json.loads(capsys.readouterr().out)
-        assert obj["ok"] is False and obj["error"]["code"] == 4
+        assert obj["ok"] is False and obj["error"]["kind"] == "input_required"
+
+    def test_confirmation_required_remedy_is_argv_plus_yes(
+        self, repo: RepoHelper, capsys, tmp_path
+    ) -> None:
+        repo.branch("feat", parent="main")
+        repo.worktree("feat", str(tmp_path / "wt-feat"))
+        with pytest.raises(SystemExit) as exc:
+            main(["remove", "feat", "--json"])
+        assert exc.value.code == 4
+        err = json.loads(capsys.readouterr().out)["error"]
+        assert err["kind"] == "confirmation_required"
+        assert err["remedy"] == ["git", "tree", "remove", "feat", "--json", "-y"]
+
+    def test_conflict_envelope(self, repo: RepoHelper, capsys, tmp_path) -> None:
+        repo.commit("shared.txt", "base", "base")
+        repo.branch("b", parent="main")
+        wt_b = repo.worktree("b", str(tmp_path / "wt-b"))
+        (wt_b / "shared.txt").write_text("from b")
+        repo.git("add", "shared.txt", cwd=wt_b)
+        repo.git("commit", "-m", "b change", cwd=wt_b)
+        repo.checkout("main")
+        repo.commit("shared.txt", "from main", "conflicting change")
+        with pytest.raises(SystemExit) as exc:
+            main(["propagate", "main", "--json", "-y"])
+        assert exc.value.code == 3
+        err = json.loads(capsys.readouterr().out)["error"]
+        assert err["kind"] == "conflict"
+        assert err["branch"] == "b"
+        assert err["conflicted_files"] == ["shared.txt"]
+        assert err["worktree"]

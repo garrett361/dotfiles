@@ -253,7 +253,10 @@ class TestPush:
 
         monkeypatch.chdir(wt_a)
         monkeypatch.setattr("builtins.input", lambda _: "y")
-        cmd_push(_ns())
+        with pytest.raises(TreeError) as exc:
+            cmd_push(_ns())
+        assert exc.value.code != 0  # a failed push must not exit 0
+        assert exc.value.branches == ["a"]  # only the branch that actually failed
 
         captured = capsys.readouterr()
         assert "a: FAILED" in captured.out
@@ -336,7 +339,9 @@ class TestPush:
 
         monkeypatch.chdir(wt)
         monkeypatch.setattr("builtins.input", lambda _: "y")
-        cmd_push(_ns())
+        with pytest.raises(TreeError) as exc:
+            cmd_push(_ns())
+        assert exc.value.kind == "lease_rejected"  # the lease caught the clobber
 
         # The teammate commit must still be on origin (no clobber).
         remote_sha = repo.git("ls-remote", str(repo.origin), "refs/heads/feature").split()[0]
