@@ -71,30 +71,41 @@ class TestJson:
         names = [b["name"] for b in json.loads(capsys.readouterr().out)["branches"]]
         assert names.index("main") < names.index("feat") < names.index("feat2")
 
-    def test_cycle_surfaced_and_stdout_is_valid_json(self, repo: RepoHelper, capsys) -> None:
+    def test_cycle_surfaced_and_stdout_is_valid_json(
+        self, repo: RepoHelper, capsys, tmp_path
+    ) -> None:
         repo.branch("feat", parent="main")
         repo.git("branch", "x")
         repo.git("branch", "y")
         repo.set_parent("x", "y")
         repo.set_parent("y", "x")  # unrelated x <-> y cycle
+        repo.worktree("x", str(tmp_path / "wt-x"))  # a cyclic node with a worktree
 
         main(["--json"])
         captured = capsys.readouterr()
         data = json.loads(captured.out)  # valid JSON despite the stderr warning
         assert "cycle" in captured.err
         assert any(set(c) == {"x", "y"} for c in data["cycles"])
-        # Healthy tree still present.
-        assert {b["name"] for b in data["branches"]} >= {"main", "feat"}
+        # Healthy tree still present; the cyclic branches now also appear, tagged, with status.
+        by = {b["name"]: b for b in data["branches"]}
+        assert {"main", "feat", "x", "y"} <= set(by)
+        assert by["x"]["cyclic"] is True and by["y"]["cyclic"] is True
+        assert by["x"]["worktree"] is not None and by["x"]["dirty"] is False
 
-    def test_orphan_surfaced(self, repo: RepoHelper, capsys) -> None:
+    def test_orphan_surfaced(self, repo: RepoHelper, capsys, tmp_path) -> None:
         repo.git("branch", "ghost")
         repo.git("config", "branch.ghost.tree-parent-branch", "gone")  # parent doesn't exist
+        repo.worktree("ghost", str(tmp_path / "wt-ghost"))  # orphan with a worktree
 
         main(["--json"])
         data = json.loads(capsys.readouterr().out)
         assert ["ghost", "gone"] in data["orphans"]
-        # An orphan is a diagnostic only; it is not a usable tree node.
-        assert "ghost" not in {b["name"] for b in data["branches"]}
+        # The orphan is now also in branches[] with its worktree + a marker, so an agent
+        # repairing the tree can see its state rather than shelling out to raw git.
+        ghost = next(b for b in data["branches"] if b["name"] == "ghost")
+        assert ghost["orphaned_parent"] == "gone"
+        assert ghost["worktree"] is not None
+        assert ghost["dirty"] is False
 
     def test_malformed_unrelated_parent_does_not_crash(self, repo: RepoHelper, capsys) -> None:
         # A branch whose configured parent shares no history has no merge-base. --json must

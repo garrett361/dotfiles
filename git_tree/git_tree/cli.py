@@ -808,6 +808,17 @@ def _tree_json(graph: Graph) -> dict:
         if b not in seen:
             seen.add(b)
             ordered.append(b)
+    # Broken branches — an orphaned (missing) parent, or a cycle — have their edges dropped, so
+    # the walks above miss the childless ones. Surface them too (an agent repairing a tree needs
+    # their worktree + status), tagged below so they aren't mistaken for healthy roots.
+    # These sets are disjoint: an orphan is never added to parent_of, and _find_cycles only walks
+    # parent_of — so a branch can't be both. (Two separate `if`s below are safe either way.)
+    orphan_parent = dict(graph.orphans)
+    cyclic = {b for cycle in graph.cycles for b in cycle}
+    for b in sorted(set(orphan_parent) | cyclic):
+        if b not in seen:
+            seen.add(b)
+            ordered.append(b)
 
     branches: list[dict] = []
     for name in ordered:
@@ -846,6 +857,10 @@ def _tree_json(graph: Graph) -> dict:
             ab = _ahead_behind(name, remote, worktree)
             if ab:
                 entry["ahead"], entry["behind"] = ab
+        if name in orphan_parent:
+            entry["orphaned_parent"] = orphan_parent[name]  # the configured, missing parent
+        if name in cyclic:
+            entry["cyclic"] = True  # a member of a dependency cycle (see `cycles`)
         branches.append(entry)
 
     return {
