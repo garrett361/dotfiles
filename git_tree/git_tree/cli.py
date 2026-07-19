@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import configparser
+import contextlib
 import json
 import os
 import shutil
@@ -11,6 +12,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from enum import StrEnum
+from importlib import metadata
 from pathlib import Path
 from typing import NoReturn
 
@@ -20,11 +22,38 @@ class TreeError(SystemExit):
 
     `code` is the process exit status, letting an agent branch on failure class:
     1 generic, 3 resumable conflict, 4 precondition/state, 5 not-a-tree-branch.
+
+    The message is printed to stderr as a human diagnostic (both modes). In `--json`
+    mode `main()` also renders these fields into an error envelope on stdout: `kind` is a
+    stable machine tag (defaults to a code-derived value), `branches` names the offending
+    branches, and `remedy` is an argv list the agent can run directly.
     """
 
-    def __init__(self, msg: str, code: int = 1):
+    def __init__(
+        self,
+        msg: str,
+        code: int = 1,
+        *,
+        kind: str | None = None,
+        branches: list[str] | None = None,
+        remedy: list[str] | None = None,
+    ):
         print(msg, file=sys.stderr)
+        self.message = msg
+        self.kind = kind
+        self.branches = branches
+        self.remedy = remedy
         super().__init__(code)
+
+
+SCHEMA_VERSION = 1
+
+
+def _version() -> str:
+    try:
+        return metadata.version("git-tree")
+    except metadata.PackageNotFoundError:
+        return "0+unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -676,8 +705,9 @@ def confirm(message: str) -> bool:
 
 
 def _no_input(args: argparse.Namespace) -> bool:
-    """True if `--no-input` was passed — never prompt, error instead."""
-    return getattr(args, "no_input", False)
+    """True if the tool must never prompt. `--json` (agent mode) implies this: an
+    interactive prompt would deadlock an agent that isn't feeding stdin."""
+    return getattr(args, "no_input", False) or getattr(args, "json", False)
 
 
 def _require_input(args: argparse.Namespace, what: str, flag: str) -> None:
@@ -820,13 +850,13 @@ def _tree_json(graph: Graph) -> dict:
     }
 
 
-def cmd_tree(args: argparse.Namespace) -> None:
+def cmd_tree(args: argparse.Namespace) -> dict | None:
     graph = discover()
     if getattr(args, "json", False):
         # Always the full forest, regardless of current branch or --all: an agent querying
-        # state usually isn't "on" a tree branch, and JSON has no clutter cost.
-        print(json.dumps(_tree_json(graph), indent=2))
-        return
+        # state usually isn't "on" a tree branch, and JSON has no clutter cost. Returned (not
+        # printed) so main() wraps it in the envelope and writes it to the real stdout.
+        return _tree_json(graph)
     raw = git("rev-parse", "--abbrev-ref", "HEAD", check=False)
     current = None if (not raw or raw == "HEAD") else raw
 
@@ -2122,6 +2152,49 @@ FOR AGENTS:
 """
 
 
+_KIND_BY_CODE = {2: "usage", 3: "conflict", 4: "precondition", 5: "not_a_tree_branch"}
+
+
+def _envelope(args: argparse.Namespace) -> dict:
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "tool_version": _version(),
+        "command": getattr(args, "command", None) or "tree",
+        "ok": True,
+    }
+
+
+def _success_envelope(args: argparse.Namespace, data: dict | None) -> dict:
+    env = _envelope(args)
+    if data:
+        env.update(data)  # flat merge: e.g. cmd_tree's forest keys become siblings
+    return env
+
+
+def _error_envelope(args: argparse.Namespace, err: TreeError) -> dict:
+    env = _envelope(args)
+    env["ok"] = False
+    error: dict = {
+        "kind": err.kind or _KIND_BY_CODE.get(err.code, "error"),
+        "code": err.code,
+        "message": err.message,
+    }
+    if err.branches:
+        error["branches"] = err.branches
+    if err.remedy:
+        error["remedy"] = err.remedy
+    env["error"] = error
+    return env
+
+
+def _render_error(args: argparse.Namespace, err: TreeError, out) -> NoReturn:
+    # The human message is already on stderr (TreeError.__init__). In agent mode, also write
+    # the structured envelope to the real stdout so the agent gets exactly one JSON object.
+    if getattr(args, "json", False):
+        print(json.dumps(_error_envelope(args, err), indent=2), file=out)
+    raise SystemExit(err.code)
+
+
 def main(argv: list[str] | None = None) -> None:  # explicit argv for tests
     parser = argparse.ArgumentParser(
         prog="git-tree",
@@ -2137,18 +2210,20 @@ def main(argv: list[str] | None = None) -> None:  # explicit argv for tests
     parser.add_argument(
         "--json",
         action="store_true",
-        help="With no subcommand, print the full forest as JSON instead of the tree display",
+        help="Agent mode: emit one machine-readable JSON object on stdout (implies --no-input)",
     )
     parser.add_argument(
         "--no-input",
         action="store_true",
         help="Never prompt; error (exit 4) if a value would be asked for interactively",
     )
+    parser.add_argument("--version", action="version", version=f"git-tree {_version()}")
     # --no-input is accepted both before the subcommand (top-level, above) and after it
     # (via this shared parent). SUPPRESS on the parent copy means an absent flag leaves the
     # top-level value intact instead of clobbering it with the subparser's default.
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--no-input", action="store_true", default=argparse.SUPPRESS)
+    common.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     sub = parser.add_subparsers(dest="command")
 
     propagate_p = sub.add_parser(
@@ -2262,12 +2337,6 @@ def main(argv: list[str] | None = None) -> None:  # explicit argv for tests
     if getattr(args, "command", None) == "log":
         args.extra = unknown
 
-    # manpage needs the parser itself (single source of truth for the help text), so it is
-    # handled here where `parser` is in scope rather than through the args-only dispatch below.
-    if args.command == "manpage":
-        cmd_manpage(args, parser)
-        return
-
     commands = {
         None: cmd_tree,
         "propagate": cmd_propagate,
@@ -2280,20 +2349,44 @@ def main(argv: list[str] | None = None) -> None:  # explicit argv for tests
         "split": cmd_split,
         "push": cmd_push,
         "log": cmd_log,
-        "completions": cmd_completions,
     }
 
-    handler = commands.get(args.command, cmd_tree)
+    # Single output edge. In agent mode all inline human/`git_echo` output is redirected to
+    # stderr (a stdlib context manager, restored on exit) so stdout carries exactly one JSON
+    # object, written after the handler returns. Errors render here too — one place.
+    agent = getattr(args, "json", False)
+    real_stdout = sys.stdout
     try:
-        handler(args)
+        if args.command == "manpage":
+            # Emits roff (or installs) to the real stdout; --json is not meaningful here.
+            cmd_manpage(args, parser)
+        elif args.command == "completions":
+            cmd_completions(args)  # shell script to real stdout; --json not meaningful
+        elif args.command == "log" and agent:
+            raise TreeError(
+                "`git tree log` has no JSON form; query state with `git tree --json`.", code=2
+            )
+        else:
+            handler = commands.get(args.command, cmd_tree)
+            with contextlib.redirect_stdout(sys.stderr) if agent else contextlib.nullcontext():
+                data = handler(args)
+            if agent:
+                print(json.dumps(_success_envelope(args, data), indent=2), file=real_stdout)
     except subprocess.CalledProcessError as e:
         # A bare git() (check=True) failed somewhere unexpected. Surface git's own command
         # and stderr as a clean error instead of dumping a CalledProcessError traceback.
         cmd = " ".join(e.cmd) if isinstance(e.cmd, (list, tuple)) else str(e.cmd)
         stderr = (e.stderr or "").strip()
-        raise TreeError(
-            f"git command failed (exit {e.returncode}): {cmd}" + (f"\n{stderr}" if stderr else "")
-        ) from e
+        _render_error(
+            args,
+            TreeError(
+                f"git command failed (exit {e.returncode}): {cmd}"
+                + (f"\n{stderr}" if stderr else "")
+            ),
+            real_stdout,
+        )
+    except TreeError as e:
+        _render_error(args, e, real_stdout)
 
 
 if __name__ == "__main__":
