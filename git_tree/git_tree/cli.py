@@ -106,27 +106,21 @@ def _color(text: str, code: Color) -> str:
 def _run(
     *args: str,
     check: bool = True,
-    capture: bool = True,
     cwd: Path | str | None = None,
     env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         args,
         check=check,
-        capture_output=capture,
+        capture_output=True,
         text=True,
         cwd=cwd,
         env={**os.environ, **env} if env else None,
     )
 
 
-def git(
-    *args: str,
-    cwd: Path | str | None = None,
-    check: bool = True,
-    env: dict[str, str] | None = None,
-) -> str:
-    result = _run("git", *args, cwd=cwd, check=check, env=env)
+def git(*args: str, cwd: Path | str | None = None, check: bool = True) -> str:
+    result = _run("git", *args, cwd=cwd, check=check)
     return result.stdout.strip()
 
 
@@ -135,8 +129,8 @@ def git_lines(*args: str, cwd: Path | str | None = None) -> list[str]:
     return out.splitlines() if out else []
 
 
-def git_ok(*args: str, cwd: Path | str | None = None, env: dict[str, str] | None = None) -> bool:
-    result = _run("git", *args, check=False, cwd=cwd, env=env)
+def git_ok(*args: str, cwd: Path | str | None = None) -> bool:
+    result = _run("git", *args, check=False, cwd=cwd)
     return result.returncode == 0
 
 
