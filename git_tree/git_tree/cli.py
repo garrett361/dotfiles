@@ -1870,7 +1870,7 @@ def cmd_split(args: argparse.Namespace) -> None:
     print(f"  {branch} ({len(remaining)} commits) → now child of {parent_name}")
 
 
-def cmd_push(args: argparse.Namespace) -> None:
+def cmd_push(args: argparse.Namespace) -> dict | None:
     branch = current_branch()
     graph = discover()
 
@@ -1989,6 +1989,18 @@ def cmd_push(args: argparse.Namespace) -> None:
             kind="lease_rejected" if lease_rejected else None,
             branches=failed,
         )
+
+    # Surface what was NOT pushed. This is the one place a bare {ok:true} under-informs an
+    # agent: stale/blocked branches are silently left behind and the skip classification isn't
+    # cleanly re-derivable from a forest snapshot. (Human mode ignores the return.)
+    return {
+        "skipped": [{"branch": b, "reason": "stale"} for b in stale]
+        + [
+            {"branch": b, "reason": "ancestor_not_pushed"}
+            for b, status in results
+            if status.startswith("skipped")
+        ]
+    }
 
 
 def cmd_log(args: argparse.Namespace) -> None:

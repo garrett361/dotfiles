@@ -201,3 +201,51 @@ class TestContinue:
             main(["continue", "--json"])
         assert exc.value.code == 4
         assert json.loads(capsys.readouterr().out)["ok"] is False
+
+
+class TestPushJson:
+    def _child_with_commit(self, repo: RepoHelper, tmp_path):
+        repo.branch("child", parent="main")
+        wt_c = repo.worktree("child", str(tmp_path / "wt-c"))
+        (wt_c / "c.txt").write_text("c")
+        repo.git("add", "c.txt", cwd=wt_c)
+        repo.git("commit", "-m", "child commit", cwd=wt_c)
+
+    def test_skipped_stale_branch_surfaced(self, repo: RepoHelper, capsys, tmp_path) -> None:
+        # Advance main past child's fork so child is stale; pushing from main pushes main but
+        # skips child. A bare {ok:true} would hide that — the agent must see it in `skipped`.
+        self._child_with_commit(repo, tmp_path)
+        repo.commit("m2.txt", "m2", "advance main past child's fork")
+        main(["push", "--json", "-y"])
+        obj = json.loads(capsys.readouterr().out)
+        assert obj["ok"] is True
+        assert {"branch": "child", "reason": "stale"} in obj["skipped"]
+
+    def test_clean_push_reports_empty_skipped(self, repo: RepoHelper, capsys, tmp_path) -> None:
+        self._child_with_commit(repo, tmp_path)
+        main(["push", "--json", "-y"])
+        obj = json.loads(capsys.readouterr().out)
+        assert obj["ok"] is True
+        assert obj["skipped"] == []
+
+    def test_blocked_descendant_reports_ancestor_not_pushed(
+        self, repo: RepoHelper, capsys, tmp_path
+    ) -> None:
+        # main -> aaa -> bbb; advance main so aaa is stale. aaa is skipped (stale); bbb, though
+        # not itself stale, is blocked because its ancestor aaa wasn't pushed.
+        repo.branch("aaa", parent="main")
+        wt_a = repo.worktree("aaa", str(tmp_path / "wt-a"))
+        (wt_a / "a.txt").write_text("a")
+        repo.git("add", "a.txt", cwd=wt_a)
+        repo.git("commit", "-m", "a commit", cwd=wt_a)
+        repo.git("branch", "bbb", "aaa")  # start bbb at aaa's tip -> a true descendant
+        repo.set_parent("bbb", "aaa")
+        wt_b = repo.worktree("bbb", str(tmp_path / "wt-b"))
+        (wt_b / "b.txt").write_text("b")
+        repo.git("add", "b.txt", cwd=wt_b)
+        repo.git("commit", "-m", "b commit", cwd=wt_b)
+        repo.commit("m2.txt", "m2", "advance main past aaa's fork")  # aaa now stale
+        main(["push", "--json", "-y"])
+        skipped = json.loads(capsys.readouterr().out)["skipped"]
+        assert {"branch": "aaa", "reason": "stale"} in skipped
+        assert {"branch": "bbb", "reason": "ancestor_not_pushed"} in skipped
