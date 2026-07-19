@@ -104,26 +104,25 @@ A conflict is `error.kind == "conflict"` plus the location and the resume comman
 }
 ```
 
-A confirmation you must supply comes back as `confirmation_required`, whose `remedy` is the exact invocation plus `-y`:
+A confirmation you must supply comes back as `confirmation_required` — re-run your command with `-y`:
 
 ```json
 {
   "schema_version": 1, "tool_version": "0.1.0", "command": "remove", "ok": false,
   "error": {
-    "kind": "confirmation_required", "code": 4, "message": "confirmation required; pass -y/--yes",
-    "remedy": ["git", "tree", "remove", "feat", "-y"]
+    "kind": "confirmation_required", "code": 4, "message": "confirmation required; pass -y/--yes"
   }
 }
 ```
 
-`remedy` (and any runnable-command field) is always an argv array, never a shell string.
+`remedy` (where present, e.g. the conflict envelope) is always an argv array, never a shell string.
 
 ### `error.kind`
 
 Derived from the exit code — `usage` (2), `conflict` (3), `precondition` (4), `not_a_tree_branch` (5), `error` (1) — with three specific overrides:
 
 - `input_required` — a required value or flag is missing.
-- `confirmation_required` — needs `-y`; `remedy` is the invocation argv plus `-y`.
+- `confirmation_required` — needs `-y`; re-run the command with it.
 - `lease_rejected` — a `--force-with-lease` push was rejected because the remote moved.
 
 ### Forward-compat contract
@@ -132,7 +131,7 @@ Agents **must ignore unknown fields and default-arm unknown enum values**, so ad
 
 ### `-y`/`--yes`
 
-`-y`/`--yes` skips the confirmation prompt on `propagate`/`rebase`/`push`/`remove`/`repair`/`detach` — the first-class way to run destructive ops unattended (no more `echo y | git tree …`). `--json` does **not** auto-imply it: it won't silently confirm a destructive op. Instead a needed confirmation returns `confirmation_required` with the ready-to-run `remedy`.
+`-y`/`--yes` skips the confirmation prompt on `propagate`/`rebase`/`push`/`remove`/`repair`/`detach` — the first-class way to run destructive ops unattended (no more `echo y | git tree …`). `--json` does **not** auto-imply it: it won't silently confirm a destructive op. Instead a needed confirmation returns `confirmation_required` (re-run with `-y`).
 
 ### The forest query
 

@@ -65,9 +65,7 @@ class TestErrorEnvelope:
         obj = json.loads(capsys.readouterr().out)
         assert obj["ok"] is False and obj["error"]["kind"] == "input_required"
 
-    def test_confirmation_required_remedy_is_argv_plus_yes(
-        self, repo: RepoHelper, capsys, tmp_path
-    ) -> None:
+    def test_confirmation_required(self, repo: RepoHelper, capsys, tmp_path) -> None:
         repo.branch("feat", parent="main")
         repo.worktree("feat", str(tmp_path / "wt-feat"))
         with pytest.raises(SystemExit) as exc:
@@ -75,7 +73,8 @@ class TestErrorEnvelope:
         assert exc.value.code == 4
         err = json.loads(capsys.readouterr().out)["error"]
         assert err["kind"] == "confirmation_required"
-        assert err["remedy"] == ["git", "tree", "remove", "feat", "--json", "-y"]
+        assert "remedy" not in err  # the agent already knows its own command
+        assert "-y" in err["message"]  # the message names the flag to add
 
     def test_conflict_envelope(self, repo: RepoHelper, capsys, tmp_path) -> None:
         repo.commit("shared.txt", "base", "base")
@@ -94,6 +93,7 @@ class TestErrorEnvelope:
         assert err["branch"] == "b"
         assert err["conflicted_files"] == ["shared.txt"]
         assert err["worktree"]
+        assert err["remedy"] == ["git", "tree", "continue"]
 
 
 class TestContinue:

@@ -735,21 +735,13 @@ def _require_input(args: argparse.Namespace, what: str, flag: str) -> None:
         raise TreeError(f"--no-input: {what} required; pass {flag}", code=4, kind="input_required")
 
 
-def _yes_remedy(args: argparse.Namespace) -> list[str]:
-    """The current invocation plus `-y`, as an argv an agent can re-run to auto-confirm."""
-    return ["git", "tree", *getattr(args, "_argv", []), "-y"]
-
-
 def _proceed(args: argparse.Namespace, message: str) -> bool:
     """True if the user opted in via --yes or an interactive y/N confirmation."""
     if getattr(args, "yes", False):
         return True
     if _no_input(args):
         raise TreeError(
-            "confirmation required; pass -y/--yes",
-            code=4,
-            kind="confirmation_required",
-            remedy=_yes_remedy(args),
+            "confirmation required; pass -y/--yes", code=4, kind="confirmation_required"
         )
     return confirm(message)
 
@@ -1630,7 +1622,7 @@ def _branch_containing_cwd(branches: list[str], graph: Graph) -> str | None:
     matches = []
     for b in branches:
         wt = graph.branches[b].worktree
-        if wt and (cwd == wt.resolve() or cwd.is_relative_to(wt.resolve())):
+        if wt and cwd.is_relative_to(wt.resolve()):  # is_relative_to is true on equality too
             matches.append(b)
     return matches[0] if len(matches) == 1 else None
 
@@ -1681,7 +1673,9 @@ def cmd_continue(args: argparse.Namespace) -> None:
     git_echo("rebase", "--continue", cwd=wt, env={"GIT_EDITOR": "true"})
     if _has_active_rebase(wt):
         # `--continue` stopped again: either a later commit conflicts, or it resolved to an
-        # empty patch that must be skipped (mirrors the cascade's own handling).
+        # empty patch that must be skipped (mirrors the cascade's own handling). `stashed=False`:
+        # a stash from the original run isn't detectable here, and its first conflict already
+        # told the user about it.
         if git("ls-files", "--unmerged", cwd=wt, check=False).strip():
             _conflict_exit(branch, onto, wt, stashed=False)
         if _skip_empty_commits(wt) is None:
@@ -1689,9 +1683,9 @@ def cmd_continue(args: argparse.Namespace) -> None:
 
     _set_fork_commit(branch, git("rev-parse", onto))
     print(f"Continued {branch} onto {onto}.")
-    _propagate_descendants(
-        branch, discover(), auto_rerere=not getattr(args, "no_auto_rerere", False)
-    )
+    # Reuse the pre-continue graph: continuing `branch` moved only its own tip/fork (read live in
+    # _rebase_branch), not any descendant edge — same pattern as cmd_rebase/cmd_propagate.
+    _propagate_descendants(branch, graph, auto_rerere=not getattr(args, "no_auto_rerere", False))
 
 
 def _resolve_split_point(after: str, old_fork: str | None) -> str:
@@ -2290,8 +2284,8 @@ FOR AGENTS:
                      branch also has rebase_in_progress). Mutations return a bare {ok:true}
                      — re-query the forest for post-op state.
   -y, --yes          skip confirmation on propagate/rebase/push/remove/repair/detach;
-                     under --json a needed confirm returns kind=confirmation_required with
-                     a ready-to-run remedy argv (never auto-confirmed)
+                     under --json a needed confirm returns kind=confirmation_required
+                     (re-run with -y; never auto-confirmed)
   git tree continue  resume a cascade after resolving a conflict: finish the rebase (editor
                      disabled), record the new fork point, propagate to descendants
   --no-input         never prompt; error instead of asking for a value
@@ -2307,17 +2301,13 @@ FOR AGENTS:
 _KIND_BY_CODE = {2: "usage", 3: "conflict", 4: "precondition", 5: "not_a_tree_branch"}
 
 
-def _envelope(args: argparse.Namespace) -> dict:
-    return {
+def _envelope(args: argparse.Namespace, data: dict | None = None) -> dict:
+    env = {
         "schema_version": SCHEMA_VERSION,
         "tool_version": _version(),
         "command": getattr(args, "command", None) or "tree",
         "ok": True,
     }
-
-
-def _success_envelope(args: argparse.Namespace, data: dict | None) -> dict:
-    env = _envelope(args)
     if data:
         env.update(data)  # flat merge: e.g. cmd_tree's forest keys become siblings
     return env
@@ -2495,8 +2485,6 @@ def main(argv: list[str] | None = None) -> None:  # explicit argv for tests
     )
 
     args, unknown = parser.parse_known_args(argv)
-    # Stash the raw invocation so a confirmation error can hand back an argv + `-y` remedy.
-    args._argv = list(argv) if argv is not None else sys.argv[1:]
     if unknown and getattr(args, "command", None) != "log":
         parser.error(f"unrecognized arguments: {' '.join(unknown)}")
     if getattr(args, "command", None) == "log":
@@ -2535,9 +2523,10 @@ def main(argv: list[str] | None = None) -> None:  # explicit argv for tests
         else:
             handler = commands.get(args.command, cmd_tree)
             with contextlib.redirect_stdout(sys.stderr) if agent else contextlib.nullcontext():
+                # Only cmd_tree returns envelope data (the forest); others return None.
                 data = handler(args)
             if agent:
-                print(json.dumps(_success_envelope(args, data), indent=2), file=real_stdout)
+                print(json.dumps(_envelope(args, data), indent=2), file=real_stdout)
     except subprocess.CalledProcessError as e:
         # A bare git() (check=True) failed somewhere unexpected. Surface git's own command
         # and stderr as a clean error instead of dumping a CalledProcessError traceback.
