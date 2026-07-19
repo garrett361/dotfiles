@@ -124,6 +124,7 @@ Derived from the exit code — `usage` (2), `conflict` (3), `precondition` (4), 
 - `input_required` — a required value or flag is missing.
 - `confirmation_required` — needs `-y`; re-run the command with it.
 - `lease_rejected` — a `--force-with-lease` push was rejected because the remote moved.
+- `unresolved_conflicts` — `git tree continue` was run with conflicts still unresolved.
 
 ### Forward-compat contract
 
@@ -152,11 +153,13 @@ With no subcommand, `git tree --json` prints the whole forest (every branch's pa
 }
 ```
 
-Worktree/status fields are `null` for a branch with no worktree; `parent`/`pending_from_parent` are `null` for a root.
+Worktree/status fields are `null` for a branch with no worktree; `parent`/`pending_from_parent` are `null` for a root. Broken branches appear here too, so you can see their state while repairing a tree: an orphaned branch (its configured parent is gone) carries `orphaned_parent: "<missing parent>"`, and a branch in a dependency cycle carries `cyclic: true` (the cycle itself is listed in `cycles`). Those tags mark a branch as not a healthy root.
 
 ### Other agent surface
 
-- **`git tree continue`** resumes a cascade after you resolve a conflict: it finishes the in-progress rebase (editor disabled, so no `$EDITOR` hang), records the new fork point, and propagates to the branch's descendants. It replaces the old `git rebase --continue` + `git tree propagate <parent>` two-step.
+- **`git tree push`** returns `{ok: true}` with a `skipped` list of branches it did **not** push — each `{branch, reason}`, where `reason` is `"stale"` (behind its parent — run `propagate` first) or `"ancestor_not_pushed"`. On any push failure it exits non-zero with `error.kind` `lease_rejected` (the remote moved) or a generic `error`, and `error.branches` naming the failures.
+
+- **`git tree continue`** resumes a cascade after you resolve a conflict: it finishes the in-progress rebase (editor disabled, so no `$EDITOR` hang), records the new fork point, and re-propagates from the tree root so every branch the cascade would have reached is covered. It replaces the old `git rebase --continue` + `git tree propagate <parent>` two-step.
 
 - **`git tree --version`** prints `git-tree <version>` (the same value as `tool_version`).
 
@@ -170,11 +173,13 @@ Worktree/status fields are `null` for a branch with no worktree; `parent`/`pendi
 
 ## How it works
 
-Each branch records two things in git config — no external files, no commit labels, no hooks:
+The tree lives entirely in git config — no external files, no commit labels, no hooks. Each
+branch records its edge and fork point, and the tree's single remote lives on the root:
 
 ```
 git config branch.<name>.tree-parent-branch <parent-branch>   # which branch it stacks on
 git config branch.<name>.tree-fork-commit   <commit>          # where it forks from that parent
+git config branch.<root>.remote             <remote>          # the tree's one remote (on the root)
 ```
 
 `tree-parent-branch` is the structural edge; `tree-fork-commit` is the parent's tip the
@@ -199,7 +204,7 @@ Equivalent to: `git rebase --onto <target> <fork-point>` + `git tree attach <tar
 
 ### Push
 
-`git tree push` pushes the current branch and all descendants with `--force-with-lease`. Branches that are stale (behind their parent) are skipped with a warning to run `propagate` first.
+`git tree push` pushes the current branch and all descendants with `--force-with-lease`. Branches that are stale (behind their parent) are skipped with a warning to run `propagate` first. It pushes with `-u`, so git also writes each pushed branch's own `branch.<b>.remote`/`.merge`; git-tree ignores those and always resolves the tree's remote from the root.
 
 ## Worktrees
 

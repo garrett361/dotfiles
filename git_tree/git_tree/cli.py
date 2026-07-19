@@ -2332,8 +2332,8 @@ FOR AGENTS:
   --dry-run          preview propagate/rebase/push/remove without mutating
   --version          print git-tree <version>
   exit codes         3 resumable conflict, 4 precondition/state, 5 not-a-tree-branch;
-                     error.kind is one of usage/conflict/precondition/not_a_tree_branch/
-                     error plus input_required/confirmation_required/lease_rejected
+                     error.kind is one of usage/conflict/precondition/not_a_tree_branch/error
+                     plus input_required/confirmation_required/lease_rejected/unresolved_conflicts
   full contract      see CLAUDE.md in the git-tree source repo
 """
 
