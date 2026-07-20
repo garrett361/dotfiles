@@ -10,6 +10,7 @@ git-tree is a deliberately **light wrapper around plain git**. It automates the 
 
 - **Minimal state**: dependency edges live in git config (see Architecture), not external files or commit labels. Anything git already knows is read from git, never duplicated.
 - **Explicit and transparent**: prefer surfacing the underlying git operations over hiding them. Side-effecting commands echo the git invocation and reprint git's own output (`git_echo`); `git tree log` streams git directly. Data-query calls and the internal tree-config bookkeeping (the `branch.<name>.tree-*` / root `remote` writes) are captured silently — each command narrates the structural change in prose instead. When in doubt, show the git command and its output rather than a hand-rolled summary.
+- **Standalone**: git-tree lives inside a larger repo today but is written as an independent piece of work that could be `git init`'d into its own repo tomorrow with zero edits. Nothing under `git_tree/` may presume that host or read/write files outside it: use location-neutral paths like `/path/to/git_tree`, keep install/man-page logic self-contained (no external scripts), and let `pyproject.toml` declare everything needed to build alone. A host repo may wrap the install as an *external consumer*, but that wrapper lives on the host's side, never here — such integration is the host's concern, not git-tree's.
 
 ## Install
 
@@ -17,9 +18,9 @@ git-tree is a deliberately **light wrapper around plain git**. It automates the 
 uv tool install -e /path/to/git_tree   # editable, on PATH as git-tree
 ```
 
-Handled by `dotfiles/install.sh`. No git alias needed — git auto-discovers `git-tree` on PATH as `git tree`.
+No git alias needed — git auto-discovers `git-tree` on PATH as `git tree`.
 
-**Man page**: `git tree manpage --install` writes `~/.local/share/man/man1/git-tree.1` (roff generated from the argparse parser, so it never drifts from `-h`). This is what makes `git tree --help` work: git routes `--help` to `man git-tree`. `uv tool install` can't place a discoverable page (it symlinks only the script onto PATH; the packaged page stays in the venv), so git-tree writes its own. Run by `install.sh`; keep it self-contained here (no external script) so it survives if `git_tree` becomes a standalone repo.
+**Man page**: `git tree manpage --install` writes `~/.local/share/man/man1/git-tree.1` (roff generated from the argparse parser, so it never drifts from `-h`). This is what makes `git tree --help` work: git routes `--help` to `man git-tree`. `uv tool install` can't place a discoverable page (it symlinks only the script onto PATH; the packaged page stays in the venv), so git-tree writes its own. Keep it self-contained here (no external script) so it survives if `git_tree` becomes a standalone repo.
 
 ## Dev commands
 
