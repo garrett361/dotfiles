@@ -73,10 +73,10 @@ git-tree is built to be driven by an AI agent (or any script) as well as by hand
 
 ### Envelope
 
-The object is **flat** — no nesting. A success carries the four envelope keys and nothing else:
+The object is **flat** — no nesting. A success carries just `command` and `ok`:
 
 ```json
-{"schema_version": 1, "tool_version": "0.1.0", "command": "propagate", "ok": true}
+{"command": "propagate", "ok": true}
 ```
 
 **Success is bare — re-query for state.** A mutation returns just `{ok: true}`; re-run `git tree --json` (the forest) for authoritative post-op state. The forest already carries it, so the envelope stays lean.
@@ -85,7 +85,7 @@ An error sets `ok: false` and adds an `error` object; it may also carry `branche
 
 ```json
 {
-  "schema_version": 1, "tool_version": "0.1.0", "command": "push", "ok": false,
+  "command": "push", "ok": false,
   "error": {"kind": "precondition", "code": 4, "message": "…"}
 }
 ```
@@ -94,7 +94,7 @@ A conflict is `error.kind == "conflict"` plus the location and the resume comman
 
 ```json
 {
-  "schema_version": 1, "tool_version": "0.1.0", "command": "propagate", "ok": false,
+  "command": "propagate", "ok": false,
   "error": {
     "kind": "conflict", "code": 3, "message": "…",
     "branch": "feat2", "worktree": "/abs/path",
@@ -108,7 +108,7 @@ A confirmation you must supply comes back as `confirmation_required` — re-run 
 
 ```json
 {
-  "schema_version": 1, "tool_version": "0.1.0", "command": "remove", "ok": false,
+  "command": "remove", "ok": false,
   "error": {
     "kind": "confirmation_required", "code": 4, "message": "confirmation required; pass -y/--yes"
   }
@@ -128,7 +128,7 @@ Derived from the exit code — `usage` (2), `conflict` (3), `precondition` (4), 
 
 ### Forward-compat contract
 
-Agents **must ignore unknown fields and default-arm unknown enum values**, so adding a field or a new `kind` is non-breaking. `schema_version` bumps **only** on a breaking change; `tool_version` is the package version.
+Agents **must ignore unknown fields and default-arm unknown enum values**, so adding a field or a new `kind` is non-breaking. There is no version field in the envelope; a breaking change is just a breaking change, so pin the tool version if you need long-term stability.
 
 ### `-y`/`--yes`
 
@@ -140,7 +140,7 @@ With no subcommand, `git tree --json` prints the whole forest (every branch's pa
 
 ```json
 {
-  "schema_version": 1, "tool_version": "0.1.0", "command": "tree", "ok": true,
+  "command": "tree", "ok": true,
   "roots": ["main"],
   "cycles": [],
   "orphans": [],
@@ -161,7 +161,7 @@ Worktree/status fields are `null` for a branch with no worktree; `parent`/`pendi
 
 - **`git tree continue`** resumes a cascade after you resolve a conflict: it finishes the in-progress rebase (editor disabled, so no `$EDITOR` hang), records the new fork point, and re-propagates from the tree root so every branch the cascade would have reached is covered. It replaces the old `git rebase --continue` + `git tree propagate <parent>` two-step.
 
-- **`git tree --version`** prints `git-tree <version>` (the same value as `tool_version`).
+- **`git tree --version`** prints `git-tree <version>`.
 
 - **`--no-input`** (global, without `--json`) never prompts: if a value would be asked for interactively (a confirmation, a branch/parent selection, a name), it errors instead, naming the flag that supplies it. Compose with `--yes` to auto-confirm confirmations while still erroring on other missing input.
 

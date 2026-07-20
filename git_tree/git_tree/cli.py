@@ -65,9 +65,6 @@ class ConflictError(TreeError):
         self.conflicted_files = conflicted_files
 
 
-SCHEMA_VERSION = 1
-
-
 def _version() -> str:
     try:
         return metadata.version("git-tree")
@@ -2336,12 +2333,7 @@ _KIND_BY_CODE = {2: "usage", 3: "conflict", 4: "precondition", 5: "not_a_tree_br
 
 
 def _envelope(args: argparse.Namespace, data: dict | None = None) -> dict:
-    env = {
-        "schema_version": SCHEMA_VERSION,
-        "tool_version": _version(),
-        "command": getattr(args, "command", None) or "tree",
-        "ok": True,
-    }
+    env = {"command": getattr(args, "command", None) or "tree", "ok": True}
     if data:
         env.update(data)  # flat merge: e.g. cmd_tree's forest keys become siblings
     return env

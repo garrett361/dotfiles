@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from git_tree.cli import SCHEMA_VERSION, _has_active_rebase, main
+from git_tree.cli import _has_active_rebase, main
 
 from .conftest import RepoHelper
 
@@ -14,8 +14,6 @@ class TestSuccessEnvelope:
         # No-op propagate on a rootless main: a bare success envelope, no `data`.
         main(["propagate", "--json", "-y"])
         obj = json.loads(capsys.readouterr().out)
-        assert obj["schema_version"] == SCHEMA_VERSION
-        assert obj["tool_version"]
         assert obj["command"] == "propagate"
         assert obj["ok"] is True
         assert "error" not in obj
