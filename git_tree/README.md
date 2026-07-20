@@ -24,7 +24,7 @@ see what it did and fall back to plain git.
 ## Install
 
 ```sh
-uv tool install -e /path/to/dotfiles/git_tree
+uv tool install -e /path/to/git_tree
 ```
 
 This creates an isolated venv, installs `git-tree` in editable mode, and symlinks the executable to `~/.local/bin/git-tree`. Git auto-discovers it as `git tree`. The dotfiles `install.sh` handles this automatically.

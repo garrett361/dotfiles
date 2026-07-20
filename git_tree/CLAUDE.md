@@ -14,7 +14,7 @@ git-tree is a deliberately **light wrapper around plain git**. It automates the 
 ## Install
 
 ```sh
-uv tool install -e /path/to/dotfiles/git_tree   # editable, on PATH as git-tree
+uv tool install -e /path/to/git_tree   # editable, on PATH as git-tree
 ```
 
 Handled by `dotfiles/install.sh`. No git alias needed — git auto-discovers `git-tree` on PATH as `git tree`.
