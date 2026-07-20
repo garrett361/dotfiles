@@ -33,13 +33,17 @@ for localfile in ".commonrc" ".vimrc" ".bashrc" ".zshrc" ".profile" ".zprofile" 
 	ln -sfF $filepath $HOME/$localfile
 done
 
-# git-tree: install as uv tool (editable, auto-discovered by git as `git tree`)
-if command -v uv &>/dev/null; then
-    uv tool install -e "$(cd git_tree && pwd)" 2>/dev/null || true
+# git-tree: install as uv tool (editable, auto-discovered by git as `git tree`) from the sibling
+# repo cloned by get_deps.sh. --force keeps re-pointing deterministic; warn loudly if it's missing.
+gt_src="$(cd "$(dirname "$0")/../git_tree" 2>/dev/null && pwd)"
+if command -v uv &>/dev/null && [ -n "$gt_src" ]; then
+    uv tool install -e "$gt_src" --force
+elif command -v uv &>/dev/null; then
+    echo "git_tree sibling missing at ../git_tree — run ./get_deps.sh first" >&2
 fi
 
 # git-tree man page (makes `git tree --help` work via `man git-tree`). Absolute path: a fresh
-# bootstrap may not have ~/.local/bin on PATH yet. Command is git_tree-owned; see git_tree/CLAUDE.md.
+# bootstrap may not have ~/.local/bin on PATH yet. Command is git_tree-owned; see ../git_tree/CLAUDE.md.
 gt_bin="$HOME/.local/bin/git-tree"
 [ -x "$gt_bin" ] && "$gt_bin" manpage --install &>/dev/null || true
 

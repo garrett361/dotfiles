@@ -10,7 +10,10 @@ for arg in "$@"; do
     esac
 done
 
-git -C "$(cd "$(dirname "$0")" && pwd)" submodule update --init
+# git_tree: cascading-rebase CLI, its own repo cloned parallel to dotfiles.
+# Clone only if missing — never rm -rf (it's an active dev checkout).
+gt_dir="$(cd "$(dirname "$0")/.." && pwd)/git_tree"
+[ -d "$gt_dir/.git" ] || git clone git@github.com:garrett361/git_tree.git "$gt_dir"
 
 # Arch-specific bin dir so x86 and ARM installs don't collide on a shared home
 bin_dir=$HOME/.local/bin/$arch
