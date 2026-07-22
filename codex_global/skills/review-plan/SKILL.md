@@ -6,14 +6,17 @@ description: Fan out reviewer subagents on a plan, triage critical issues, and r
 # Review Plan
 
 Stress-test the plan in context with independent reviewer subagents, then revise
-until clean. Consult the user only on borderline calls.
+until clean. Consult the user only on borderline calls. Match the review depth to
+the plan: a small or simple plan warrants a single quick pass, not a multi-round
+fan-out.
 
 ## Steps
 
 1. Identify the plan in context (a plan just written or agreed in context). If
    none, say so and stop.
-2. Launch 2-3 reviewer subagents in parallel, each with a distinct lens:
-   soundness, completeness, risk. Inline the full plan text into each prompt
+2. Launch reviewer subagents in parallel, scaled to the plan: one for a small
+   plan, up to 2-3 with distinct lenses (soundness, completeness, risk) for a
+   large or complex one. Inline the full plan text into each prompt
    (subagents do not see this conversation). Tell each to return only critical
    and borderline findings (drop nits) and to review only, not spawn subagents.
 3. Dedupe and triage into critical / borderline / minor. Treat genuine reviewer

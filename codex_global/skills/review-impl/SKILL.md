@@ -7,6 +7,8 @@ description: Fan out reviewer subagents on the changes implementing the current 
 
 Review the changes implementing the plan in context with independent reviewer
 subagents, then revise until clean. Consult the user only on borderline calls.
+Match the review depth to the diff: a small change warrants a single quick pass,
+not a multi-round fan-out.
 
 ## Steps
 
@@ -14,11 +16,12 @@ subagents, then revise until clean. Consult the user only on borderline calls.
    uncommitted work, keeping only what the plan owns and ignoring unrelated
    diffs (staged vs unstaged is not the axis). If no plan is in context or
    nothing is plan-relevant, say so and stop.
-2. Launch 2-3 reviewer subagents in parallel, each with a distinct lens: bugs,
-   faithfulness and completeness to the plan, convention (`AGENTS.md`, fall back
-   to `CLAUDE.md`, and local style). Inline the plan text and the scoped diff
-   from step 1 into each prompt so all reviewers share one scope; grant file
-   read access. Tell each to return only critical and borderline findings (drop
+2. Launch reviewer subagents in parallel, scaled to the diff: one for a small
+   change, up to 2-3 with distinct lenses (bugs, faithfulness and completeness
+   to the plan, convention per `AGENTS.md` falling back to `CLAUDE.md`, and
+   local style) for a large one. Inline the plan text and the scoped diff from
+   step 1 into each prompt so all reviewers share one scope; grant file read
+   access. Tell each to return only critical and borderline findings (drop
    nits) and to review only, not spawn subagents.
 3. Dedupe and triage into critical / borderline / minor. Treat genuine reviewer
    disagreement as borderline.
