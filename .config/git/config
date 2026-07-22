@@ -33,7 +33,7 @@
     r = rebase
     ra = rebase --abort
     rau = remote add upstream
-    rc = rebase --continue
+    rc = rebase --continue -c rerere.enabled=true
     rh = reset --hard
     ri = rebase --interactive
     ria = rebase --interactive --autosquash
