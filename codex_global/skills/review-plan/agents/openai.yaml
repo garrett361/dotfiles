@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review Plan"
+  short_description: "Fan out reviewers on a plan and iterate until clean"
+  default_prompt: "Use $review-plan to dispatch reviewer subagents on the current plan, triage critical issues, and revise until clean."

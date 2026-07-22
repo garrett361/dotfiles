@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review Impl"
+  short_description: "Fan out reviewers on the plan's implementation"
+  default_prompt: "Use $review-impl to dispatch reviewer subagents on the changes implementing the current plan, triage critical issues, and revise until clean."
