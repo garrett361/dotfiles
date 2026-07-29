@@ -8,9 +8,8 @@ local function config()
 	})
 end
 
-
 return {
-    "nat-418/boole.nvim",
+	"nat-418/boole.nvim",
 	config = config,
 	event = "VeryLazy",
 }

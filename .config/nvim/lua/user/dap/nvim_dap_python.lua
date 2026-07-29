@@ -105,7 +105,7 @@ M.config = function()
 			local script = vim.fn.expand("%:p")
 			local script_args = vim.fn.input("Script arguments (" .. script .. "): ")
 
-            local port = math.random(29501, 29600)
+			local port = math.random(29501, 29600)
 			local args = {
 				"--nproc_per_node=" .. nproc,
 				"--master_port=" .. port,

@@ -9,7 +9,7 @@ local function config()
 			-- Add other delimiters to b for "brackets"
 			b = { { "%b()", "%b[]", "%b{}", '%b""', "%b''", "%b<>", "%b``" }, "^.().*().$" },
 			-- Custom textobject for dollar signs
-			['$'] = { '%$().-()%$' },
+			["$"] = { "%$().-()%$" },
 		},
 		-- Module mappings. Use `''` (empty string) to disable one.
 		mappings = {

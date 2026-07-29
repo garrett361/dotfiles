@@ -132,33 +132,33 @@ end
 
 ---@return integer[]
 M.get_visible_buffers = function()
-    local visible_buffers = {}
-    local seen_buffers = {}
+	local visible_buffers = {}
+	local seen_buffers = {}
 
-    -- Get windows only from the current tabpage
-    local current_tabpage = vim.api.nvim_get_current_tabpage()
-    local windows = vim.api.nvim_tabpage_list_wins(current_tabpage)
+	-- Get windows only from the current tabpage
+	local current_tabpage = vim.api.nvim_get_current_tabpage()
+	local windows = vim.api.nvim_tabpage_list_wins(current_tabpage)
 
-    for _, win in ipairs(windows) do
-        local win_config = vim.api.nvim_win_get_config(win)
+	for _, win in ipairs(windows) do
+		local win_config = vim.api.nvim_win_get_config(win)
 
-        -- Skip floating windows
-        if win_config.relative == "" then
-            -- Check if window has visible area (not minimized)
-            local height = vim.api.nvim_win_get_height(win)
-            local width = vim.api.nvim_win_get_width(win)
+		-- Skip floating windows
+		if win_config.relative == "" then
+			-- Check if window has visible area (not minimized)
+			local height = vim.api.nvim_win_get_height(win)
+			local width = vim.api.nvim_win_get_width(win)
 
-            if height > 0 and width > 0 then
-                local buf = vim.api.nvim_win_get_buf(win)
-                if not seen_buffers[buf] then
-                    seen_buffers[buf] = true
-                    table.insert(visible_buffers, buf)
-                end
-            end
-        end
-    end
+			if height > 0 and width > 0 then
+				local buf = vim.api.nvim_win_get_buf(win)
+				if not seen_buffers[buf] then
+					seen_buffers[buf] = true
+					table.insert(visible_buffers, buf)
+				end
+			end
+		end
+	end
 
-    return visible_buffers
+	return visible_buffers
 end
 
 return M
