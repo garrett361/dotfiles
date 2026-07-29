@@ -30,6 +30,14 @@ M.config = function()
 		},
 	})
 
+	-- dap-view sets winfixbuf on both of its windows and offers no way to turn that off, so
+	-- nvim-dap's default "uselast" can raise E1513 when it has to move the source buffer into
+	-- a window: it falls back to the alternate window, which is a dap-view one whenever the
+	-- cursor sits in the REPL or the terminal. useopen reuses a window already showing the
+	-- file and only moves the cursor, and split makes a new window when nothing shows it, so
+	-- neither ever writes into a fixed window.
+	dap.defaults.fallback.switchbuf = "useopen,split"
+
 	-- Open on session start but never auto-close, matching the previous behavior. auto_toggle
 	-- would also close when sessions end. The guard matters with one session per rank: open()
 	-- begins with an unconditional close(), so an unguarded listener would tear the window
