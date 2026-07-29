@@ -1,10 +1,6 @@
 local options = {
-	autoread = true,
-	backup = false, -- creates a backup file
-	cmdheight = 1, -- more space in the neovim command line for displaying messages
 	completeopt = { "menuone", "noselect" }, -- mostly just for cmp
 	-- confirm = true, -- https://www.reddit.com/r/neovim/comments/1ja1ydw/neovim_how_to_remove_e37_and_e162_errors_which/
-	conceallevel = 0, -- so that `` is visible in markdown files
 	cursorline = true, -- highlight the current line
 	diffopt = "internal,filler,closeoff,indent-heuristic,linematch:60,algorithm:histogram", -- https://www.reddit.com/r/neovim/comments/1j9fy2w/comment/mhdjdna/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button
 	expandtab = true, -- convert tabs to spaces
@@ -12,13 +8,10 @@ local options = {
 	formatoptions = "cqr", -- do not autoformat to linewidth; use gw/gwip/etc
 	guicursor = "n-v-c:block-Cursor/lCursor-blinkon0,i-ci-ve:ver25,r-cr:hor20,o:hor50,a:blinkwait700-blinkoff400-blinkon250-Cursor/lCursor", -- cursor style
 	guifont = "monospace:h17", -- the font used in graphical neovim applications
-	hlsearch = true, -- highlight all matches on previous search pattern
-	ignorecase = false, -- ignore case in search patterns
 	laststatus = 3, -- lines between all splits and only one status bar
 	linebreak = true, -- companion to wrap, don't split words
 	mouse = "a", -- allow the mouse to be used in neovim
 	number = true, -- set numbered lines
-	numberwidth = 4, -- set number column width to 2 {default 4}
 	pumheight = 10, -- pop up menu height
 	relativenumber = true, -- set relative numbered lines
 	scrolloff = 8, -- minimal number of screen lines to keep above and below the cursor
@@ -61,10 +54,9 @@ vim.api.nvim_create_autocmd({ "FileChangedShellPost" }, {
 -- Clipboard handling: https://github.com/neovim/neovim/discussions/28010#discussioncomment-10187140
 vim.o.clipboard = "unnamedplus"
 if vim.env.SSH_TTY ~= nil then
-	function my_paste(reg)
-		return function(lines)
-			local content = vim.fn.getreg('"')
-			return vim.split(content, "\n")
+	local function my_paste()
+		return function()
+			return vim.split(vim.fn.getreg('"'), "\n")
 		end
 	end
 
@@ -75,8 +67,8 @@ if vim.env.SSH_TTY ~= nil then
 			["*"] = require("vim.ui.clipboard.osc52").copy("*"),
 		},
 		paste = {
-			["+"] = my_paste("+"),
-			["*"] = my_paste("*"),
+			["+"] = my_paste(),
+			["*"] = my_paste(),
 		},
 	}
 end
@@ -103,16 +95,10 @@ local function set_python_host_prog()
 	local conda_prefix = vim.env.CONDA_PREFIX
 	local py_venv = vim.env.VIRTUAL_ENV
 	if conda_prefix ~= nil then
-		vim.print("Python version: " .. conda_prefix)
-		vim.g.python_host_prog = conda_prefix .. "/bin/python"
 		vim.g.python3_host_prog = conda_prefix .. "/bin/python"
 	elseif py_venv ~= nil then
-		vim.print("Python version: " .. py_venv)
-		vim.g.python_host_prog = py_venv .. "/bin/python"
 		vim.g.python3_host_prog = py_venv .. "/bin/python"
 	else
-		vim.print("Python version: python3")
-		vim.g.python_host_prog = "python"
 		vim.g.python3_host_prog = "python3"
 	end
 end
@@ -124,7 +110,6 @@ set_python_host_prog()
 local git_root = vim.fs.root(0, { ".git" })
 if git_root ~= nil then
 	vim.opt.exrc = true
-	vim.opt.secure = true
 	local cache_dir = vim.fn.stdpath("data")
 	local unique_id = vim.fn.fnamemodify(git_root, ":t") .. "_" .. vim.fn.sha256(git_root):sub(1, 8) ---@type string
 	local shadafile = cache_dir .. "/myshada/" .. unique_id .. ".shada"
