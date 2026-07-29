@@ -93,6 +93,7 @@ case "$(uname -s)-$arch" in
         DELTA="delta-${DELTA_VERSION}-aarch64-apple-darwin"
         BAT="bat-v${BAT_VERSION}-aarch64-apple-darwin"
         FD="fd-v${FD_VERSION}-aarch64-apple-darwin"
+        CODEX_ASSET="codex-aarch64-apple-darwin.tar.gz"
         ;;
     Linux-x86_64)
         NVIM="nvim-linux-x86_64"
@@ -105,6 +106,7 @@ case "$(uname -s)-$arch" in
         DELTA="delta-${DELTA_VERSION}-x86_64-unknown-linux-musl"
         BAT="bat-v${BAT_VERSION}-x86_64-unknown-linux-musl"
         FD="fd-v${FD_VERSION}-x86_64-unknown-linux-musl"
+        CODEX_ASSET="codex-x86_64-unknown-linux-musl.tar.gz"
         ;;
     Linux-aarch64)
         NVIM="nvim-linux-arm64"
@@ -117,6 +119,7 @@ case "$(uname -s)-$arch" in
         DELTA="delta-${DELTA_VERSION}-aarch64-unknown-linux-gnu"
         BAT="bat-v${BAT_VERSION}-aarch64-unknown-linux-musl"
         FD="fd-v${FD_VERSION}-aarch64-unknown-linux-musl"
+        CODEX_ASSET="codex-aarch64-unknown-linux-musl.tar.gz"
         ;;
     *)
         # Warn rather than exit: fzf, uv, claude and the brew branch still work.
@@ -211,6 +214,20 @@ if [ "$pinned_ok" -eq 1 ]; then
             printf '#!/bin/sh\nexec "%s/extension/adapter/codelldb" "$@"\n' "$codelldb_dir" > codelldb
             chmod +x codelldb
         fi
+    fi
+
+    # codex: tracks latest rather than a pinned version, like Claude Code above, since both
+    # release very frequently. The tarball holds one bare binary named after the target triple.
+    if curl -fLO "https://github.com/openai/codex/releases/latest/download/${CODEX_ASSET}"; then
+        tar -xzf "${CODEX_ASSET}"
+        # Only replace a working codex once the new binary is actually on disk.
+        if [ -f "${CODEX_ASSET%.tar.gz}" ]; then
+            mv -f "${CODEX_ASSET%.tar.gz}" codex
+            chmod +x codex
+        fi
+        rm -f "${CODEX_ASSET}"
+    else
+        echo "codex download failed; keeping whatever is already installed" >&2
     fi
 fi
 
