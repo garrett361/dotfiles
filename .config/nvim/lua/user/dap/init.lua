@@ -579,6 +579,12 @@ M.lazy_keymaps = {
 	{
 		"<A-f>",
 		function()
+			-- :RustLsp is created buffer-locally in rustaceanvim's on_attach, so an
+			-- unguarded call raises E492 before rust-analyzer has attached.
+			if vim.bo.filetype == "rust" and vim.fn.exists(":RustLsp") == 2 then
+				vim.cmd.RustLsp("debuggables")
+				return
+			end
 			prequire("dap-python").test_method({
 				config = { justMyCode = false, subProcess = true },
 			})

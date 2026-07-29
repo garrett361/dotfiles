@@ -48,6 +48,7 @@ local function conform_config()
 					return { "isort", "black" }
 				end
 			end,
+			rust = { "rustfmt" },
 			typst = { "typstyle" },
 			yaml = { "prettier" },
 		},
