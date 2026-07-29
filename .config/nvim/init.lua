@@ -3,7 +3,6 @@ local prequire = require("nvim_utils").prequire
 prequire("user.keymaps") -- Must be loaded before lazy
 prequire("user.options")
 prequire("user.autocommands")
--- prequire("user.ts_diagnostics")
 prequire("user.user_commands")
 
 -- Only load plugins when not in vscode
