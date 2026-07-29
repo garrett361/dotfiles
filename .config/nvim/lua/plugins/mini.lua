@@ -50,38 +50,6 @@ local function config()
 		comment = { suffix = "", options = {} },
 	})
 
-	local mini_comment = prequire("mini.comment")
-	mini_comment.setup({
-		-- Options which control module behavior
-		options = {
-			-- Function to compute custom 'commentstring' (optional)
-			custom_commentstring = nil,
-			-- Whether to ignore blank lines
-			ignore_blank_line = false,
-			-- Whether to recognize as comment only lines without indent
-			start_of_line = false,
-			-- Whether to ensure single space pad for comment parts
-			pad_comment_parts = true,
-		},
-		-- Module mappings. Use `''` (empty string) to disable one.
-		mappings = {
-			-- Toggle comment (like `gcip` - comment inner paragraph) for both
-			-- Normal and Visual modes
-			comment = "gc",
-			-- Toggle comment on current line
-			comment_line = "gcc",
-			-- Define 'comment' textobject (like `dgc` - delete whole comment block)
-			textobject = "gc",
-		},
-		-- Hook functions to be executed at certain stage of commenting
-		hooks = {
-			-- Before successful commenting. Does nothing by default.
-			pre = function() end,
-			-- After successful commenting. Does nothing by default.
-			post = function() end,
-		},
-	})
-
 	-- TODO
 	local mini_hipatterns = prequire("mini.hipatterns")
 	vim.cmd("hi MiniHipatternsFixme guifg=#ff00c7")
@@ -407,14 +375,6 @@ local function config()
 	vim.keymap.set("n", "S", function()
 		mini_jump2d.start(jump_to_delimiter)
 	end)
-
-	local mini_bufremove = prequire("mini.bufremove")
-	mini_bufremove.setup({
-		-- Whether to set Vim's settings for buffers (allow hidden buffers)
-		set_vim_settings = true,
-		-- Whether to disable showing non-error feedback
-		silent = false,
-	})
 end
 return {
 	"echasnovski/mini.nvim",

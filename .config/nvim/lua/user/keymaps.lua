@@ -22,9 +22,6 @@ vim.g.maplocalleader = " "
 keymap("n", "<C-u>", "<C-u>zz", opts) -- Up/Down half page w/ centering
 keymap("n", "<C-d>", "<C-d>zz", opts)
 
--- Yank
-keymap("n", "Y", "y$", opts)
-
 -- Center when moving to next
 keymap("n", "n", "nzzzv", opts)
 keymap("n", "N", "Nzzzv", opts)
