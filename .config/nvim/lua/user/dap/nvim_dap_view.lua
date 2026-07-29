@@ -5,14 +5,28 @@ M.config = function()
 	local dap = prequire("dap")
 	dap_view.setup({
 		winbar = {
-			-- scopes and threads are left out on purpose. Both mishandle concurrent sessions:
-			-- scopes/view.lua keeps the session in a module-level upvalue held across a
-			-- yielding request, so one rank's variablesReference can be sent to another
-			-- rank's session, and the threads view reads a global threads_error plus
-			-- stack_trace_errors keyed only by thread id, which every debugpy rank shares.
-			-- Omitting them means those paths never render. <A-F> covers stack navigation.
-			sections = { "watches", "repl" },
-			default_section = "watches",
+			-- Every section except console. console stays out so program output gets its
+			-- own always-visible window rather than a tab; that is also why <A-q> passes
+			-- hide_terminal.
+			--
+			-- Two of these are unreliable with one session per rank, which matters here
+			-- but is accepted rather than avoided. scopes/view.lua holds the session in a
+			-- module-level upvalue across a yielding request, so with several ranks stopped
+			-- at once one rank's variablesReference can be sent to another rank's session.
+			-- The threads view reads a global threads_error and a stack_trace_errors table
+			-- keyed only by thread id, which every debugpy rank shares, so one rank's error
+			-- can surface under another. Watches are unaffected: their session is resolved
+			-- per evaluation.
+			sections = {
+				"watches",
+				"scopes",
+				"exceptions",
+				"breakpoints",
+				"threads",
+				"sessions",
+				"repl",
+			},
+			default_section = "repl",
 		},
 	})
 
