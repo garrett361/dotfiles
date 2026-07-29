@@ -158,9 +158,12 @@ vim.lsp.config.tinymist = {
 	offset_encoding = "utf-8",
 }
 
--- Auto-call vim.lsp.enable for all mason-installed lsps
+-- Auto-call vim.lsp.enable for all mason-installed lsps. stylua is excluded because it is
+-- installed here as a conform formatter, but lspconfig also ships a `stylua --lsp` server and
+-- mason-lspconfig maps the package to it, so every lua buffer would start a second, useless
+-- client (conform never asks the LSP to format).
 local mason_lspconfig = require("nvim_utils").prequire("mason-lspconfig")
-mason_lspconfig.setup()
+mason_lspconfig.setup({ automatic_enable = { exclude = { "stylua" } } })
 
 -- clangd is not a mason package, so it needs enabling by hand; mason-lspconfig only
 -- auto-enables what it installed.
