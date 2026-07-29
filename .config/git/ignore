@@ -177,3 +177,6 @@ _minted*
 
 # Docker
 *.pid
+
+# Personal scratch space, at any depth in any repo
+goon_scratch/
