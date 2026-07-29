@@ -11,7 +11,7 @@ export CLICOLOR=1
 export LSCOLORS=ExGxBxDxCxEgEdxbxgxcxd
 
 # default editor
-export EDITOR="env PYTHONPATH=$PYTHONPATH:$PWD nvim"
+export EDITOR="nvim"
 export VISUAL="$EDITOR"
 
 # rg
@@ -31,7 +31,14 @@ export CLAUDE_CODE_MAX_OUTPUT_TOKENS=131072
 ################################   ALIASES  ################################
 alias g="git"
 
-alias v="env PYTHONPATH=$PYTHONPATH:$PWD nvim"
+# The trailing colon leaves an empty PYTHONPATH entry, which Python reads as "the current
+# directory of whichever process is starting". Nvim ignores it, but the processes nvim spawns
+# do not: debugpy and overseer tasks both run `python <file>`, which puts the *script's*
+# directory on sys.path rather than the cwd. Without this, debugging or running a script in a
+# subdirectory cannot import anything from the project root. The LSP servers (ty, ruff) resolve
+# first-party modules from the project root themselves and do not need it.
+# Single quotes matter: the expansion has to happen per invocation, not when this file is read.
+alias v='env PYTHONPATH="$PYTHONPATH:" nvim'
 
 # Show hidden files and details
 alias ll="ls -lhA"
