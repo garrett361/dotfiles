@@ -45,8 +45,8 @@ vim.lsp.config.lua_ls = {
 		if client.workspace_folders then
 			local path = client.workspace_folders[1].name
 			if
-				vim.loop.fs_stat(path .. "/.luarc.json")
-				or vim.loop.fs_stat(path .. "/.luarc.jsonc")
+				vim.uv.fs_stat(path .. "/.luarc.json")
+				or vim.uv.fs_stat(path .. "/.luarc.jsonc")
 			then
 				return
 			end
@@ -166,22 +166,16 @@ vim.lsp.enable({ "ruff", "ty" })
 
 -- Configuring signs and other visuals
 
-local signs = {
-
-	{ name = "DiagnosticSignError", text = "" },
-	{ name = "DiagnosticSignWarn", text = "" },
-	{ name = "DiagnosticSignHint", text = "󰰂" },
-	{ name = "DiagnosticSignInfo", text = "" },
-}
-
-for _, sign in ipairs(signs) do
-	vim.fn.sign_define(sign.name, { texthl = sign.name, text = sign.text, numhl = "" })
-end
-
-local config = {
+vim.diagnostic.config({
 	virtual_text = true, -- virtual text
+	-- nvim 0.12 ignores sign_define() for diagnostics; sign text comes from here now.
 	signs = {
-		active = signs, -- show signs
+		text = {
+			[vim.diagnostic.severity.ERROR] = "",
+			[vim.diagnostic.severity.WARN] = "",
+			[vim.diagnostic.severity.HINT] = "󰰂",
+			[vim.diagnostic.severity.INFO] = "",
+		},
 	},
 	update_in_insert = true,
 	underline = false,
@@ -190,17 +184,12 @@ local config = {
 		focusable = true,
 		style = "minimal",
 		border = "rounded",
-		source = "always",
+		source = true,
 		header = "",
 		prefix = "",
 	},
-}
-
-vim.diagnostic.config(config)
-vim.lsp.handlers["textDocument/hover"] = vim.lsp.with(vim.lsp.handlers.hover, {
-	border = "rounded",
 })
 
-vim.lsp.handlers["textDocument/signatureHelp"] = vim.lsp.with(vim.lsp.handlers.signature_help, {
-	border = "rounded",
-})
+-- Replaces the vim.lsp.with + vim.lsp.handlers overrides for hover and signatureHelp, both
+-- deprecated for removal in 0.13. Note this borders every float, not just those two.
+vim.o.winborder = "rounded"

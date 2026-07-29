@@ -45,13 +45,14 @@ return {
 		{
 			"<leader>cj",
 			function()
-				vim.diagnostic.goto_next({ buffer = 0 })
+				-- float defaults true in goto_next but false in jump, so it's explicit here.
+				vim.diagnostic.jump({ count = 1, float = true })
 			end,
 		},
 		{
 			"<leader>ck",
 			function()
-				vim.diagnostic.goto_prev({ buffer = 0 })
+				vim.diagnostic.jump({ count = -1, float = true })
 			end,
 		},
 		{
