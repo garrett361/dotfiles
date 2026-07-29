@@ -1,0 +1,21 @@
+# Hide the titlebar above the tab bar to reclaim vertical space
+# (ghostty-org/ghostty#3158). On macOS "hidden" keeps the window frame and
+# rounded corners; `window-decoration = none`, the answer in that discussion,
+# is the Linux path and would strip the frame here.
+macos-titlebar-style = hidden
+
+# Near black, a touch softer than #000000. Ghostty defaults to #282c34.
+background = #030303
+
+# Bold ANSI text draws from the bright palette. Without this, prompts and CLI
+# tools that emit bold plus a base color (SGR 1;3x) render from the dim normal
+# slots, which reads as washed out.
+bold-color = bright
+
+# Saturated ANSI palette. Ghostty's default is a Tomorrow Night set whose colors
+# are noticeably dimmer, which washes out prompts, git output, and TUI chrome.
+# Explicit colors below override the theme's own, per Ghostty's precedence rules.
+theme = Wez
+
+# The Wez theme would otherwise dim this to #b3b3b3.
+foreground = #ffffff
