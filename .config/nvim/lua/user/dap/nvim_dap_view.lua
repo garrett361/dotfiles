@@ -30,13 +30,33 @@ M.config = function()
 		},
 	})
 
-	-- dap-view sets winfixbuf on both of its windows and offers no way to turn that off, so
-	-- nvim-dap's default "uselast" can raise E1513 when it has to move the source buffer into
-	-- a window: it falls back to the alternate window, which is a dap-view one whenever the
-	-- cursor sits in the REPL or the terminal. useopen reuses a window already showing the
-	-- file and only moves the cursor, and split makes a new window when nothing shows it, so
-	-- neither ever writes into a fixed window.
-	dap.defaults.fallback.switchbuf = "useopen,split"
+	-- dap-view sets winfixbuf on both of its windows and offers no way to turn it off, so
+	-- nvim-dap's default "uselast" raises E1513 when stepping with the cursor in one of them:
+	-- it writes the source buffer into the alternate window, which is then a fixed one. The
+	-- string strategies all either do that or create a split, and nvim-dap's own set_cursor
+	-- additionally focuses the target window unless the current filetype is dap-repl. A
+	-- function gets full control: reuse a window already showing the file, else any window
+	-- that permits a buffer switch, never create one, never change focus.
+	-- No `normal! zv` to open folds around the stopped line, unlike nvim-dap's set_cursor:
+	-- folds are disabled here (nofoldenable), so it would reveal nothing, and running it needs
+	-- nvim_win_call to make the target window current, which is itself a visible window op.
+	dap.defaults.fallback.switchbuf = function(bufnr, line, column)
+		local function place(win)
+			pcall(vim.api.nvim_win_set_cursor, win, { line, math.max(column - 1, 0) })
+		end
+		local wins = vim.api.nvim_tabpage_list_wins(0)
+		for _, win in ipairs(wins) do
+			if vim.api.nvim_win_get_buf(win) == bufnr then
+				return place(win)
+			end
+		end
+		for _, win in ipairs(wins) do
+			if not vim.wo[win].winfixbuf then
+				vim.api.nvim_win_set_buf(win, bufnr)
+				return place(win)
+			end
+		end
+	end
 
 	-- Open on session start but never auto-close, matching the previous behavior. auto_toggle
 	-- would also close when sessions end. The guard matters with one session per rank: open()
