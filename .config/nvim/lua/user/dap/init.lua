@@ -630,16 +630,6 @@ M.lazy_keymaps = {
 		silent = true,
 	},
 	{
-		"<A-Q>",
-		function()
-			-- Open the secondary dap window with stacks, watches, etc
-			prequire("dapui").toggle({ layout = 2, reset = true })
-		end,
-		mode = { "n" },
-		noremap = true,
-		silent = true,
-	},
-	{
 		"<A-r>",
 		function()
 			local dap = prequire("dap")
