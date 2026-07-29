@@ -3,7 +3,14 @@
 mkdir -p ~/.config
 mkdir -p ~/.claude
 mkdir -p ~/.codex
-is_linux=$(uname -s | grep -iq linux && echo 1 || echo 0)
+# Drop links whose target no longer exists in the repo. ln -sfF below only overwrites links it
+# still creates, so removing a config dir here would otherwise leave a dangling link forever.
+for localdir in ".local" ".config"; do
+	for link in "$HOME/$localdir"/*; do
+		[ -L "$link" ] && [ ! -e "$link" ] && rm -f "$link"
+	done
+done
+
 # Link all config and script files to their expected locations.
 for localdir in ".local" ".config"; do
 	dirpath=$(readlink -f $localdir)
@@ -28,7 +35,7 @@ for skilldir in codex_global/skills/*/; do
 	ln -snf "$(readlink -f "$skilldir")" "$skilltarget"
 done
 
-for localfile in ".commonrc" ".vimrc" ".bashrc" ".zshrc" ".profile" ".zprofile" ".stylua.toml" ".rg" ".ipython/profile_default/ipython_config.py" ".slurm_fns.sh" ".lsf_fns.sh"; do
+for localfile in ".commonrc" ".vimrc" ".bashrc" ".zshrc" ".profile" ".zprofile" ".stylua.toml" ".rg" ".slurm_fns.sh" ".lsf_fns.sh"; do
     filepath=$(readlink -f $localfile)
 	ln -sfF $filepath $HOME/$localfile
 done
@@ -47,9 +54,6 @@ fi
 gt_bin="$HOME/.local/bin/git-tree"
 [ -x "$gt_bin" ] && "$gt_bin" manpage --install &>/dev/null || true
 
-vscode_settings=$(readlink -f settings.json)
-if [ $is_linux -eq 1 ]; then
-    echo "linux"
-else
-    ln -sfF $vscode_settings "$HOME/Library/Application Support/Code/User/settings.json"
+if [ "$(uname -s)" = "Darwin" ]; then
+    ln -sfF "$(readlink -f settings.json)" "$HOME/Library/Application Support/Code/User/settings.json"
 fi

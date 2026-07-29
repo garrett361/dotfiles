@@ -262,13 +262,9 @@ else
     brew install tmux
     brew install --cask font-jetbrains-mono-nerd-font
     brew install nodejs
-    brew install npm
     brew install luarocks
     brew install --cask nikitabobko/tap/aerospace
     brew install --cask mactex
-    brew install pygments
-    brew install pyenv
-    brew install pyenv-virtualenv
     brew install --cask skim
     brew install gh
     brew install git-lfs
