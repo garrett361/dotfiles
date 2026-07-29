@@ -73,12 +73,12 @@ rustup component add rust-analyzer clippy rustfmt
 # reserved for GUI apps and tools with no Linux counterpart here.
 NVIM_VERSION="0.12.4"
 CODELLDB_VERSION="1.12.2"
-TREE_SITTER_VERSION="0.25.10"
-STARSHIP_VERSION="1.25.0"
-RG_VERSION="14.1.1"
-DELTA_VERSION="0.18.2"
-BAT_VERSION="0.25.0"
-FD_VERSION="10.2.0"
+TREE_SITTER_VERSION="0.26.11"
+STARSHIP_VERSION="1.26.0"
+RG_VERSION="15.2.0"
+DELTA_VERSION="0.19.2"
+BAT_VERSION="0.26.1"
+FD_VERSION="10.4.2"
 
 pinned_ok=1
 case "$(uname -s)-$arch" in
@@ -217,7 +217,7 @@ fi
 # gh is Linux-only here: macOS ships a .zip rather than a tarball, so it stays on brew.
 if [ $is_linux -eq 1 ]; then
 
-    GH_VERSION="2.68.1"
+    GH_VERSION="2.96.0"
 
     case "$arch" in
         x86_64)
