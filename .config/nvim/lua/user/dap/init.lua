@@ -1,4 +1,4 @@
-M = {}
+local M = {}
 local prequire = require("nvim_utils").prequire
 M.config = function()
 	prequire("user.dap.nvim_dap").config()

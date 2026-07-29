@@ -1,4 +1,4 @@
-M = {}
+local M = {}
 
 ---Is the cursor in a math env?
 ---@return boolean

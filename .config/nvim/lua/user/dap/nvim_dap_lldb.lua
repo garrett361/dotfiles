@@ -14,7 +14,7 @@ end
 
 local function get_args()
 	local argv = {}
-	arg = vim.fn.input(string.format("argv: "))
+	local arg = vim.fn.input("argv: ")
 	for a in string.gmatch(arg, "%S+") do
 		table.insert(argv, a)
 	end

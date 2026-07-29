@@ -134,7 +134,7 @@ end
 -- Diff styling. Return HL group fn, so it can be called after the colorscheme is applied.
 vim.opt.fillchars:append({ diff = "╱" })
 
-M = {}
+local M = {}
 M.set_diff_hl = function()
 	vim.cmd("hi DiffAdd guibg=#1a6236")
 	vim.cmd("hi DiffDelete guibg=#ff3f5c")

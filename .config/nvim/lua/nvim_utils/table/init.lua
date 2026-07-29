@@ -1,4 +1,4 @@
-M = {}
+local M = {}
 
 ---Check if two tables are equal
 ---@param t1 table

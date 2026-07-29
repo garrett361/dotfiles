@@ -1,4 +1,4 @@
-M = {}
+local M = {}
 
 ---Expand ~ to the home dir
 ---@param path string
