@@ -28,9 +28,8 @@ end
 
 return {
 	"mrcjkb/rustaceanvim",
-	-- ^8 is the last line supporting nvim 0.11, and it runs on 0.12 too. Revisit after the
-	-- 0.12 migration lands.
-	version = "^8",
+	-- v9 dropped nvim 0.11; ^8 was only the bridge while this config was still on it.
+	version = "^9",
 	lazy = false,
 	init = init,
 }
