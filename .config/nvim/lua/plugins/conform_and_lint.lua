@@ -62,7 +62,7 @@ local function config()
 end
 
 local function maybe_fmt_and_lint()
-    if os.getenv("FORMAT_NVIM") == "1" and vim.api.nvim_get_option_value("ma") then
+	if os.getenv("FORMAT_NVIM") == "1" and vim.api.nvim_get_option_value("ma", {}) then
 		prequire("conform").format({ bufnr = 0 })
 		prequire("lint").try_lint()
 	end
@@ -80,7 +80,7 @@ return {
 			"<leader>cf",
 			function()
 				prequire("conform").format({ bufnr = 0 })
-                prequire("mini.trailspace").trim()
+				prequire("mini.trailspace").trim()
 			end,
 			mode = { "n", "v" },
 		},

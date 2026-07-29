@@ -3,7 +3,7 @@ local function config()
 	local diffview = prequire("diffview")
 	-- Call the setup function to change the default behavior
 	diffview.setup({
-		ehnahced_diff_hl = true,
+		enhanced_diff_hl = true,
 		keymaps = {
 			file_panel = {
 				{
