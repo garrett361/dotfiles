@@ -75,6 +75,10 @@ NVIM_VERSION="0.12.4"
 CODELLDB_VERSION="1.12.2"
 TREE_SITTER_VERSION="0.25.10"
 STARSHIP_VERSION="1.25.0"
+RG_VERSION="14.1.1"
+DELTA_VERSION="0.18.2"
+BAT_VERSION="0.25.0"
+FD_VERSION="10.2.0"
 
 pinned_ok=1
 case "$(uname -s)-$arch" in
@@ -85,6 +89,10 @@ case "$(uname -s)-$arch" in
         TREE_SITTER_ASSET="tree-sitter-macos-arm64.gz"
         STARSHIP="starship-${STARSHIP_VERSION}-aarch64-apple-darwin"
         STARSHIP_ASSET="starship-aarch64-apple-darwin.tar.gz"
+        RG="ripgrep-${RG_VERSION}-aarch64-apple-darwin"
+        DELTA="delta-${DELTA_VERSION}-aarch64-apple-darwin"
+        BAT="bat-v${BAT_VERSION}-aarch64-apple-darwin"
+        FD="fd-v${FD_VERSION}-aarch64-apple-darwin"
         ;;
     Linux-x86_64)
         NVIM="nvim-linux-x86_64"
@@ -93,6 +101,10 @@ case "$(uname -s)-$arch" in
         TREE_SITTER_ASSET="tree-sitter-linux-x64.gz"
         STARSHIP="starship-${STARSHIP_VERSION}-x86_64-unknown-linux-gnu"
         STARSHIP_ASSET="starship-x86_64-unknown-linux-gnu.tar.gz"
+        RG="ripgrep-${RG_VERSION}-x86_64-unknown-linux-musl"
+        DELTA="delta-${DELTA_VERSION}-x86_64-unknown-linux-musl"
+        BAT="bat-v${BAT_VERSION}-x86_64-unknown-linux-musl"
+        FD="fd-v${FD_VERSION}-x86_64-unknown-linux-musl"
         ;;
     Linux-aarch64)
         NVIM="nvim-linux-arm64"
@@ -101,10 +113,14 @@ case "$(uname -s)-$arch" in
         TREE_SITTER_ASSET="tree-sitter-linux-arm64.gz"
         STARSHIP="starship-${STARSHIP_VERSION}-aarch64-unknown-linux-musl"
         STARSHIP_ASSET="starship-aarch64-unknown-linux-musl.tar.gz"
+        RG="ripgrep-${RG_VERSION}-aarch64-unknown-linux-gnu"
+        DELTA="delta-${DELTA_VERSION}-aarch64-unknown-linux-gnu"
+        BAT="bat-v${BAT_VERSION}-aarch64-unknown-linux-musl"
+        FD="fd-v${FD_VERSION}-aarch64-unknown-linux-musl"
         ;;
     *)
         # Warn rather than exit: fzf, uv, claude and the brew branch still work.
-        echo "No pinned binaries for $(uname -s)-$arch; skipping nvim/tree-sitter/starship/codelldb" >&2
+        echo "No pinned binaries for $(uname -s)-$arch; skipping pinned installs" >&2
         pinned_ok=0
         ;;
 esac
@@ -142,58 +158,6 @@ if [ "$pinned_ok" -eq 1 ]; then
     fi
     ln -sf "${STARSHIP}/starship" .
 
-    # codelldb: debug adapter for nvim-dap-lldb (c/cpp/rust). Ships as a per-platform vsix
-    # (a zip) with no brew formula, hence the only unzip dependency in this script.
-    codelldb_dir="$bin_dir/codelldb-${CODELLDB_VERSION}"
-    if ! command -v unzip &>/dev/null; then
-        echo "unzip not found; skipping codelldb (c/cpp/rust debugging)" >&2
-    else
-        if [ "$force" -eq 1 ] || [ ! -d "$codelldb_dir" ]; then
-            rm -rf "$codelldb_dir"
-            curl -fLo "$CODELLDB_ASSET" "https://github.com/vadimcn/codelldb/releases/download/v${CODELLDB_VERSION}/${CODELLDB_ASSET}"
-            unzip -q "$CODELLDB_ASSET" -d "$codelldb_dir"
-            rm -f "$CODELLDB_ASSET"
-        fi
-        # A wrapper, not a symlink: codelldb locates liblldb relative to current_exe(), which
-        # on macOS does not resolve symlinks. Written outside the guard so a deleted wrapper
-        # self-heals, and with a single-quoted format so "$@" survives into the file.
-        if [ -x "$codelldb_dir/extension/adapter/codelldb" ]; then
-            printf '#!/bin/sh\nexec "%s/extension/adapter/codelldb" "$@"\n' "$codelldb_dir" > codelldb
-            chmod +x codelldb
-        fi
-    fi
-fi
-
-# rg
-if [ $is_linux -eq 1 ]; then
-
-    RG_VERSION="14.1.1"
-    DELTA_VERSION="0.18.2"
-    BAT_VERSION="0.25.0"
-    FD_VERSION="10.2.0"
-    GH_VERSION="2.68.1"
-
-    case "$arch" in
-        x86_64)
-            RG="ripgrep-${RG_VERSION}-x86_64-unknown-linux-musl"
-            DELTA="delta-${DELTA_VERSION}-x86_64-unknown-linux-musl"
-            BAT="bat-v${BAT_VERSION}-x86_64-unknown-linux-musl"
-            FD="fd-v${FD_VERSION}-x86_64-unknown-linux-musl"
-            GH="gh_${GH_VERSION}_linux_amd64"
-            ;;
-        aarch64)
-            RG="ripgrep-${RG_VERSION}-aarch64-unknown-linux-gnu"
-            DELTA="delta-${DELTA_VERSION}-aarch64-unknown-linux-gnu"
-            BAT="bat-v${BAT_VERSION}-aarch64-unknown-linux-musl"
-            FD="fd-v${FD_VERSION}-aarch64-unknown-linux-musl"
-            GH="gh_${GH_VERSION}_linux_arm64"
-            ;;
-        *)
-            echo "Unsupported arch: $arch"; exit 1
-            ;;
-    esac
-
-    cd "$bin_dir"
     if [ "$force" -eq 1 ] || [ ! -d "${RG}" ]; then
         rm -rf "${RG}"
         curl -LO "https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/${RG}.tar.gz"
@@ -222,6 +186,45 @@ if [ $is_linux -eq 1 ]; then
     fi
     ln -sf "${FD}/fd" .
 
+    # codelldb: debug adapter for nvim-dap-lldb (c/cpp/rust). Ships as a per-platform vsix
+    # (a zip) with no brew formula, hence the only unzip dependency in this script.
+    codelldb_dir="$bin_dir/codelldb-${CODELLDB_VERSION}"
+    if ! command -v unzip &>/dev/null; then
+        echo "unzip not found; skipping codelldb (c/cpp/rust debugging)" >&2
+    else
+        if [ "$force" -eq 1 ] || [ ! -d "$codelldb_dir" ]; then
+            rm -rf "$codelldb_dir"
+            curl -fLo "$CODELLDB_ASSET" "https://github.com/vadimcn/codelldb/releases/download/v${CODELLDB_VERSION}/${CODELLDB_ASSET}"
+            unzip -q "$CODELLDB_ASSET" -d "$codelldb_dir"
+            rm -f "$CODELLDB_ASSET"
+        fi
+        # A wrapper, not a symlink: codelldb locates liblldb relative to current_exe(), which
+        # on macOS does not resolve symlinks. Written outside the guard so a deleted wrapper
+        # self-heals, and with a single-quoted format so "$@" survives into the file.
+        if [ -x "$codelldb_dir/extension/adapter/codelldb" ]; then
+            printf '#!/bin/sh\nexec "%s/extension/adapter/codelldb" "$@"\n' "$codelldb_dir" > codelldb
+            chmod +x codelldb
+        fi
+    fi
+fi
+
+# gh is Linux-only here: macOS ships a .zip rather than a tarball, so it stays on brew.
+if [ $is_linux -eq 1 ]; then
+
+    GH_VERSION="2.68.1"
+
+    case "$arch" in
+        x86_64)
+            GH="gh_${GH_VERSION}_linux_amd64"
+            ;;
+        aarch64)
+            GH="gh_${GH_VERSION}_linux_arm64"
+            ;;
+        *)
+            echo "Unsupported arch: $arch"; exit 1
+            ;;
+    esac
+
     if [ "$force" -eq 1 ] || [ ! -d "${GH}" ]; then
         rm -rf "${GH}"
         curl -LO "https://github.com/cli/cli/releases/download/v${GH_VERSION}/${GH}.tar.gz"
@@ -232,15 +235,11 @@ if [ $is_linux -eq 1 ]; then
 else
     # Install brew
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-    brew install ripgrep
     brew install tmux
-    brew install fd
-    brew install bat
     brew install --cask font-jetbrains-mono-nerd-font
     brew install nodejs
     brew install npm
     brew install luarocks
-    brew install git-delta
     brew install --cask nikitabobko/tap/aerospace
     brew install --cask mactex
     brew install pygments
@@ -255,5 +254,4 @@ else
     brew install openshift-cli 
     brew install mac-mouse-fix
     brew install helm 
-
 fi
