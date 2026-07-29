@@ -3,7 +3,6 @@
   "editor.formatOnSave": true,
   "editor.formatOnPaste": true,
   "explorer.confirmDelete": false,
-  "python.formatting.provider": "black",
   "[python]": {
     "editor.formatOnType": true
   },
