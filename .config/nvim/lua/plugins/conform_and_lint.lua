@@ -4,7 +4,6 @@ local function lint_config()
 	local lint = prequire("lint")
 	lint.linters_by_ft = {
 		python = { "mypy" },
-		-- lua = { "luacheck" },
 	}
 end
 
