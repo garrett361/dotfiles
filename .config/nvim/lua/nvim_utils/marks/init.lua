@@ -31,7 +31,7 @@ end
 M.get_next_avail_global_mark = function()
 	local current_global_marks = M.get_global_marks()
 	for _, mark in ipairs(capital_letters) do
-		if not require("nvim_utils.table").contains(current_global_marks, mark) then
+		if not vim.tbl_contains(current_global_marks, mark) then
 			return mark
 		end
 	end
