@@ -135,6 +135,7 @@ if [ "$pinned_ok" -eq 1 ]; then
         rm -rf "${NVIM}" "${NVIM}-${NVIM_VERSION}"
         curl -LO "https://github.com/neovim/neovim/releases/download/v${NVIM_VERSION}/${NVIM}.tar.gz"
         tar -xvzf "${NVIM}.tar.gz"
+        rm -f "${NVIM}.tar.gz"
         mv "${NVIM}" "${NVIM}-${NVIM_VERSION}"
     fi
     ln -sf "${NVIM}-${NVIM_VERSION}/bin/nvim" .
@@ -155,6 +156,7 @@ if [ "$pinned_ok" -eq 1 ]; then
         curl -LO "https://github.com/starship/starship/releases/download/v${STARSHIP_VERSION}/${STARSHIP_ASSET}"
         mkdir -p "${STARSHIP}"
         tar -xzf "${STARSHIP_ASSET}" -C "${STARSHIP}"
+        rm -f "${STARSHIP_ASSET}"
     fi
     ln -sf "${STARSHIP}/starship" .
 
@@ -162,6 +164,7 @@ if [ "$pinned_ok" -eq 1 ]; then
         rm -rf "${RG}"
         curl -LO "https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/${RG}.tar.gz"
         tar -xvzf "${RG}.tar.gz"
+        rm -f "${RG}.tar.gz"
     fi
     ln -sf "${RG}/rg" .
 
@@ -169,6 +172,7 @@ if [ "$pinned_ok" -eq 1 ]; then
         rm -rf "${DELTA}"
         curl -LO "https://github.com/dandavison/delta/releases/download/${DELTA_VERSION}/${DELTA}.tar.gz"
         tar -xvzf "${DELTA}.tar.gz"
+        rm -f "${DELTA}.tar.gz"
     fi
     ln -sf "${DELTA}/delta" .
 
@@ -176,6 +180,7 @@ if [ "$pinned_ok" -eq 1 ]; then
         rm -rf "${BAT}"
         curl -LO "https://github.com/sharkdp/bat/releases/download/v${BAT_VERSION}/${BAT}.tar.gz"
         tar -xvzf "${BAT}.tar.gz"
+        rm -f "${BAT}.tar.gz"
     fi
     ln -sf "${BAT}/bat" .
 
@@ -183,6 +188,7 @@ if [ "$pinned_ok" -eq 1 ]; then
         rm -rf "${FD}"
         curl -LO "https://github.com/sharkdp/fd/releases/download/v${FD_VERSION}/${FD}.tar.gz"
         tar -xvzf "${FD}.tar.gz"
+        rm -f "${FD}.tar.gz"
     fi
     ln -sf "${FD}/fd" .
 
@@ -229,6 +235,7 @@ if [ $is_linux -eq 1 ]; then
         rm -rf "${GH}"
         curl -LO "https://github.com/cli/cli/releases/download/v${GH_VERSION}/${GH}.tar.gz"
         tar -xvzf "${GH}.tar.gz"
+        rm -f "${GH}.tar.gz"
     fi
     ln -sf "${GH}/bin/gh" .
 
