@@ -7,18 +7,6 @@ local function config()
 		-- Jump to symbol in source window when the cursor moves
 		autojump = true,
 		close_on_select = true,
-		nav = {
-			-- Keymaps in the nav window
-			keymaps = {
-				["<CR>"] = "actions.jump",
-				["<2-LeftMouse>"] = "actions.jump",
-				["<C-v>"] = "actions.jump_vsplit",
-				["<C-s>"] = "actions.jump_split",
-				["h"] = "actions.left",
-				["l"] = "actions.right",
-				["<C-c>"] = "actions.close",
-			},
-		},
 		filter_kind = {
 			"Class",
 			"Constructor",

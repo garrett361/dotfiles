@@ -3,36 +3,12 @@ local function config()
 	prequire("mini.icons").setup()
 	local mini_ai = prequire("mini.ai")
 	mini_ai.setup({
-		-- Table with textobject id as fields, textobject specification as values.
-		-- Also use this to disable builtin textobjects. See |MiniAi.config|.
 		custom_textobjects = {
 			-- Add other delimiters to b for "brackets"
 			b = { { "%b()", "%b[]", "%b{}", '%b""', "%b''", "%b<>", "%b``" }, "^.().*().$" },
 			-- Custom textobject for dollar signs
 			["$"] = { "%$().-()%$" },
 		},
-		-- Module mappings. Use `''` (empty string) to disable one.
-		mappings = {
-			-- Main textobject prefixes
-			around = "a",
-			inside = "i",
-			-- Next/last variants
-			around_next = "an",
-			inside_next = "in",
-			around_last = "al",
-			inside_last = "il",
-			-- Move cursor to corresponding edge of `a` textobject
-			goto_left = "g[",
-			goto_right = "g]",
-		},
-		-- Number of lines within which textobject is searched
-		n_lines = 50,
-		-- How to search for object (first inside current line, then inside
-		-- neighborhood). One of 'cover', 'cover_or_next', 'cover_or_prev',
-		-- 'cover_or_nearest', 'next', 'previous', 'nearest'.
-		search_method = "cover_or_next",
-		-- Whether to disable showing non-error feedback
-		silent = false,
 	})
 
 	local mini_bracketed = prequire("mini.bracketed")
@@ -71,46 +47,11 @@ local function config()
 	})
 
 	local mini_indentscope = prequire("mini.indentscope")
-	mini_indentscope.setup( -- No need to copy this inside `setup()`. Will be used automatically.
-		{
-			-- Draw options
-			draw = {
-				-- Delay (in ms) between event and start of drawing scope indicator
-				delay = 100,
-				-- Animation rule for scope's first drawing. A function which, given
-				-- next and total step numbers, returns wait time (in ms). See
-				-- |MiniIndentscope.gen_animation| for builtin options. To disable
-				-- animation, use `require('mini.indentscope').gen_animation.none()`.
-				animation = mini_indentscope.gen_animation.none(),
-				-- Symbol priority. Increase to display on top of more symbols.
-				priority = 2,
-			},
-			-- Module mappings. Use `''` (empty string) to disable one.
-			mappings = {
-				-- Textobjects
-				object_scope = "ii",
-				object_scope_with_border = "ai",
-				-- Motions (jump to respective border line; if not present - body line)
-				goto_top = "[i",
-				goto_bottom = "]i",
-			},
-			-- Options which control scope computation
-			options = {
-				-- Type of scope's border: which line(s) with smaller indent to
-				-- categorize as border. Can be one of: 'both', 'top', 'bottom', 'none'.
-				border = "both",
-				-- Whether to use cursor column when computing reference indent.
-				-- Useful to see incremental scopes with horizontal cursor movements.
-				indent_at_cursor = false,
-				-- Whether to first check input line to be a border of adjacent scope.
-				-- Use it if you want to place cursor on function header to get scope of
-				-- its body.
-				try_as_border = false,
-			},
-			-- Which character to use for drawing scope indicator
-			symbol = "╎",
-		}
-	)
+	mini_indentscope.setup({
+		draw = { animation = mini_indentscope.gen_animation.none() },
+		-- Default is true; keep scopes stable under horizontal cursor movement.
+		options = { indent_at_cursor = false },
+	})
 
 	local mini_pairs = prequire("mini.pairs")
 	mini_pairs.setup({
@@ -170,16 +111,7 @@ local function config()
 	})
 
 	local mini_tabline = prequire("mini.tabline")
-	mini_tabline.setup({
-		-- Whether to show file icons
-		show_icons = true,
-		-- Whether to set Vim's settings for tabline (make it always shown and
-		-- allow hidden buffers)
-		set_vim_settings = true,
-		-- Where to show tabpage section in case of multiple vim tabpages.
-		-- One of 'left', 'right', 'none'.
-		tabpage_section = "left",
-	})
+	mini_tabline.setup()
 
 	local mini_statusline = prequire("mini.statusline")
 
@@ -287,36 +219,11 @@ local function config()
 
 	local mini_surround = prequire("mini.surround")
 	mini_surround.setup({
-		-- Add custom surroundings to be used on top of builtin ones. For more
-		-- information with examples, see `:h MiniSurround.config`.
-		custom_surroundings = nil,
-		-- Duration (in ms) of highlight when calling `MiniSurround.highlight()`
-		highlight_duration = 500,
-		-- Module mappings. Use `''` (empty string) to disable one.
 		mappings = {
 			add = "<leader>sa", -- Add surrounding in Normal and Visual modes
 			delete = "<leader>sd", -- Delete surrounding
-			-- find = "<leader>sf", -- Find surrounding (to the right)
-			-- find_left = "<leader>sF", -- Find surrounding (to the left)
-			-- highlight = "<leader>sh", -- Highlight surrounding
-			replace = "<leader>sc", -- Replace surrounding (changed sr->sc since it's more idiomatic)
-			-- update_n_lines = "<leader>sn", -- Update `n_lines`
-			-- suffix_last = "l", -- Suffix to search with "prev" method
-			-- suffix_next = "n", -- Suffix to search with "next" method
+			replace = "<leader>sc", -- Replace surrounding (sr->sc reads better)
 		},
-		-- Number of lines within which surrounding is searched
-		n_lines = 20,
-		-- Whether to respect selection type:
-		-- - Place surroundings on separate lines in linewise mode.
-		-- - Place surroundings on each line in blockwise mode.
-		respect_selection_type = false,
-		-- How to search for surrounding (first inside current line, then inside
-		-- neighborhood). One of 'cover', 'cover_or_next', 'cover_or_prev',
-		-- 'cover_or_nearest', 'next', 'prev', 'nearest'. For more details,
-		-- see `:h MiniSurround.config`.
-		search_method = "cover",
-		-- Whether to disable showing non-error feedback
-		silent = false,
 	})
 
 	local mini_trailspace = prequire("mini.trailspace")

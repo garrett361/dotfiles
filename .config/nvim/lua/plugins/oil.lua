@@ -9,16 +9,8 @@ local function config()
 	})
 
 	oil.setup({
-		-- Oil will take over directory buffers (e.g. `vim .` or `:e src/`
-		default_file_explorer = true,
-		-- Skip the confirmation popup for simple operations
-		skip_confirm_for_simple_edits = false,
-		-- Keymaps in oil buffer. Can be any value that `vim.keymap.set` accepts OR a table of keymap
-		-- options with a `callback` (e.g. { callback = function() ... end, desc = "", nowait = true })
-		-- Additionally, if it is a string that matches "actions.<name>",
-		-- it will use the mapping at require("oil.actions").<name>
-		-- Set to `false` to remove a keymap
-		-- See :help oil-actions for a list of all available actions
+		-- Keymaps in oil buffer. A string matching "actions.<name>" resolves to
+		-- require("oil.actions").<name>; false removes a default mapping.
 		keymaps = {
 			["g?"] = "actions.show_help",
 			["<CR>"] = "actions.select",
@@ -36,20 +28,7 @@ local function config()
 			["~"] = "actions.tcd",
 			["g."] = "actions.toggle_hidden",
 		},
-		-- Set to false to disable all of the above keymaps
-		use_default_keymaps = true,
-		view_options = {
-			-- Show files and directories that start with "."
-			show_hidden = true,
-			-- This function defines what is considered a "hidden" file
-			is_hidden_file = function(name, bufnr)
-				return vim.startswith(name, ".")
-			end,
-			-- This function defines what will never be shown, even when `show_hidden` is set
-			is_always_hidden = function(name, bufnr)
-				return false
-			end,
-		},
+		view_options = { show_hidden = true },
 	})
 end
 return {
