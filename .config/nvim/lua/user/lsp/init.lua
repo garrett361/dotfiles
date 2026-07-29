@@ -162,7 +162,9 @@ vim.lsp.config.tinymist = {
 local mason_lspconfig = require("nvim_utils").prequire("mason-lspconfig")
 mason_lspconfig.setup()
 
-vim.lsp.enable({ "ruff", "ty" })
+-- clangd is not a mason package, so it needs enabling by hand; mason-lspconfig only
+-- auto-enables what it installed.
+vim.lsp.enable({ "clangd", "ruff", "ty" })
 
 -- Configuring signs and other visuals
 
