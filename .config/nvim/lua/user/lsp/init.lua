@@ -30,7 +30,7 @@ end
 
 vim.lsp.config.lua_ls = {
 	cmd = { "lua-language-server" },
-	root_dir = vim.fs.root(0, {
+	root_markers = {
 		".luarc.json",
 		".luarc.jsonc",
 		".stylua.toml",
@@ -38,7 +38,7 @@ vim.lsp.config.lua_ls = {
 		"selene.toml",
 		"selene.yml",
 		".git",
-	}),
+	},
 	capabilities = capabilities,
 	settings = { Lua = { workspace = { checkThirdParty = false } } },
 	on_init = function(client)
@@ -76,7 +76,7 @@ vim.lsp.config.lua_ls = {
 
 vim.lsp.config.clangd = {
 	cmd = { "clangd" },
-	root_dir = vim.fs.root(0, {
+	root_markers = {
 		".clangd",
 		".clang-tidy",
 		".clang-format",
@@ -84,7 +84,7 @@ vim.lsp.config.clangd = {
 		"compile_flags.txt",
 		"configure.ac",
 		".git",
-	}),
+	},
 	capabilities = capabilities,
 	on_attach = function(client, bufnr)
 		setup_inlay_hints(client, bufnr)
@@ -96,7 +96,7 @@ vim.lsp.config.clangd = {
 
 vim.lsp.config.ruff = {
 	cmd = { "ruff", "server" },
-	root_dir = vim.fs.root(0, { "pyproject.toml", "ruff.toml", ".ruff.toml", ".git" }),
+	root_markers = { "pyproject.toml", "ruff.toml", ".ruff.toml", ".git" },
 	capabilities = capabilities,
 	init_options = {
 		settings = {
@@ -138,7 +138,7 @@ vim.lsp.config.ruff = {
 vim.lsp.config.ty = {
 	cmd = { "ty", "server" },
 	filetypes = { "python" },
-	root_dir = vim.fs.root(0, { "pyproject.toml", "ty.toml", ".ty.toml", ".git" }),
+	root_markers = { "pyproject.toml", "ty.toml", ".ty.toml", ".git" },
 	capabilities = capabilities,
 	on_attach = function(client, bufnr)
 		setup_inlay_hints(client, bufnr)
@@ -147,7 +147,7 @@ vim.lsp.config.ty = {
 
 vim.lsp.config.tinymist = {
 	cmd = { "tinymist" },
-	root_dir = vim.fs.root(0, { ".git" }),
+	root_markers = { ".git" },
 	capabilities = capabilities,
 	settings = {
 		projectResolution = "lockedDatabase",
