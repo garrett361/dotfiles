@@ -1,6 +1,7 @@
 ################################   EXPORTS  ################################
 
-export PATH=$HOME/.fzf-$(uname -m)/bin:$HOME/.local/bin/$(uname -m):$HOME/.local/bin:$PATH
+# ~/.local/bin{,/$arch} are already prepended by .zprofile/.profile, which run first.
+export PATH=$HOME/.fzf-$(uname -m)/bin:$PATH
 export PATH=$PATH:$HOME/.local/scripts
 
 export GITHUB=$HOME/github
@@ -214,8 +215,10 @@ function rc() {
     fi
 }
 
+# Also set in .zprofile/.profile. Neither location alone covers every shell: the profiles miss
+# non-login interactive shells (this file's job), and this file misses non-interactive login
+# shells like `zsh -lc`. The export is idempotent, so setting it twice costs nothing.
 export RUSTUP_HOME="$HOME/.rustup-$(uname -m)"
-[ -f "$HOME/.cargo-$(uname -m)/env" ] && source "$HOME/.cargo-$(uname -m)/env"
-[ "$(uname -m)" = "x86_64" ] && [ -f "$HOME/x86/bin/env" ] && . "$HOME/x86/bin/env"
+
 [ -f "$HOME/.slurm_fns.sh" ] && source "$HOME/.slurm_fns.sh"
 [ -f "$HOME/.lsf_fns.sh" ]   && source "$HOME/.lsf_fns.sh"

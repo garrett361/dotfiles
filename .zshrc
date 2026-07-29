@@ -34,10 +34,6 @@ bindkey "^X^E" edit-command-line
 
 ################################   OPTIONS  ################################
 
-# Immediately append to history, rather than wait for shell exit
-# https://stackoverflow.com/questions/842338/how-do-i-tell-zsh-to-write-the-current-shells-history-to-my-history-file
-setopt INC_APPEND_HISTORY
-
 ################################   OTHER  ################################
 
 # FZF
