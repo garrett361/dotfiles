@@ -23,3 +23,12 @@ theme = Wez
 
 # The Wez theme would otherwise dim this to #b3b3b3.
 foreground = #ffffff
+
+# Solid green block cursor. Stated explicitly rather than leaning on the default,
+# since it is the requested behavior. The green comes from the Wez theme's
+# cursor-color (#53ae71). Shell integration forces a bar at the prompt whatever
+# cursor-style says, so that one feature has to be turned off; omitted features
+# keep their defaults, so title, path, and sudo are unaffected.
+cursor-style = block
+cursor-style-blink = false
+shell-integration-features = no-cursor
