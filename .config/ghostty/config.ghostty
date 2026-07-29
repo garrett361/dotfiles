@@ -4,6 +4,10 @@
 # is the Linux path and would strip the frame here.
 macos-titlebar-style = hidden
 
+# Square the corners. Ghostty has no corner radius setting, so dropping the
+# native decorations is the only way to lose the rounding.
+window-decoration = none
+
 # Near black, a touch softer than #000000. Ghostty defaults to #282c34.
 background = #030303
 
