@@ -4,7 +4,7 @@ M.config = function()
 	prequire("user.dap.nvim_dap").config()
 	prequire("user.dap.nvim_dap_lldb").config()
 	prequire("user.dap.nvim_dap_python").config()
-	prequire("user.dap.nvim_dap_ui").config()
+	prequire("user.dap.nvim_dap_view").config()
 	prequire("user.dap.nvim_dap_virtual_text").config()
 end
 
@@ -570,7 +570,7 @@ M.lazy_keymaps = {
 	{
 		"<A-e>",
 		function()
-			prequire("dapui").eval()
+			prequire("dap-view").hover()
 		end,
 		mode = { "n" },
 		noremap = true,
@@ -623,7 +623,9 @@ M.lazy_keymaps = {
 	{
 		"<A-q>",
 		function()
-			prequire("dapui").toggle({ layout = 1, reset = true })
+			-- true hides the terminal too: "console" is not in sections, so the program
+			-- output lives in its own window that would otherwise be left behind.
+			prequire("dap-view").toggle(true)
 		end,
 		mode = { "n" },
 		noremap = true,

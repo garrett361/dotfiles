@@ -153,7 +153,9 @@ local function config()
 		end,
 	})
 
-	cmp.setup.filetype({ "dap-repl", "dapui_watches", "dapui_hover" }, {
+	-- Only dap-repl: cmp-dap's is_dap_buffer matches `dapui_`-prefixed filetypes and dap-repl
+	-- only, so listing dap-view's buffers here would never take effect.
+	cmp.setup.filetype({ "dap-repl" }, {
 		sources = {
 			{ name = "dap" },
 		},

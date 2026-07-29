@@ -4,11 +4,10 @@ return {
 	dependencies = {
 		"rcarriga/cmp-dap",
 		"mfussenegger/nvim-dap-python",
-		"rcarriga/nvim-dap-ui",
+		"igorlfs/nvim-dap-view",
 		"theHamsta/nvim-dap-virtual-text",
 		"julianolf/nvim-dap-lldb",
 		"ibhagwan/fzf-lua",
-		"nvim-neotest/nvim-nio",
 	},
 	lazy = true,
 	config = prequire("user.dap").config,
