@@ -159,246 +159,135 @@ esac
 
 cd "$bin_dir" || exit 1
 
-if [ "$pinned_ok" -eq 1 ]; then
-    # The tarball always unpacks to a version-less dir, so rename it to a versioned one. Left
-    # as-is, the guard would never re-trigger on a version bump, and tar would overlay the new
-    # release onto stale runtime files from the old one.
-    if [ "$force" -eq 1 ] || [ ! -d "${NVIM}-${NVIM_VERSION}" ]; then
-        rm -rf "${NVIM}" "${NVIM}-${NVIM_VERSION}"
-        curl -LO "https://github.com/neovim/neovim/releases/download/v${NVIM_VERSION}/${NVIM}.tar.gz"
-        tar -xvzf "${NVIM}.tar.gz"
-        rm -f "${NVIM}.tar.gz"
-        mv "${NVIM}" "${NVIM}-${NVIM_VERSION}"
-    fi
-    ln -sf "${NVIM}-${NVIM_VERSION}/bin/nvim" .
+have_unzip=0
+command -v unzip &>/dev/null && have_unzip=1
+skipped=""
+# Sweep staging dirs from an interrupted run. Each install clears its own before extracting, but
+# only when it enters its version guard, so a leftover would otherwise sit there (368 MB, for
+# clangd) until the next version bump.
+rm -rf "$bin_dir"/*.tmp
 
-    # tree-sitter ships as a single gzipped binary, not a tarball
-    if [ "$force" -eq 1 ] || [ ! -f "${TREE_SITTER}" ]; then
-        rm -f "${TREE_SITTER}" "${TREE_SITTER_ASSET}"
-        curl -LO "https://github.com/tree-sitter/tree-sitter/releases/download/v${TREE_SITTER_VERSION}/${TREE_SITTER_ASSET}"
-        gunzip -f "${TREE_SITTER_ASSET}"
-        mv "${TREE_SITTER_ASSET%.gz}" "${TREE_SITTER}"
-        chmod +x "${TREE_SITTER}"
-    fi
-    ln -sf "${TREE_SITTER}" tree-sitter
+# Upstream is inconsistent about wrapping the payload in a top-level dir, and clangd stamps the
+# version into that dir's name, so detect it instead of passing a flag. Called in a subshell.
+single_dir() {
+    set -- "$1"/*
+    if [ $# -eq 1 ] && [ -d "$1" ]; then echo "$1"; else echo "${1%/*}"; fi
+}
 
-    # starship tarball contains a bare `starship` binary, so extract into a versioned dir
-    if [ "$force" -eq 1 ] || [ ! -d "${STARSHIP}" ]; then
-        rm -rf "${STARSHIP}"
-        curl -LO "https://github.com/starship/starship/releases/download/v${STARSHIP_VERSION}/${STARSHIP_ASSET}"
-        mkdir -p "${STARSHIP}"
-        tar -xzf "${STARSHIP_ASSET}" -C "${STARSHIP}"
-        rm -f "${STARSHIP_ASSET}"
-    fi
-    ln -sf "${STARSHIP}/starship" .
-
-    if [ "$force" -eq 1 ] || [ ! -d "${RG}" ]; then
-        rm -rf "${RG}"
-        curl -LO "https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/${RG}.tar.gz"
-        tar -xvzf "${RG}.tar.gz"
-        rm -f "${RG}.tar.gz"
-    fi
-    ln -sf "${RG}/rg" .
-
-    if [ "$force" -eq 1 ] || [ ! -d "${DELTA}" ]; then
-        rm -rf "${DELTA}"
-        curl -LO "https://github.com/dandavison/delta/releases/download/${DELTA_VERSION}/${DELTA}.tar.gz"
-        tar -xvzf "${DELTA}.tar.gz"
-        rm -f "${DELTA}.tar.gz"
-    fi
-    ln -sf "${DELTA}/delta" .
-
-    if [ "$force" -eq 1 ] || [ ! -d "${BAT}" ]; then
-        rm -rf "${BAT}"
-        curl -LO "https://github.com/sharkdp/bat/releases/download/v${BAT_VERSION}/${BAT}.tar.gz"
-        tar -xvzf "${BAT}.tar.gz"
-        rm -f "${BAT}.tar.gz"
-    fi
-    ln -sf "${BAT}/bat" .
-
-    if [ "$force" -eq 1 ] || [ ! -d "${FD}" ]; then
-        rm -rf "${FD}"
-        curl -LO "https://github.com/sharkdp/fd/releases/download/v${FD_VERSION}/${FD}.tar.gz"
-        tar -xvzf "${FD}.tar.gz"
-        rm -f "${FD}.tar.gz"
-    fi
-    ln -sf "${FD}/fd" .
-
-    # Several tools below ship zips. Collect what gets skipped so one missing prerequisite is
-    # reported once at the end rather than scrolling past in the middle of tar output.
-    have_unzip=0
-    command -v unzip &>/dev/null && have_unzip=1
-    skipped=""
-    # Sweep staging dirs from an interrupted run. Each block clears its own before extracting, but
-    # only when it enters its version guard, so a leftover would otherwise sit there (368 MB, for
-    # clangd) until the next version bump.
-    rm -rf "$bin_dir"/*.tmp
-
-    # clangd: pinned here, and deliberately not brew or Xcode, whose clang lags well behind. The
-    # zip unpacks to a version-stamped dir, which lands inside the staging dir rather than beside
-    # it. Upstream ships no aarch64 Linux build, though llvm/llvm-project does publish an
-    # LLVM-*-Linux-ARM64 tarball if one is ever worth its 1.77 GB.
-    if [ -n "$CLANGD_ASSET" ]; then
-        if [ "$have_unzip" -eq 0 ]; then
-            skipped="$skipped clangd"
-        else
-            clangd_dir="clangd_${CLANGD_VERSION}"
-            if [ "$force" -eq 1 ] || [ ! -d "$clangd_dir" ]; then
-                rm -rf "$clangd_dir.tmp"
-                # Staged, because unzip writes in place: extracting straight into $clangd_dir would
-                # truncate a working copy if it died partway (quota, CRC, Ctrl-C) and leave a dir
-                # that satisfies the guard forever. </dev/null turns unzip's write-error prompt
-                # into a failure rather than a hung script.
-                #
-                # The guarantee is "a failure is reported and the next run retries", not "the old
-                # copy always survives": rm succeeding and mv then failing loses both, though a
-                # same-directory rename makes that close to unreachable.
-                if curl -fLO "https://github.com/clangd/clangd/releases/download/${CLANGD_VERSION}/${CLANGD_ASSET}" \
-                    && unzip -q -o "$CLANGD_ASSET" -d "$clangd_dir.tmp" </dev/null \
-                    && [ -x "$clangd_dir.tmp/$clangd_dir/bin/clangd" ] \
-                    && rm -rf "$clangd_dir" \
-                    && mv "$clangd_dir.tmp/$clangd_dir" "$clangd_dir"; then
-                    find "$bin_dir" -maxdepth 1 -name 'clangd_*' ! -name "$clangd_dir" -exec rm -rf {} +
-                else
-                    echo "clangd ${CLANGD_VERSION} install failed; keeping existing" >&2
-                    skipped="$skipped clangd"
-                fi
-                rm -rf "$clangd_dir.tmp" "$CLANGD_ASSET"
-            fi
-            # -x not -d: a half-extracted dir must not get a symlink pointing into it.
-            [ -x "$clangd_dir/bin/clangd" ] && ln -sf "$clangd_dir/bin/clangd" .
-        fi
-    fi
-
-    # ruff, ty and tinymist each ship a tarball holding a single top-level dir named after the
-    # target triple, with no version in it. Extracting as-is would make the [ ! -d ] guard true
-    # forever and a version bump a silent no-op, so strip the dir and name it ourselves. One
-    # helper rather than three near-identical blocks; the rest of this script predates it.
-    install_tarball() {
-        local name=$1 version=$2 asset=$3 url=$4
-        local dir="${name}-${version}"
-        if [ "$force" -eq 1 ] || [ ! -d "$dir" ]; then
-            rm -rf "$dir.tmp"
-            # Chained so a bad tag or a truncated download leaves the working copy in place.
-            # The swap is part of the chain, not after it: a failed rm or mv must reach the else
-            # arm, or the prune below would run anyway and delete the staged copy silently.
-            if curl -fLO "$url" \
-                && mkdir -p "$dir.tmp" \
-                && tar -xzf "$asset" -C "$dir.tmp" --strip-components=1 \
-                && [ -x "$dir.tmp/$name" ] \
-                && rm -rf "$dir" \
-                && mv "$dir.tmp" "$dir"; then
-                # Prune only once the new version is in place, or this eats what it just installed.
-                find "$bin_dir" -maxdepth 1 -name "${name}-*" ! -name "$dir" -exec rm -rf {} +
-            else
-                echo "$name $version install failed; keeping existing" >&2
+# One installer for every pinned release. Upstream ships several archive shapes but they are all
+# "an archive holding one executable", so the only per-tool facts are the URL, where the executable
+# sits inside the archive, and whether it needs a wrapper instead of a symlink.
+#
+#   install_pinned <name> <version> <url> [path-to-exe-inside-archive] [wrapper]
+#
+# The guard is the executable itself rather than its directory, so any half-finished state (partial
+# rm, interrupted extract) is retried by the next ordinary run instead of needing --force.
+install_pinned() {
+    local name=$1 version=$2 url=$3 exe=${4:-$1} wrapper=${5:-}
+    local dir="$name-$version" tmp="$name-$version.tmp" asset="${url##*/}" src
+    case "$asset" in
+        *.zip | *.vsix)
+            if [ "$have_unzip" -eq 0 ]; then
                 skipped="$skipped $name"
+                return
             fi
-            rm -rf "$dir.tmp" "$asset"
+            ;;
+    esac
+    if [ "$force" -eq 1 ] || [ "$version" = latest ] || [ ! -x "$dir/$exe" ]; then
+        rm -rf "$tmp"
+        # One && chain, including the swap: a failed rm or mv has to reach the else arm, or the
+        # prune below would still run and delete what it just staged. The archive downloads inside
+        # $tmp so one rm clears it too, and no half-finished tarball is left on PATH. The old copy
+        # is renamed aside rather than deleted, so the failure arm can put it back.
+        # </dev/null: unzip's write-error prompt must fail rather than hang the script.
+        if mkdir -p "$tmp/x" \
+            && curl -fL -o "$tmp/$asset" "$url" \
+            && case "$asset" in
+                *.tar.gz) tar -xzf "$tmp/$asset" -C "$tmp/x" ;;
+                *.zip | *.vsix) unzip -q "$tmp/$asset" -d "$tmp/x" </dev/null ;;
+                *.gz) gunzip -c "$tmp/$asset" >"$tmp/x/$exe" ;;
+            esac \
+            && src=$(single_dir "$tmp/x") \
+            && [ -f "$src/$exe" ] \
+            && chmod +x "$src/$exe" \
+            && { [ ! -d "$dir" ] || mv "$dir" "$tmp/old"; } \
+            && mv "$src" "$dir"; then
+            # Prune only once the new version is in place, or this eats what it just installed.
+            find "$bin_dir" -maxdepth 1 -name "$name-*" ! -name "$dir" -exec rm -rf {} +
+        else
+            [ -d "$tmp/old" ] && [ ! -e "$dir" ] && mv "$tmp/old" "$dir"
+            echo "$name $version install failed; keeping existing" >&2
+            skipped="$skipped $name"
         fi
-        [ -x "$dir/$name" ] && ln -sf "$dir/$name" .
-    }
+        rm -rf "$tmp"
+    fi
+    # Outside the guard, so a deleted symlink or wrapper self-heals.
+    if [ -x "$dir/$exe" ]; then
+        if [ -n "$wrapper" ]; then
+            # A wrapper, not a symlink: lua-language-server and codelldb both locate their runtime
+            # relative to their own executable path, which macOS does not symlink-resolve. rm -f
+            # first because > follows a symlink and would otherwise overwrite the binary itself.
+            rm -f "$name"
+            printf '#!/bin/sh\nexec "%s/%s" "$@"\n' "$bin_dir/$dir" "$exe" >"$name" &&
+                chmod +x "$name"
+        else
+            ln -sf "$dir/$exe" "$name"
+        fi
+    fi
+}
 
-    install_tarball ruff "$RUFF_VERSION" "$RUFF_ASSET" \
+if [ "$pinned_ok" -eq 1 ]; then
+    # One-time sweep of the pre-helper directory names. Delete this line once every machine has
+    # run it; the prune inside install_pinned handles everything from here on.
+    rm -rf "$bin_dir"/ripgrep-* "$bin_dir"/clangd_* "$bin_dir"/bat-v* "$bin_dir"/fd-v* \
+        "$bin_dir"/nvim-*-*-* "$bin_dir"/starship-*-* "$bin_dir"/delta-*-* \
+        "$bin_dir"/tree-sitter-*-* "$bin_dir"/*.tar.gz "$bin_dir"/*.zip
+
+    install_pinned nvim "$NVIM_VERSION" \
+        "https://github.com/neovim/neovim/releases/download/v${NVIM_VERSION}/${NVIM}.tar.gz" bin/nvim
+    install_pinned tree-sitter "$TREE_SITTER_VERSION" \
+        "https://github.com/tree-sitter/tree-sitter/releases/download/v${TREE_SITTER_VERSION}/${TREE_SITTER_ASSET}"
+    install_pinned starship "$STARSHIP_VERSION" \
+        "https://github.com/starship/starship/releases/download/v${STARSHIP_VERSION}/${STARSHIP_ASSET}"
+    install_pinned rg "$RG_VERSION" \
+        "https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/${RG}.tar.gz"
+    install_pinned delta "$DELTA_VERSION" \
+        "https://github.com/dandavison/delta/releases/download/${DELTA_VERSION}/${DELTA}.tar.gz"
+    install_pinned bat "$BAT_VERSION" \
+        "https://github.com/sharkdp/bat/releases/download/v${BAT_VERSION}/${BAT}.tar.gz"
+    install_pinned fd "$FD_VERSION" \
+        "https://github.com/sharkdp/fd/releases/download/v${FD_VERSION}/${FD}.tar.gz"
+
+    # clangd is pinned rather than taken from brew or Xcode, whose clang lags well behind. Upstream
+    # ships no aarch64 Linux build, so CLANGD_ASSET is unset there and this is skipped; llvm does
+    # publish an LLVM-*-Linux-ARM64 tarball if one is ever worth its 1.77 GB.
+    if [ -n "$CLANGD_ASSET" ]; then
+        install_pinned clangd "$CLANGD_VERSION" \
+            "https://github.com/clangd/clangd/releases/download/${CLANGD_VERSION}/${CLANGD_ASSET}" \
+            bin/clangd
+    fi
+    install_pinned ruff "$RUFF_VERSION" \
         "https://github.com/astral-sh/ruff/releases/download/${RUFF_VERSION}/${RUFF_ASSET}"
-    install_tarball ty "$TY_VERSION" "$TY_ASSET" \
+    install_pinned ty "$TY_VERSION" \
         "https://github.com/astral-sh/ty/releases/download/${TY_VERSION}/${TY_ASSET}"
     if [ -n "$TINYMIST_ASSET" ]; then
-        install_tarball tinymist "$TINYMIST_VERSION" "$TINYMIST_ASSET" \
+        install_pinned tinymist "$TINYMIST_VERSION" \
             "https://github.com/Myriad-Dreamin/tinymist/releases/download/v${TINYMIST_VERSION}/${TINYMIST_ASSET}"
     fi
+    install_pinned lua-language-server "$LUA_LS_VERSION" \
+        "https://github.com/LuaLS/lua-language-server/releases/download/${LUA_LS_VERSION}/${LUA_LS_ASSET}" \
+        bin/lua-language-server wrapper
+    install_pinned stylua "$STYLUA_VERSION" \
+        "https://github.com/JohnnyMorganz/StyLua/releases/download/v${STYLUA_VERSION}/${STYLUA_ASSET}"
+    install_pinned codelldb "$CODELLDB_VERSION" \
+        "https://github.com/vadimcn/codelldb/releases/download/v${CODELLDB_VERSION}/${CODELLDB_ASSET}" \
+        extension/adapter/codelldb wrapper
 
-    # lua-language-server unpacks flat (bin/, main.lua, locale/, meta/), so it gets its own dir
-    # instead of --strip-components, and an absolute one because the wrapper embeds the path.
-    lua_ls_dir="$bin_dir/lua-language-server-${LUA_LS_VERSION}"
-    if [ "$force" -eq 1 ] || [ ! -d "$lua_ls_dir" ]; then
-        rm -rf "$lua_ls_dir.tmp"
-        if curl -fLO "https://github.com/LuaLS/lua-language-server/releases/download/${LUA_LS_VERSION}/${LUA_LS_ASSET}" \
-            && mkdir -p "$lua_ls_dir.tmp" \
-            && tar -xzf "$LUA_LS_ASSET" -C "$lua_ls_dir.tmp" \
-            && [ -x "$lua_ls_dir.tmp/bin/lua-language-server" ] \
-            && rm -rf "$lua_ls_dir" \
-            && mv "$lua_ls_dir.tmp" "$lua_ls_dir"; then
-            find "$bin_dir" -maxdepth 1 -name 'lua-language-server-*' \
-                ! -name "$(basename "$lua_ls_dir")" -exec rm -rf {} +
-        else
-            echo "lua-language-server ${LUA_LS_VERSION} install failed; keeping existing" >&2
-            skipped="$skipped lua-language-server"
-        fi
-        rm -rf "$lua_ls_dir.tmp" "$LUA_LS_ASSET"
-    fi
-    # A wrapper, not a symlink: it locates main.lua relative to its own executable path, which on
-    # macOS is not symlink-resolved. Outside the guard so a deleted wrapper self-heals.
-    if [ -x "$lua_ls_dir/bin/lua-language-server" ]; then
-        printf '#!/bin/sh\nexec "%s/bin/lua-language-server" "$@"\n' "$lua_ls_dir" > lua-language-server
-        chmod +x lua-language-server
-    fi
+    # codex tracks latest rather than a pinned version, like Claude Code above, since both release
+    # very frequently. `latest` as the version reinstalls on every run.
+    install_pinned codex latest \
+        "https://github.com/openai/codex/releases/latest/download/${CODEX_ASSET}" "${CODEX_ASSET%.tar.gz}"
 
-    # stylua ships a bare binary inside a zip, so it needs unzip and a dir of its own.
-    if [ "$have_unzip" -eq 0 ]; then
-        skipped="$skipped stylua"
-    else
-        stylua_dir="stylua-${STYLUA_VERSION}"
-        if [ "$force" -eq 1 ] || [ ! -d "$stylua_dir" ]; then
-            rm -rf "$stylua_dir.tmp"
-            # Staged for the same reason as clangd: -d creates the dir as part of extracting, so
-            # a mid-extraction failure would otherwise leave one the guard never retries.
-            # chmod is inside the chain: the zip does carry the exec bit, but if that ever changes
-            # and chmod fails, this must not swap a non-executable binary into place silently.
-            if curl -fLO "https://github.com/JohnnyMorganz/StyLua/releases/download/v${STYLUA_VERSION}/${STYLUA_ASSET}" \
-                && unzip -q -o -j "$STYLUA_ASSET" -d "$stylua_dir.tmp" </dev/null \
-                && chmod +x "$stylua_dir.tmp/stylua" \
-                && [ -x "$stylua_dir.tmp/stylua" ] \
-                && rm -rf "$stylua_dir" \
-                && mv "$stylua_dir.tmp" "$stylua_dir"; then
-                find "$bin_dir" -maxdepth 1 -name 'stylua-*' ! -name "$stylua_dir" -exec rm -rf {} +
-            else
-                echo "stylua ${STYLUA_VERSION} install failed; keeping existing" >&2
-                skipped="$skipped stylua"
-            fi
-            rm -rf "$stylua_dir.tmp" "$STYLUA_ASSET"
-        fi
-        [ -x "$stylua_dir/stylua" ] && ln -sf "$stylua_dir/stylua" .
-    fi
-
-    # codelldb: debug adapter for nvim-dap-lldb (c/cpp/rust). Ships as a per-platform vsix (a zip)
-    # with no brew formula.
-    codelldb_dir="$bin_dir/codelldb-${CODELLDB_VERSION}"
-    if [ "$have_unzip" -eq 0 ]; then
-        skipped="$skipped codelldb"
-    else
-        if [ "$force" -eq 1 ] || [ ! -d "$codelldb_dir" ]; then
-            rm -rf "$codelldb_dir"
-            curl -fLo "$CODELLDB_ASSET" "https://github.com/vadimcn/codelldb/releases/download/v${CODELLDB_VERSION}/${CODELLDB_ASSET}"
-            unzip -q "$CODELLDB_ASSET" -d "$codelldb_dir"
-            rm -f "$CODELLDB_ASSET"
-        fi
-        # A wrapper, not a symlink: codelldb locates liblldb relative to current_exe(), which
-        # on macOS does not resolve symlinks. Written outside the guard so a deleted wrapper
-        # self-heals, and with a single-quoted format so "$@" survives into the file.
-        if [ -x "$codelldb_dir/extension/adapter/codelldb" ]; then
-            printf '#!/bin/sh\nexec "%s/extension/adapter/codelldb" "$@"\n' "$codelldb_dir" > codelldb
-            chmod +x codelldb
-        fi
-    fi
-
-    # codex: tracks latest rather than a pinned version, like Claude Code above, since both
-    # release very frequently. The tarball holds one bare binary named after the target triple.
-    if curl -fLO "https://github.com/openai/codex/releases/latest/download/${CODEX_ASSET}"; then
-        tar -xzf "${CODEX_ASSET}"
-        # Only replace a working codex once the new binary is actually on disk.
-        if [ -f "${CODEX_ASSET%.tar.gz}" ]; then
-            mv -f "${CODEX_ASSET%.tar.gz}" codex
-            chmod +x codex
-        fi
-        rm -f "${CODEX_ASSET}"
-    else
-        echo "codex download failed; keeping whatever is already installed" >&2
-    fi
-
-    if [ -n "$skipped" ]; then
-        echo "Skipped (missing prerequisite or failed download):$skipped" >&2
-    fi
 fi
 
 # gh is Linux-only here: macOS ships a .zip rather than a tarball, so it stays on brew.
@@ -418,13 +307,8 @@ if [ $is_linux -eq 1 ]; then
             ;;
     esac
 
-    if [ "$force" -eq 1 ] || [ ! -d "${GH}" ]; then
-        rm -rf "${GH}"
-        curl -LO "https://github.com/cli/cli/releases/download/v${GH_VERSION}/${GH}.tar.gz"
-        tar -xvzf "${GH}.tar.gz"
-        rm -f "${GH}.tar.gz"
-    fi
-    ln -sf "${GH}/bin/gh" .
+    install_pinned gh "$GH_VERSION" \
+        "https://github.com/cli/cli/releases/download/v${GH_VERSION}/${GH}.tar.gz" bin/gh
 
 else
     # Install brew
@@ -444,4 +328,10 @@ else
     brew install openshift-cli 
     brew install mac-mouse-fix
     brew install helm 
+fi
+
+# Reported once here rather than per tool, so a missing prerequisite or a failed download is not
+# lost in the middle of the output above. Placed after the gh block so it covers that too.
+if [ -n "$skipped" ]; then
+    echo "Skipped (missing prerequisite or failed download):$skipped" >&2
 fi
