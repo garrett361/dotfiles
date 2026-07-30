@@ -3,7 +3,7 @@ local mark_utils = require("nvim_utils.marks")
 vim.cmd([[
   augroup _general_settings
     autocmd!
-    autocmd FileType qf,help,man,lspinfo,dap-float,dap-view,query nnoremap <silent> <buffer> q :close<CR>
+    autocmd FileType qf,help,man,checkhealth,dap-float,dap-view,query nnoremap <silent> <buffer> q :close<CR>
     autocmd TextYankPost * silent!lua vim.hl.on_yank({higroup = 'Visual', timeout = 200})
     autocmd BufWinEnter * :set formatoptions-=cro
     autocmd FileType qf set nobuflisted
