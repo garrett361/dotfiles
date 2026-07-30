@@ -1,7 +1,3 @@
-if [ -n "$BASH_VERSION" ] && [ -f "$HOME/.bashrc" ]; then
-    . "$HOME/.bashrc"
-fi
-
 _arch=$(uname -m)
 
 [ -d "$HOME/bin" ] && PATH="$HOME/bin:$PATH"
@@ -16,3 +12,9 @@ fi
 
 [ "$_arch" = "x86_64" ] && [ -f "$HOME/x86/bin/env" ] && . "$HOME/x86/bin/env"
 unset _arch
+
+# .bashrc must source last: its starship guard checks PATH, which needs the
+# ~/.local/bin prepends above to already be in place.
+if [ -n "$BASH_VERSION" ] && [ -f "$HOME/.bashrc" ]; then
+    . "$HOME/.bashrc"
+fi
