@@ -230,19 +230,17 @@ install_pinned() {
         fi
         rm -rf "$tmp"
     fi
-    # Outside the guard, so a deleted symlink or wrapper self-heals.
+    # Outside the guard, so a deleted symlink or wrapper self-heals. Clear the target first either
+    # way: > follows a symlink and would overwrite the binary itself, and ln -sf onto a
+    # symlink-to-directory creates the link inside it instead of replacing it, reporting success.
     if [ -x "$dir/$exe" ]; then
+        rm -f "$name"
         if [ -n "$wrapper" ]; then
-            # A wrapper, not a symlink: lua-language-server and codelldb both locate their runtime
-            # relative to their own executable path, which macOS does not symlink-resolve. rm -f
-            # first because > follows a symlink and would otherwise overwrite the binary itself.
-            rm -f "$name"
+            # lua-language-server and codelldb both locate their runtime relative to their own
+            # executable path, which macOS does not symlink-resolve.
             printf '#!/bin/sh\nexec "%s/%s" "$@"\n' "$bin_dir/$dir" "$exe" >"$name" &&
                 chmod +x "$name"
         else
-            # rm -f for the same reason as the wrapper branch: ln -sf onto a symlink-to-directory
-            # creates the link inside it instead of replacing it, and reports success.
-            rm -f "$name"
             ln -sf "$dir/$exe" "$name"
         fi
     fi
