@@ -35,18 +35,5 @@ return {
 				vim.lsp.buf.definition()
 			end,
 		},
-		{
-			"<leader>cj",
-			-- Not redundant with the built-in ]d and [d, which pass no float.
-			function()
-				vim.diagnostic.jump({ count = 1, float = true })
-			end,
-		},
-		{
-			"<leader>ck",
-			function()
-				vim.diagnostic.jump({ count = -1, float = true })
-			end,
-		},
 	},
 }
