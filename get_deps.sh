@@ -247,8 +247,9 @@ if [ "$pinned_ok" -eq 1 ]; then
                 # turns unzip's write-error prompt into a failure rather than a hung script.
                 if curl -fLO "https://github.com/clangd/clangd/releases/download/${CLANGD_VERSION}/${CLANGD_ASSET}" \
                     && unzip -q -o "$CLANGD_ASSET" -d "$clangd_dir.tmp" </dev/null \
-                    && [ -x "$clangd_dir.tmp/$clangd_dir/bin/clangd" ]; then
-                    rm -rf "$clangd_dir" && mv "$clangd_dir.tmp/$clangd_dir" "$clangd_dir"
+                    && [ -x "$clangd_dir.tmp/$clangd_dir/bin/clangd" ] \
+                    && rm -rf "$clangd_dir" \
+                    && mv "$clangd_dir.tmp/$clangd_dir" "$clangd_dir"; then
                     find "$bin_dir" -maxdepth 1 -name 'clangd_*' ! -name "$clangd_dir" -exec rm -rf {} +
                 else
                     echo "clangd ${CLANGD_VERSION} install failed; keeping existing" >&2
@@ -271,11 +272,14 @@ if [ "$pinned_ok" -eq 1 ]; then
         if [ "$force" -eq 1 ] || [ ! -d "$dir" ]; then
             rm -rf "$dir.tmp"
             # Chained so a bad tag or a truncated download leaves the working copy in place.
+            # The swap is part of the chain, not after it: a failed rm or mv must reach the else
+            # arm, or the prune below would run anyway and delete the staged copy silently.
             if curl -fLO "$url" \
                 && mkdir -p "$dir.tmp" \
                 && tar -xzf "$asset" -C "$dir.tmp" --strip-components=1 \
-                && [ -x "$dir.tmp/$name" ]; then
-                rm -rf "$dir" && mv "$dir.tmp" "$dir"
+                && [ -x "$dir.tmp/$name" ] \
+                && rm -rf "$dir" \
+                && mv "$dir.tmp" "$dir"; then
                 # Prune only once the new version is in place, or this eats what it just installed.
                 find "$bin_dir" -maxdepth 1 -name "${name}-*" ! -name "$dir" -exec rm -rf {} +
             else
@@ -284,7 +288,7 @@ if [ "$pinned_ok" -eq 1 ]; then
             fi
             rm -rf "$dir.tmp" "$asset"
         fi
-        [ -d "$dir" ] && ln -sf "$dir/$name" .
+        [ -x "$dir/$name" ] && ln -sf "$dir/$name" .
     }
 
     install_tarball ruff "$RUFF_VERSION" "$RUFF_ASSET" \
@@ -304,8 +308,9 @@ if [ "$pinned_ok" -eq 1 ]; then
         if curl -fLO "https://github.com/LuaLS/lua-language-server/releases/download/${LUA_LS_VERSION}/${LUA_LS_ASSET}" \
             && mkdir -p "$lua_ls_dir.tmp" \
             && tar -xzf "$LUA_LS_ASSET" -C "$lua_ls_dir.tmp" \
-            && [ -x "$lua_ls_dir.tmp/bin/lua-language-server" ]; then
-            rm -rf "$lua_ls_dir" && mv "$lua_ls_dir.tmp" "$lua_ls_dir"
+            && [ -x "$lua_ls_dir.tmp/bin/lua-language-server" ] \
+            && rm -rf "$lua_ls_dir" \
+            && mv "$lua_ls_dir.tmp" "$lua_ls_dir"; then
             find "$bin_dir" -maxdepth 1 -name 'lua-language-server-*' \
                 ! -name "$(basename "$lua_ls_dir")" -exec rm -rf {} +
         else
@@ -330,11 +335,14 @@ if [ "$pinned_ok" -eq 1 ]; then
             rm -rf "$stylua_dir.tmp"
             # Staged for the same reason as clangd: -d creates the dir as part of extracting, so
             # a mid-extraction failure would otherwise leave one the guard never retries.
+            # chmod is inside the chain: the zip does carry the exec bit, but if that ever changes
+            # and chmod fails, this must not swap a non-executable binary into place silently.
             if curl -fLO "https://github.com/JohnnyMorganz/StyLua/releases/download/v${STYLUA_VERSION}/${STYLUA_ASSET}" \
                 && unzip -q -o -j "$STYLUA_ASSET" -d "$stylua_dir.tmp" </dev/null \
-                && [ -s "$stylua_dir.tmp/stylua" ]; then
-                chmod +x "$stylua_dir.tmp/stylua"
-                rm -rf "$stylua_dir" && mv "$stylua_dir.tmp" "$stylua_dir"
+                && chmod +x "$stylua_dir.tmp/stylua" \
+                && [ -x "$stylua_dir.tmp/stylua" ] \
+                && rm -rf "$stylua_dir" \
+                && mv "$stylua_dir.tmp" "$stylua_dir"; then
                 find "$bin_dir" -maxdepth 1 -name 'stylua-*' ! -name "$stylua_dir" -exec rm -rf {} +
             else
                 echo "stylua ${STYLUA_VERSION} install failed; keeping existing" >&2

@@ -19,7 +19,8 @@ Personal dotfiles repo (macOS + Linux): Neovim (Lua), zsh/bash, CLI tools.
   `prettier`, `mypy`, `isort` and `black` are installed nowhere and `typstyle` comes from cargo.
   clangd is absent on aarch64 Linux and tinymist on all Linux, and since `PATH` now comes only from
   `.zprofile`/`.profile`, nvim launched outside a login shell finds no servers. A startup notify
-  names anything missing. `lua/plugins/lsp.lua` is a bare loader with no plugin spec; it stays under
+  names any of those six that are missing, skipping the two platforms cannot have.
+  `lua/plugins/lsp.lua` is a bare loader with no plugin spec; it stays under
   `plugins/` because nvim_min symlinks that directory per file. Every server must declare
   `filetypes`, since a config without it attaches to every buffer. Completion capabilities are
   **not** set here: blink.cmp's own `plugin/` file registers its delta via `vim.lsp.config("*")`,
