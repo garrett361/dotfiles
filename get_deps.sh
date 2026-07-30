@@ -73,6 +73,11 @@ rustup component add rust-analyzer clippy rustfmt
 # reserved for GUI apps and tools with no Linux counterpart here.
 NVIM_VERSION="0.12.4"
 CLANGD_VERSION="22.1.6"
+LUA_LS_VERSION="3.18.2"
+RUFF_VERSION="0.16.0"
+TY_VERSION="0.0.65"
+STYLUA_VERSION="2.5.2"
+TINYMIST_VERSION="0.15.2"
 CODELLDB_VERSION="1.12.2"
 TREE_SITTER_VERSION="0.26.11"
 STARSHIP_VERSION="1.26.0"
@@ -87,6 +92,12 @@ case "$(uname -s)-$arch" in
         NVIM="nvim-macos-arm64"
         # Universal binary, so this one asset also covers Intel macs if an arm is ever added.
         CLANGD_ASSET="clangd-mac-${CLANGD_VERSION}.zip"
+        LUA_LS_ASSET="lua-language-server-${LUA_LS_VERSION}-darwin-arm64.tar.gz"
+        RUFF_ASSET="ruff-aarch64-apple-darwin.tar.gz"
+        TY_ASSET="ty-aarch64-apple-darwin.tar.gz"
+        STYLUA_ASSET="stylua-macos-aarch64.zip"
+        # typst is only used on macOS, so tinymist is not installed on the Linux arms.
+        TINYMIST_ASSET="tinymist-aarch64-apple-darwin.tar.gz"
         CODELLDB_ASSET="codelldb-darwin-arm64.vsix"
         TREE_SITTER="tree-sitter-${TREE_SITTER_VERSION}-macos-arm64"
         TREE_SITTER_ASSET="tree-sitter-macos-arm64.gz"
@@ -101,6 +112,12 @@ case "$(uname -s)-$arch" in
     Linux-x86_64)
         NVIM="nvim-linux-x86_64"
         CLANGD_ASSET="clangd-linux-${CLANGD_VERSION}.zip"
+        LUA_LS_ASSET="lua-language-server-${LUA_LS_VERSION}-linux-x64.tar.gz"
+        # musl for ruff/ty/stylua: stylua's gnu builds need GLIBC_2.34, which rules out RHEL 8/9,
+        # Ubuntu 20.04 and Debian 11.
+        RUFF_ASSET="ruff-x86_64-unknown-linux-musl.tar.gz"
+        TY_ASSET="ty-x86_64-unknown-linux-musl.tar.gz"
+        STYLUA_ASSET="stylua-linux-x86_64-musl.zip"
         CODELLDB_ASSET="codelldb-linux-x64.vsix"
         TREE_SITTER="tree-sitter-${TREE_SITTER_VERSION}-linux-x64"
         TREE_SITTER_ASSET="tree-sitter-linux-x64.gz"
@@ -116,6 +133,10 @@ case "$(uname -s)-$arch" in
         NVIM="nvim-linux-arm64"
         # No CLANGD_ASSET: upstream ships no aarch64 Linux build (clangd#514 is open since 2020),
         # so these machines get no C/C++ LSP. Mason could not serve them either.
+        LUA_LS_ASSET="lua-language-server-${LUA_LS_VERSION}-linux-arm64.tar.gz"
+        RUFF_ASSET="ruff-aarch64-unknown-linux-musl.tar.gz"
+        TY_ASSET="ty-aarch64-unknown-linux-musl.tar.gz"
+        STYLUA_ASSET="stylua-linux-aarch64-musl.zip"
         CODELLDB_ASSET="codelldb-linux-arm64.vsix"
         TREE_SITTER="tree-sitter-${TREE_SITTER_VERSION}-linux-arm64"
         TREE_SITTER_ASSET="tree-sitter-linux-arm64.gz"
@@ -229,6 +250,85 @@ if [ "$pinned_ok" -eq 1 ]; then
             fi
             [ -d "$clangd_dir" ] && ln -sf "$clangd_dir/bin/clangd" .
         fi
+    fi
+
+    # ruff, ty and tinymist each ship a tarball holding a single top-level dir named after the
+    # target triple, with no version in it. Extracting as-is would make the [ ! -d ] guard true
+    # forever and a version bump a silent no-op, so strip the dir and name it ourselves. One
+    # helper rather than three near-identical blocks; the rest of this script predates it.
+    install_tarball() {
+        local name=$1 version=$2 asset=$3 url=$4
+        local dir="${name}-${version}"
+        if [ "$force" -eq 1 ] || [ ! -d "$dir" ]; then
+            rm -rf "$dir.tmp"
+            # Chained so a bad tag or a truncated download leaves the working copy in place.
+            if curl -fLO "$url" \
+                && mkdir -p "$dir.tmp" \
+                && tar -xzf "$asset" -C "$dir.tmp" --strip-components=1 \
+                && [ -x "$dir.tmp/$name" ]; then
+                rm -rf "$dir" && mv "$dir.tmp" "$dir"
+                # Prune only once the new version is in place, or this eats what it just installed.
+                find "$bin_dir" -maxdepth 1 -name "${name}-*" ! -name "$dir" -exec rm -rf {} +
+            else
+                echo "$name $version install failed; keeping existing" >&2
+                skipped="$skipped $name"
+            fi
+            rm -rf "$dir.tmp" "$asset"
+        fi
+        [ -d "$dir" ] && ln -sf "$dir/$name" .
+    }
+
+    install_tarball ruff "$RUFF_VERSION" "$RUFF_ASSET" \
+        "https://github.com/astral-sh/ruff/releases/download/${RUFF_VERSION}/${RUFF_ASSET}"
+    install_tarball ty "$TY_VERSION" "$TY_ASSET" \
+        "https://github.com/astral-sh/ty/releases/download/${TY_VERSION}/${TY_ASSET}"
+    if [ -n "$TINYMIST_ASSET" ]; then
+        install_tarball tinymist "$TINYMIST_VERSION" "$TINYMIST_ASSET" \
+            "https://github.com/Myriad-Dreamin/tinymist/releases/download/v${TINYMIST_VERSION}/${TINYMIST_ASSET}"
+    fi
+
+    # lua-language-server unpacks flat (bin/, main.lua, locale/, meta/), so it gets its own dir
+    # instead of --strip-components, and an absolute one because the wrapper embeds the path.
+    lua_ls_dir="$bin_dir/lua-language-server-${LUA_LS_VERSION}"
+    if [ "$force" -eq 1 ] || [ ! -d "$lua_ls_dir" ]; then
+        rm -rf "$lua_ls_dir.tmp"
+        if curl -fLO "https://github.com/LuaLS/lua-language-server/releases/download/${LUA_LS_VERSION}/${LUA_LS_ASSET}" \
+            && mkdir -p "$lua_ls_dir.tmp" \
+            && tar -xzf "$LUA_LS_ASSET" -C "$lua_ls_dir.tmp" \
+            && [ -x "$lua_ls_dir.tmp/bin/lua-language-server" ]; then
+            rm -rf "$lua_ls_dir" && mv "$lua_ls_dir.tmp" "$lua_ls_dir"
+            find "$bin_dir" -maxdepth 1 -name 'lua-language-server-*' \
+                ! -name "$(basename "$lua_ls_dir")" -exec rm -rf {} +
+        else
+            echo "lua-language-server ${LUA_LS_VERSION} install failed; keeping existing" >&2
+            skipped="$skipped lua-language-server"
+        fi
+        rm -rf "$lua_ls_dir.tmp" "$LUA_LS_ASSET"
+    fi
+    # A wrapper, not a symlink: it locates main.lua relative to its own executable path, which on
+    # macOS is not symlink-resolved. Outside the guard so a deleted wrapper self-heals.
+    if [ -x "$lua_ls_dir/bin/lua-language-server" ]; then
+        printf '#!/bin/sh\nexec "%s/bin/lua-language-server" "$@"\n' "$lua_ls_dir" > lua-language-server
+        chmod +x lua-language-server
+    fi
+
+    # stylua ships a bare binary inside a zip, so it needs unzip and a dir of its own.
+    if [ "$have_unzip" -eq 0 ]; then
+        skipped="$skipped stylua"
+    else
+        stylua_dir="stylua-${STYLUA_VERSION}"
+        if [ "$force" -eq 1 ] || [ ! -d "$stylua_dir" ]; then
+            if curl -fLO "https://github.com/JohnnyMorganz/StyLua/releases/download/v${STYLUA_VERSION}/${STYLUA_ASSET}" \
+                && unzip -q -o -j "$STYLUA_ASSET" -d "$stylua_dir" \
+                && chmod +x "$stylua_dir/stylua"; then
+                find "$bin_dir" -maxdepth 1 -name 'stylua-*' ! -name "$stylua_dir" -exec rm -rf {} +
+            else
+                echo "stylua ${STYLUA_VERSION} install failed; keeping existing" >&2
+                skipped="$skipped stylua"
+            fi
+            rm -f "$STYLUA_ASSET"
+        fi
+        [ -d "$stylua_dir" ] && ln -sf "$stylua_dir/stylua" .
     fi
 
     # codelldb: debug adapter for nvim-dap-lldb (c/cpp/rust). Ships as a per-platform vsix (a zip)
