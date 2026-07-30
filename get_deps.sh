@@ -229,6 +229,10 @@ if [ "$pinned_ok" -eq 1 ]; then
     have_unzip=0
     command -v unzip &>/dev/null && have_unzip=1
     skipped=""
+    # Sweep staging dirs from an interrupted run. Each block clears its own before extracting, but
+    # only when it enters its version guard, so a leftover would otherwise sit there (368 MB, for
+    # clangd) until the next version bump.
+    rm -rf "$bin_dir"/*.tmp
 
     # clangd: pinned here, and deliberately not brew or Xcode, whose clang lags well behind. The
     # zip unpacks to a version-stamped dir, which lands inside the staging dir rather than beside
@@ -241,10 +245,14 @@ if [ "$pinned_ok" -eq 1 ]; then
             clangd_dir="clangd_${CLANGD_VERSION}"
             if [ "$force" -eq 1 ] || [ ! -d "$clangd_dir" ]; then
                 rm -rf "$clangd_dir.tmp"
-                # Staged, because unzip -o writes in place: extracting straight into $clangd_dir
-                # would truncate a working copy if it died partway (quota, CRC, Ctrl-C) and leave
-                # a dir that satisfies the guard forever. -o skips the replace prompt, </dev/null
-                # turns unzip's write-error prompt into a failure rather than a hung script.
+                # Staged, because unzip writes in place: extracting straight into $clangd_dir would
+                # truncate a working copy if it died partway (quota, CRC, Ctrl-C) and leave a dir
+                # that satisfies the guard forever. </dev/null turns unzip's write-error prompt
+                # into a failure rather than a hung script.
+                #
+                # The guarantee is "a failure is reported and the next run retries", not "the old
+                # copy always survives": rm succeeding and mv then failing loses both, though a
+                # same-directory rename makes that close to unreachable.
                 if curl -fLO "https://github.com/clangd/clangd/releases/download/${CLANGD_VERSION}/${CLANGD_ASSET}" \
                     && unzip -q -o "$CLANGD_ASSET" -d "$clangd_dir.tmp" </dev/null \
                     && [ -x "$clangd_dir.tmp/$clangd_dir/bin/clangd" ] \
