@@ -14,12 +14,10 @@ local settings = {
 local mason = require("nvim_utils").prequire("mason")
 mason.setup(settings)
 
-local capabilities = vim.lsp.protocol.make_client_capabilities()
-capabilities.textDocument.completion.completionItem.snippetSupport = true
-
--- cmp
+-- nvim merges make_client_capabilities() underneath whatever is set here, so only cmp's delta
+-- belongs in this table. The "*" config is merged under every server (:h lsp-config-merge).
 local cmp_nvim_lsp = require("nvim_utils").prequire("cmp_nvim_lsp")
-capabilities = cmp_nvim_lsp.default_capabilities(capabilities)
+vim.lsp.config("*", { capabilities = cmp_nvim_lsp.default_capabilities() })
 
 local function setup_inlay_hints(client, bufnr)
 	if client.server_capabilities.inlayHintProvider then
@@ -30,6 +28,7 @@ end
 
 vim.lsp.config.lua_ls = {
 	cmd = { "lua-language-server" },
+	filetypes = { "lua" },
 	root_markers = {
 		".luarc.json",
 		".luarc.jsonc",
@@ -39,7 +38,6 @@ vim.lsp.config.lua_ls = {
 		"selene.yml",
 		".git",
 	},
-	capabilities = capabilities,
 	settings = { Lua = { workspace = { checkThirdParty = false } } },
 	on_init = function(client)
 		if client.workspace_folders then
@@ -76,6 +74,7 @@ vim.lsp.config.lua_ls = {
 
 vim.lsp.config.clangd = {
 	cmd = { "clangd" },
+	filetypes = { "c", "c.doxygen", "cpp", "cpp.doxygen", "objc", "objcpp", "cuda" },
 	root_markers = {
 		".clangd",
 		".clang-tidy",
@@ -85,21 +84,24 @@ vim.lsp.config.clangd = {
 		"configure.ac",
 		".git",
 	},
-	capabilities = capabilities,
+	-- Without this, .cu buffers reach clangd as languageId `cuda` and it ignores them silently.
+	get_language_id = function(_, ftype)
+		local t = { objc = "objective-c", objcpp = "objective-cpp", cuda = "cuda-cpp" }
+		return t[ftype] or ftype
+	end,
+	capabilities = { textDocument = { completion = { editsNearCursor = true } } },
 	on_attach = function(client, bufnr)
 		setup_inlay_hints(client, bufnr)
 		-- Formatting is left enabled here, unlike ruff: clangd embeds clang-format and reads
 		-- the same .clang-format, so conform routes c/cpp/cuda through it rather than a
 		-- standalone binary that would be a second copy of the same tool.
-		-- For handling https://github.com/neovim/neovim/pull/16694#issuecomment-996947306
-		client.server_capabilities.offsetEncoding = { "utf-16" }
 	end,
 }
 
 vim.lsp.config.ruff = {
 	cmd = { "ruff", "server" },
+	filetypes = { "python" },
 	root_markers = { "pyproject.toml", "ruff.toml", ".ruff.toml", ".git" },
-	capabilities = capabilities,
 	init_options = {
 		settings = {
 			lint = {
@@ -141,7 +143,6 @@ vim.lsp.config.ty = {
 	cmd = { "ty", "server" },
 	filetypes = { "python" },
 	root_markers = { "pyproject.toml", "ty.toml", ".ty.toml", ".git" },
-	capabilities = capabilities,
 	on_attach = function(client, bufnr)
 		setup_inlay_hints(client, bufnr)
 	end,
@@ -149,8 +150,8 @@ vim.lsp.config.ty = {
 
 vim.lsp.config.tinymist = {
 	cmd = { "tinymist" },
+	filetypes = { "typst" },
 	root_markers = { ".git" },
-	capabilities = capabilities,
 	settings = {
 		projectResolution = "lockedDatabase",
 		exportPdf = "onSave",
@@ -174,10 +175,9 @@ mason_lspconfig.setup({
 	automatic_enable = { exclude = { "stylua" } },
 })
 
--- automatic_enable already covers clangd once Mason installs it. Enabling it explicitly is the
--- fallback for machines where that install cannot succeed or has not run yet, and for a system
--- clangd already on PATH.
-vim.lsp.enable({ "clangd", "ruff", "ty" })
+-- Every server is listed explicitly rather than left to automatic_enable. A server whose binary is
+-- missing only warns in :checkhealth vim.lsp and logs to :LspLog, so listing all five is safe.
+vim.lsp.enable({ "clangd", "lua_ls", "ruff", "tinymist", "ty" })
 
 -- Configuring signs and other visuals
 
