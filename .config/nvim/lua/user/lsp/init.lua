@@ -1,18 +1,5 @@
-local settings = {
-	ui = {
-		border = "none",
-		icons = {
-			package_installed = "◍",
-			package_pending = "◍",
-			package_uninstalled = "◍",
-		},
-	},
-	log_level = vim.log.levels.INFO,
-	max_concurrent_installers = 4,
-}
-
 local mason = require("nvim_utils").prequire("mason")
-mason.setup(settings)
+mason.setup()
 
 -- nvim merges make_client_capabilities() underneath whatever is set here, so only cmp's delta
 -- belongs in this table. The "*" config is merged under every server (:h lsp-config-merge).
@@ -202,7 +189,3 @@ vim.diagnostic.config({
 		prefix = "",
 	},
 })
-
--- Replaces the vim.lsp.with + vim.lsp.handlers overrides for hover and signatureHelp, both
--- deprecated for removal in 0.13. Note this borders every float, not just those two.
-vim.o.winborder = "rounded"
