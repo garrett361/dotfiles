@@ -13,15 +13,19 @@ Personal dotfiles repo (macOS + Linux): Neovim (Lua), zsh/bash, CLI tools.
 - LSP: `lua/user/lsp/init.lua` (lua_ls, clangd, ruff, ty, tinymist), all five configured natively
   and listed explicitly in `vim.lsp.enable`. **nvim-lspconfig and all of mason are deliberately
   absent**: lspconfig shipped ~400 server configs that `automatic_enable` could start unasked, and
-  mason only existed to install binaries. `get_deps.sh` now pins every LSP server and formatter it
-  owned, so they live on `PATH` and an activated venv's `ruff`/`ty` takes precedence, which mason's
-  PATH prepend used to prevent. `lua/plugins/lsp.lua` is a bare loader with no plugin spec; it stays
-  under `plugins/` because nvim_min symlinks that directory per file. Every server must declare
+  mason only existed to install binaries. `get_deps.sh` now pins the six mason used to own (the five
+  servers plus `stylua`), so they resolve through `PATH` and an activated venv's `ruff`/`ty` wins,
+  which mason's PATH prepend used to prevent. It does **not** cover every tool the config names:
+  `prettier`, `mypy`, `isort` and `black` are installed nowhere and `typstyle` comes from cargo.
+  clangd is absent on aarch64 Linux and tinymist on all Linux, and since `PATH` now comes only from
+  `.zprofile`/`.profile`, nvim launched outside a login shell finds no servers. A startup notify
+  names anything missing. `lua/plugins/lsp.lua` is a bare loader with no plugin spec; it stays under
+  `plugins/` because nvim_min symlinks that directory per file. Every server must declare
   `filetypes`, since a config without it attaches to every buffer. Completion capabilities are
-  **not** set here:
-  blink.cmp's own `plugin/` file registers its delta via `vim.lsp.config("*")`, which nvim merges
-  under every server. rust-analyzer is started by rustaceanvim via `vim.g.rustaceanvim` rather than
-  `vim.lsp.enable`, but it still picks up that `"*"` block, so blink affects Rust too.
+  **not** set here: blink.cmp's own `plugin/` file registers its delta via `vim.lsp.config("*")`,
+  which nvim merges under every server. rust-analyzer is started by rustaceanvim via
+  `vim.g.rustaceanvim` rather than `vim.lsp.enable`, but it still picks up that `"*"` block, so
+  blink affects Rust too.
 - Completion is blink.cmp (`lua/plugins/blink_cmp.lua`), pinned to `1.*` because `main` is an
   unstable v2 and the prebuilt Rust matcher is only downloaded on release tags. It replaced eight
   nvim-cmp plugins; only settings that diverge from a blink default live in that file.

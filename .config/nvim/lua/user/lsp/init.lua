@@ -106,7 +106,8 @@ vim.lsp.config.tinymist = {
 local servers = { "clangd", "lua_ls", "ruff", "tinymist", "ty" }
 vim.lsp.enable(servers)
 
--- get_deps.sh cannot install these here, so warning about them would only train us to ignore it.
+-- get_deps.sh does not install these here, so warning about them would only train us to ignore
+-- it. clangd has no aarch64 Linux build upstream; tinymist is skipped on Linux by choice.
 local uname = vim.uv.os_uname()
 local unshipped = {
 	clangd = uname.sysname == "Linux" and uname.machine == "aarch64",

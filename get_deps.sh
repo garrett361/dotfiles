@@ -96,7 +96,6 @@ case "$(uname -s)-$arch" in
         RUFF_ASSET="ruff-aarch64-apple-darwin.tar.gz"
         TY_ASSET="ty-aarch64-apple-darwin.tar.gz"
         STYLUA_ASSET="stylua-macos-aarch64.zip"
-        # typst is only used on macOS, so tinymist is not installed on the Linux arms.
         TINYMIST_ASSET="tinymist-aarch64-apple-darwin.tar.gz"
         CODELLDB_ASSET="codelldb-darwin-arm64.vsix"
         TREE_SITTER="tree-sitter-${TREE_SITTER_VERSION}-macos-arm64"
@@ -112,12 +111,14 @@ case "$(uname -s)-$arch" in
     Linux-x86_64)
         NVIM="nvim-linux-x86_64"
         CLANGD_ASSET="clangd-linux-${CLANGD_VERSION}.zip"
+        # LuaLS ships glibc-only builds, so unlike the three below it stays exposed to old distros.
         LUA_LS_ASSET="lua-language-server-${LUA_LS_VERSION}-linux-x64.tar.gz"
         # musl for ruff/ty/stylua: stylua's gnu builds need GLIBC_2.34, which rules out RHEL 8/9,
         # Ubuntu 20.04 and Debian 11.
         RUFF_ASSET="ruff-x86_64-unknown-linux-musl.tar.gz"
         TY_ASSET="ty-x86_64-unknown-linux-musl.tar.gz"
         STYLUA_ASSET="stylua-linux-x86_64-musl.zip"
+        # No TINYMIST_ASSET: typst is only used on macOS.
         CODELLDB_ASSET="codelldb-linux-x64.vsix"
         TREE_SITTER="tree-sitter-${TREE_SITTER_VERSION}-linux-x64"
         TREE_SITTER_ASSET="tree-sitter-linux-x64.gz"
@@ -137,6 +138,7 @@ case "$(uname -s)-$arch" in
         RUFF_ASSET="ruff-aarch64-unknown-linux-musl.tar.gz"
         TY_ASSET="ty-aarch64-unknown-linux-musl.tar.gz"
         STYLUA_ASSET="stylua-linux-aarch64-musl.zip"
+        # No TINYMIST_ASSET: typst is only used on macOS.
         CODELLDB_ASSET="codelldb-linux-arm64.vsix"
         TREE_SITTER="tree-sitter-${TREE_SITTER_VERSION}-linux-arm64"
         TREE_SITTER_ASSET="tree-sitter-linux-arm64.gz"
@@ -228,27 +230,34 @@ if [ "$pinned_ok" -eq 1 ]; then
     command -v unzip &>/dev/null && have_unzip=1
     skipped=""
 
-    # clangd: pinned here rather than left to mason-lspconfig, and deliberately not brew or Xcode,
-    # whose clang lags well behind. The zip already unpacks to a version-stamped dir.
+    # clangd: pinned here, and deliberately not brew or Xcode, whose clang lags well behind. The
+    # zip unpacks to a version-stamped dir, which lands inside the staging dir rather than beside
+    # it. Upstream ships no aarch64 Linux build, though llvm/llvm-project does publish an
+    # LLVM-*-Linux-ARM64 tarball if one is ever worth its 1.77 GB.
     if [ -n "$CLANGD_ASSET" ]; then
         if [ "$have_unzip" -eq 0 ]; then
             skipped="$skipped clangd"
         else
             clangd_dir="clangd_${CLANGD_VERSION}"
             if [ "$force" -eq 1 ] || [ ! -d "$clangd_dir" ]; then
-                # Chained so a bad tag leaves the working copy alone; -o so a --force re-run does
-                # not stop at unzip's interactive replace prompt.
+                rm -rf "$clangd_dir.tmp"
+                # Staged, because unzip -o writes in place: extracting straight into $clangd_dir
+                # would truncate a working copy if it died partway (quota, CRC, Ctrl-C) and leave
+                # a dir that satisfies the guard forever. -o skips the replace prompt, </dev/null
+                # turns unzip's write-error prompt into a failure rather than a hung script.
                 if curl -fLO "https://github.com/clangd/clangd/releases/download/${CLANGD_VERSION}/${CLANGD_ASSET}" \
-                    && unzip -q -o "$CLANGD_ASSET" \
-                    && [ -x "$clangd_dir/bin/clangd" ]; then
+                    && unzip -q -o "$CLANGD_ASSET" -d "$clangd_dir.tmp" </dev/null \
+                    && [ -x "$clangd_dir.tmp/$clangd_dir/bin/clangd" ]; then
+                    rm -rf "$clangd_dir" && mv "$clangd_dir.tmp/$clangd_dir" "$clangd_dir"
                     find "$bin_dir" -maxdepth 1 -name 'clangd_*' ! -name "$clangd_dir" -exec rm -rf {} +
                 else
                     echo "clangd ${CLANGD_VERSION} install failed; keeping existing" >&2
                     skipped="$skipped clangd"
                 fi
-                rm -f "$CLANGD_ASSET"
+                rm -rf "$clangd_dir.tmp" "$CLANGD_ASSET"
             fi
-            [ -d "$clangd_dir" ] && ln -sf "$clangd_dir/bin/clangd" .
+            # -x not -d: a half-extracted dir must not get a symlink pointing into it.
+            [ -x "$clangd_dir/bin/clangd" ] && ln -sf "$clangd_dir/bin/clangd" .
         fi
     fi
 
@@ -318,17 +327,22 @@ if [ "$pinned_ok" -eq 1 ]; then
     else
         stylua_dir="stylua-${STYLUA_VERSION}"
         if [ "$force" -eq 1 ] || [ ! -d "$stylua_dir" ]; then
+            rm -rf "$stylua_dir.tmp"
+            # Staged for the same reason as clangd: -d creates the dir as part of extracting, so
+            # a mid-extraction failure would otherwise leave one the guard never retries.
             if curl -fLO "https://github.com/JohnnyMorganz/StyLua/releases/download/v${STYLUA_VERSION}/${STYLUA_ASSET}" \
-                && unzip -q -o -j "$STYLUA_ASSET" -d "$stylua_dir" \
-                && chmod +x "$stylua_dir/stylua"; then
+                && unzip -q -o -j "$STYLUA_ASSET" -d "$stylua_dir.tmp" </dev/null \
+                && [ -s "$stylua_dir.tmp/stylua" ]; then
+                chmod +x "$stylua_dir.tmp/stylua"
+                rm -rf "$stylua_dir" && mv "$stylua_dir.tmp" "$stylua_dir"
                 find "$bin_dir" -maxdepth 1 -name 'stylua-*' ! -name "$stylua_dir" -exec rm -rf {} +
             else
                 echo "stylua ${STYLUA_VERSION} install failed; keeping existing" >&2
                 skipped="$skipped stylua"
             fi
-            rm -f "$STYLUA_ASSET"
+            rm -rf "$stylua_dir.tmp" "$STYLUA_ASSET"
         fi
-        [ -d "$stylua_dir" ] && ln -sf "$stylua_dir/stylua" .
+        [ -x "$stylua_dir/stylua" ] && ln -sf "$stylua_dir/stylua" .
     fi
 
     # codelldb: debug adapter for nvim-dap-lldb (c/cpp/rust). Ships as a per-platform vsix (a zip)
