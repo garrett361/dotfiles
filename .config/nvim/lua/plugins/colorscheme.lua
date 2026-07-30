@@ -13,8 +13,6 @@ return {
 			increase_contrast = false, -- only changes the line number and active line number for now.
 		})
 		vim.cmd.colorscheme("makurai_dark")
-		-- Set diff colors after loading colorscheme, so that they're not overwritten.
-		require("user.options").set_diff_hl()
 	end,
 }
 
@@ -25,7 +23,5 @@ return {
 -- 	config = function()
 -- 		require("lytmode").setup()
 -- 		vim.cmd.colorscheme("lytmode")
--- 	-- Set diff colors after loading colorscheme, so that they're not overwritten.
--- 	require("user.options").set_diff_hl()
 -- 	end,
 -- }

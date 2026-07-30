@@ -115,15 +115,3 @@ if git_root ~= nil then
 	local shadafile = cache_dir .. "/myshada/" .. unique_id .. ".shada"
 	vim.opt.shadafile = shadafile
 end
-
--- Diff styling. Return HL group fn, so it can be called after the colorscheme is applied.
-vim.opt.fillchars:append({ diff = "╱" })
-
-local M = {}
-M.set_diff_hl = function()
-	vim.cmd("hi DiffAdd guibg=#1a6236")
-	vim.cmd("hi DiffDelete guibg=#ff3f5c")
-	vim.cmd("hi DiffChange guibg=#346345")
-	vim.cmd("hi DiffText guibg=#5a0267")
-end
-return M
