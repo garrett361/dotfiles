@@ -32,9 +32,11 @@ local function conform_config()
 	}
 	conform.setup({
 		formatters_by_ft = {
-			c = { "clang_format" },
-			cpp = { "clang_format" },
-			cuda = { "clang_format" },
+			-- Formatted by clangd over LSP rather than a standalone clang-format binary,
+			-- which is installed nowhere and would duplicate what clangd already embeds.
+			c = { lsp_format = "prefer" },
+			cpp = { lsp_format = "prefer" },
+			cuda = { lsp_format = "prefer" },
 			html = { "prettier" },
 			javascript = { "prettier" },
 			json = { "prettier" },

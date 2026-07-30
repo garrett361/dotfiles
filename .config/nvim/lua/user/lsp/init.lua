@@ -88,7 +88,9 @@ vim.lsp.config.clangd = {
 	capabilities = capabilities,
 	on_attach = function(client, bufnr)
 		setup_inlay_hints(client, bufnr)
-		client.server_capabilities.documentFormattingProvider = false
+		-- Formatting is left enabled here, unlike ruff: clangd embeds clang-format and reads
+		-- the same .clang-format, so conform routes c/cpp/cuda through it rather than a
+		-- standalone binary that would be a second copy of the same tool.
 		-- For handling https://github.com/neovim/neovim/pull/16694#issuecomment-996947306
 		client.server_capabilities.offsetEncoding = { "utf-16" }
 	end,
@@ -163,10 +165,18 @@ vim.lsp.config.tinymist = {
 -- mason-lspconfig maps the package to it, so every lua buffer would start a second, useless
 -- client (conform never asks the LSP to format).
 local mason_lspconfig = require("nvim_utils").prequire("mason-lspconfig")
-mason_lspconfig.setup({ automatic_enable = { exclude = { "stylua" } } })
+mason_lspconfig.setup({
+	-- clangd is the one server worth installing unprompted: it is a hard requirement for C and
+	-- C++ LSP, and it also formats those buffers via conform. Mason owns it on macOS too, so the
+	-- version stops tracking whatever Xcode ships. It has no aarch64 Linux build, so those
+	-- machines log a Mason error each launch and get no C/C++ support either way.
+	ensure_installed = { "clangd" },
+	automatic_enable = { exclude = { "stylua" } },
+})
 
--- clangd is not a mason package, so it needs enabling by hand; mason-lspconfig only
--- auto-enables what it installed.
+-- automatic_enable already covers clangd once Mason installs it. Enabling it explicitly is the
+-- fallback for machines where that install cannot succeed or has not run yet, and for a system
+-- clangd already on PATH.
 vim.lsp.enable({ "clangd", "ruff", "ty" })
 
 -- Configuring signs and other visuals
