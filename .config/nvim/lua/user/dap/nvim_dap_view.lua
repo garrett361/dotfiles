@@ -64,9 +64,20 @@ M.config = function()
 	-- down and rebuild it once per rank, stealing the cursor each time the repl is showing.
 	local function open_if_closed()
 		local state = prequire("dap-view.state")
-		if not prequire("dap-view.util").is_win_valid(state.winnr) then
-			dap_view.open()
+		local util = prequire("dap-view.util")
+		if util.is_win_valid(state.winnr) then
+			return
 		end
+		dap_view.open()
+		-- open() creates both windows with enter = false, so the cursor stays in whatever
+		-- window it was in, which is not the repl. jump_to_view focuses dap-view's window
+		-- and shows the section. Scheduled so it runs after the rest of the launch/attach
+		-- handler, and guarded because the window can be gone again by then.
+		vim.schedule(function()
+			if util.is_win_valid(state.winnr) then
+				dap_view.jump_to_view("repl")
+			end
+		end)
 	end
 	dap.listeners.before.attach.dap_view_config = open_if_closed
 	dap.listeners.before.launch.dap_view_config = open_if_closed
