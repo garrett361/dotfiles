@@ -40,7 +40,7 @@ return {
 		},
 		{
 			"<leader>cI",
-			"<cmd>LspInfo<cr>",
+			"<cmd>checkhealth vim.lsp<cr>",
 		},
 		{
 			"<leader>cj",
