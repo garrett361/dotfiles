@@ -219,6 +219,10 @@ function rc() {
 # non-login interactive shells (this file's job), and this file misses non-interactive login
 # shells like `zsh -lc`. The export is idempotent, so setting it twice costs nothing.
 export RUSTUP_HOME="$HOME/.rustup-$(uname -m)"
+# Only claims the arch-suffixed tree when it exists; otherwise whatever a profile already exported
+# stands, and cargo's own ~/.cargo default applies if nothing did. See the profiles' CARGO_HOME
+# comment for why it has to be exported rather than left to rustup's env file.
+[ -f "$HOME/.cargo-$(uname -m)/env" ] && export CARGO_HOME="$HOME/.cargo-$(uname -m)"
 
 [ -f "$HOME/.slurm_fns.sh" ] && source "$HOME/.slurm_fns.sh"
 [ -f "$HOME/.lsf_fns.sh" ]   && source "$HOME/.lsf_fns.sh"

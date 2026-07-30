@@ -63,10 +63,15 @@ fi
 # machine the toolchain would land in ~/.rustup while every later shell looks in
 # ~/.rustup-$arch and reports "no default toolchain".
 export RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup-$arch}"
+# Same for CARGO_HOME, which the profiles already expect to be arch-suffixed but nothing ever set,
+# so ~/.cargo/bin (rustup's shims plus anything cargo-installed) was shared across arches. Only
+# rustup-init populates CARGO_HOME, so on a machine that already has rustup this is inert and no
+# migration happens: the profiles keep resolving to the existing ~/.cargo.
+export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo-$arch}"
 if ! command -v rustup &>/dev/null; then
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
     # The installer only edits shell profiles, so source its env to use rustup below.
-    . "${CARGO_HOME:-$HOME/.cargo}/env"
+    . "$CARGO_HOME/env"
 fi
 rustup default stable
 # rustfmt is in the default profile but not --profile minimal, and conform runs it directly.
