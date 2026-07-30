@@ -98,9 +98,7 @@ case "$(uname -s)-$arch" in
         STYLUA_ASSET="stylua-macos-aarch64.zip"
         TINYMIST_ASSET="tinymist-aarch64-apple-darwin.tar.gz"
         CODELLDB_ASSET="codelldb-darwin-arm64.vsix"
-        TREE_SITTER="tree-sitter-${TREE_SITTER_VERSION}-macos-arm64"
         TREE_SITTER_ASSET="tree-sitter-macos-arm64.gz"
-        STARSHIP="starship-${STARSHIP_VERSION}-aarch64-apple-darwin"
         STARSHIP_ASSET="starship-aarch64-apple-darwin.tar.gz"
         RG="ripgrep-${RG_VERSION}-aarch64-apple-darwin"
         DELTA="delta-${DELTA_VERSION}-aarch64-apple-darwin"
@@ -120,9 +118,7 @@ case "$(uname -s)-$arch" in
         STYLUA_ASSET="stylua-linux-x86_64-musl.zip"
         # No TINYMIST_ASSET: typst is only used on macOS.
         CODELLDB_ASSET="codelldb-linux-x64.vsix"
-        TREE_SITTER="tree-sitter-${TREE_SITTER_VERSION}-linux-x64"
         TREE_SITTER_ASSET="tree-sitter-linux-x64.gz"
-        STARSHIP="starship-${STARSHIP_VERSION}-x86_64-unknown-linux-gnu"
         STARSHIP_ASSET="starship-x86_64-unknown-linux-gnu.tar.gz"
         RG="ripgrep-${RG_VERSION}-x86_64-unknown-linux-musl"
         DELTA="delta-${DELTA_VERSION}-x86_64-unknown-linux-musl"
@@ -140,9 +136,7 @@ case "$(uname -s)-$arch" in
         STYLUA_ASSET="stylua-linux-aarch64-musl.zip"
         # No TINYMIST_ASSET: typst is only used on macOS.
         CODELLDB_ASSET="codelldb-linux-arm64.vsix"
-        TREE_SITTER="tree-sitter-${TREE_SITTER_VERSION}-linux-arm64"
         TREE_SITTER_ASSET="tree-sitter-linux-arm64.gz"
-        STARSHIP="starship-${STARSHIP_VERSION}-aarch64-unknown-linux-musl"
         STARSHIP_ASSET="starship-aarch64-unknown-linux-musl.tar.gz"
         RG="ripgrep-${RG_VERSION}-aarch64-unknown-linux-gnu"
         DELTA="delta-${DELTA_VERSION}-aarch64-unknown-linux-gnu"
@@ -164,7 +158,14 @@ command -v unzip &>/dev/null && have_unzip=1
 skipped=""
 # Sweep staging dirs from an interrupted run. Each install clears its own before extracting, but
 # only when it enters its version guard, so a leftover would otherwise sit there (368 MB, for
-# clangd) until the next version bump.
+# clangd) until the next version bump. Restore first: a run interrupted mid-swap leaves the previous
+# install at <tool>.tmp/old, and sweeping that away before the retry would lose it if the retry
+# also failed.
+for staged in "$bin_dir"/*.tmp; do
+    if [ -d "$staged/old" ] && [ ! -e "${staged%.tmp}" ]; then
+        mv "$staged/old" "${staged%.tmp}"
+    fi
+done
 rm -rf "$bin_dir"/*.tmp
 
 # Upstream is inconsistent about wrapping the payload in a top-level dir, and clangd stamps the
@@ -206,11 +207,12 @@ install_pinned() {
                 *.tar.gz) tar -xzf "$tmp/$asset" -C "$tmp/x" ;;
                 *.zip | *.vsix) unzip -q "$tmp/$asset" -d "$tmp/x" </dev/null ;;
                 *.gz) gunzip -c "$tmp/$asset" >"$tmp/x/$exe" ;;
+                *) echo "$name: unhandled archive type $asset" >&2; false ;;
             esac \
             && src=$(single_dir "$tmp/x") \
             && [ -f "$src/$exe" ] \
             && chmod +x "$src/$exe" \
-            && { [ ! -d "$dir" ] || mv "$dir" "$tmp/old"; } \
+            && { [ ! -e "$dir" ] || mv "$dir" "$tmp/old"; } \
             && mv "$src" "$dir"; then
             # Prune only once the new version is in place, or this eats what it just installed.
             find "$bin_dir" -maxdepth 1 -name "$name-*" ! -name "$dir" -exec rm -rf {} +
@@ -231,18 +233,15 @@ install_pinned() {
             printf '#!/bin/sh\nexec "%s/%s" "$@"\n' "$bin_dir/$dir" "$exe" >"$name" &&
                 chmod +x "$name"
         else
+            # rm -f for the same reason as the wrapper branch: ln -sf onto a symlink-to-directory
+            # creates the link inside it instead of replacing it, and reports success.
+            rm -f "$name"
             ln -sf "$dir/$exe" "$name"
         fi
     fi
 }
 
 if [ "$pinned_ok" -eq 1 ]; then
-    # One-time sweep of the pre-helper directory names. Delete this line once every machine has
-    # run it; the prune inside install_pinned handles everything from here on.
-    rm -rf "$bin_dir"/ripgrep-* "$bin_dir"/clangd_* "$bin_dir"/bat-v* "$bin_dir"/fd-v* \
-        "$bin_dir"/nvim-*-*-* "$bin_dir"/starship-*-* "$bin_dir"/delta-*-* \
-        "$bin_dir"/tree-sitter-*-* "$bin_dir"/*.tar.gz "$bin_dir"/*.zip
-
     install_pinned nvim "$NVIM_VERSION" \
         "https://github.com/neovim/neovim/releases/download/v${NVIM_VERSION}/${NVIM}.tar.gz" bin/nvim
     install_pinned tree-sitter "$TREE_SITTER_VERSION" \
