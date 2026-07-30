@@ -2,7 +2,6 @@ local prequire = require("nvim_utils").prequire
 return {
 	"mfussenegger/nvim-dap",
 	dependencies = {
-		"rcarriga/cmp-dap",
 		"mfussenegger/nvim-dap-python",
 		"igorlfs/nvim-dap-view",
 		"theHamsta/nvim-dap-virtual-text",

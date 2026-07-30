@@ -1,10 +1,9 @@
 local mason = require("nvim_utils").prequire("mason")
 mason.setup()
 
-local cmp_nvim_lsp = require("nvim_utils").prequire("cmp_nvim_lsp")
--- Only cmp's delta belongs here: nvim merges make_client_capabilities() underneath it. The "*"
--- config is merged under every server (:h lsp-config-merge), rust-analyzer included.
-vim.lsp.config("*", { capabilities = cmp_nvim_lsp.default_capabilities() })
+-- No capabilities block here: blink.cmp's own plugin/ file registers its delta via
+-- vim.lsp.config("*"), which nvim merges under every server (:h lsp-config-merge),
+-- rust-analyzer included.
 
 vim.lsp.config.lua_ls = {
 	cmd = { "lua-language-server" },

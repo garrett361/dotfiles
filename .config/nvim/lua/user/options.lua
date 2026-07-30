@@ -1,5 +1,5 @@
 local options = {
-	completeopt = { "menuone", "noselect" }, -- mostly just for cmp
+	completeopt = { "menuone", "noselect" }, -- native ins-completion only; blink ignores this
 	-- confirm = true, -- https://www.reddit.com/r/neovim/comments/1ja1ydw/neovim_how_to_remove_e37_and_e162_errors_which/
 	cursorline = true, -- highlight the current line
 	diffopt = "internal,filler,closeoff,indent-heuristic,linematch:60,algorithm:histogram", -- https://www.reddit.com/r/neovim/comments/1j9fy2w/comment/mhdjdna/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button

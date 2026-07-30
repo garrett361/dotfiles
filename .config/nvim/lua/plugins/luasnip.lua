@@ -37,10 +37,9 @@ local function config()
 end
 return {
 	"L3MON4D3/LuaSnip",
-	dependencies = { "saadparwaiz1/cmp_luasnip" },
 	config = config,
 	event = "VeryLazy",
-	-- Keep these in sync with the cmp mappings! The non-normal mode mappings are there.
+	-- Keep these in sync with the blink_cmp mappings! The non-normal mode mappings are there.
 	keys = {
 		{
 			"<Tab>",

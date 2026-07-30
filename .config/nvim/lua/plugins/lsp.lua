@@ -10,7 +10,6 @@ return {
 	priority = 1000, -- load first
 	dependencies = {
 		"mason-org/mason-lspconfig.nvim",
-		"hrsh7th/cmp-nvim-lsp-signature-help",
 	},
 	config = config,
 	keys = {

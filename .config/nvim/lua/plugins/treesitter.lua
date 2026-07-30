@@ -94,6 +94,12 @@ local function config()
 	local group = vim.api.nvim_create_augroup("TreesitterSetup", { clear = true })
 
 	local ignore_filetypes = {
+		-- blink.cmp's float buffers. Without these, ts.install() below is handed each one as a
+		-- language name and warns "skipping unsupported language" on every completion.
+		"blink-cmp-documentation",
+		"blink-cmp-dot-repeat",
+		"blink-cmp-menu",
+		"blink-cmp-signature",
 		"checkhealth",
 		"lazy",
 		"mason",

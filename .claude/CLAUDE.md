@@ -14,10 +14,13 @@ Personal dotfiles repo (macOS + Linux): Neovim (Lua), zsh/bash, CLI tools.
   and listed explicitly in `vim.lsp.enable`. **nvim-lspconfig is deliberately absent**: it shipped
   ~400 server configs that `automatic_enable` could start unasked, so mason-lspconfig is kept only
   for `ensure_installed` with `automatic_enable = false`. Every server must declare `filetypes`,
-  since a config without it attaches to every buffer. Shared completion capabilities live in one
-  `vim.lsp.config("*")` block, which nvim merges under every server. rust-analyzer is started by
-  rustaceanvim via `vim.g.rustaceanvim` rather than `vim.lsp.enable`, but it still picks up that
-  `"*"` block, so changes there affect Rust too.
+  since a config without it attaches to every buffer. Completion capabilities are **not** set here:
+  blink.cmp's own `plugin/` file registers its delta via `vim.lsp.config("*")`, which nvim merges
+  under every server. rust-analyzer is started by rustaceanvim via `vim.g.rustaceanvim` rather than
+  `vim.lsp.enable`, but it still picks up that `"*"` block, so blink affects Rust too.
+- Completion is blink.cmp (`lua/plugins/blink_cmp.lua`), pinned to `1.*` because `main` is an
+  unstable v2 and the prebuilt Rust matcher is only downloaded on release tags. It replaced eight
+  nvim-cmp plugins; only settings that diverge from a blink default live in that file.
 - Formatting is conform.nvim via `<leader>cf`, and via `<leader>w`/`<leader>W` when `FORMAT_NVIM=1`.
   There is no `BufWritePre` hook, so plain `:w` never formats.
 - `NVIM_APPNAME=nvim_min` uses `.config/nvim_min/`, which symlinks most of `.config/nvim/`.

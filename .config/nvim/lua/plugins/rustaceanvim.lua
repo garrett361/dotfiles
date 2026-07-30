@@ -2,9 +2,9 @@
 -- its ftplugin runs.
 --
 -- No capabilities here: rustaceanvim resolves vim.lsp.config("*") itself and merges it over this
--- table, so rust-analyzer picks up the cmp completion capabilities set in user/lsp/init.lua. That
--- resolution is a rustaceanvim implementation detail and `version = "^9"` floats the minor, so if
--- Rust completion ever degrades to nvim's base capabilities, look here first.
+-- table, so rust-analyzer picks up the blink.cmp completion capabilities. That resolution is a
+-- rustaceanvim implementation detail and `version = "^9"` floats the minor, so if Rust completion
+-- ever degrades to nvim's base capabilities, look here first.
 local function init()
 	vim.g.rustaceanvim = {
 		-- nvim-dap-lldb already populates dap.configurations.rust with cargo-aware entries,
