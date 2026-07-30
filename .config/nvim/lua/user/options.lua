@@ -5,6 +5,7 @@ local options = {
 	diffopt = "internal,filler,closeoff,indent-heuristic,linematch:60,algorithm:histogram", -- https://www.reddit.com/r/neovim/comments/1j9fy2w/comment/mhdjdna/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button
 	expandtab = true, -- convert tabs to spaces
 	fileencoding = "utf-8", -- the encoding written to a file
+	fillchars = "diff:╱", -- diagonal filler in diff windows
 	formatoptions = "cqr", -- do not autoformat to linewidth; use gw/gwip/etc
 	guicursor = "n-v-c:block-Cursor/lCursor-blinkon0,i-ci-ve:ver25,r-cr:hor20,o:hor50,a:blinkwait700-blinkoff400-blinkon250-Cursor/lCursor", -- cursor style
 	guifont = "monospace:h17", -- the font used in graphical neovim applications
