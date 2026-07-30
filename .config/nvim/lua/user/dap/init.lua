@@ -626,6 +626,9 @@ M.lazy_keymaps = {
 			-- true hides the terminal too: "console" is not in sections, so the program
 			-- output lives in its own window that would otherwise be left behind.
 			prequire("dap-view").toggle(true)
+			-- toggle() opens with enter = false, so claim the repl. When the toggle
+			-- closed instead, this is a no-op.
+			prequire("user.dap.nvim_dap_view").focus_repl()
 		end,
 		mode = { "n" },
 		noremap = true,

@@ -1,6 +1,16 @@
 local M = {}
+local prequire = require("nvim_utils").prequire
+
+---Focus the repl in dap-view's window. No-op when that window is closed, so callers that
+---may have just closed it (the <A-q> toggle) can call this unconditionally.
+M.focus_repl = function()
+	local state = prequire("dap-view.state")
+	if prequire("dap-view.util").is_win_valid(state.winnr) then
+		prequire("dap-view").jump_to_view("repl")
+	end
+end
+
 M.config = function()
-	local prequire = require("nvim_utils").prequire
 	local dap_view = prequire("dap-view")
 	local dap = prequire("dap")
 	dap_view.setup({
@@ -70,14 +80,9 @@ M.config = function()
 		end
 		dap_view.open()
 		-- open() creates both windows with enter = false, so the cursor stays in whatever
-		-- window it was in, which is not the repl. jump_to_view focuses dap-view's window
-		-- and shows the section. Scheduled so it runs after the rest of the launch/attach
-		-- handler, and guarded because the window can be gone again by then.
-		vim.schedule(function()
-			if util.is_win_valid(state.winnr) then
-				dap_view.jump_to_view("repl")
-			end
-		end)
+		-- window it was in, which is not the repl. Scheduled so it runs after the rest of
+		-- the launch/attach handler.
+		vim.schedule(M.focus_repl)
 	end
 	dap.listeners.before.attach.dap_view_config = open_if_closed
 	dap.listeners.before.launch.dap_view_config = open_if_closed
