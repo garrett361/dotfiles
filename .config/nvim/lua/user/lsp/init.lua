@@ -106,9 +106,9 @@ vim.lsp.config.ruff = {
 			},
 		},
 	},
+	-- ruff and ty both attach to python; without this both hovers merge into one float.
 	on_attach = function(client)
 		client.server_capabilities.hoverProvider = false
-		client.server_capabilities.documentFormattingProvider = false
 	end,
 }
 
@@ -127,8 +127,6 @@ vim.lsp.config.tinymist = {
 		exportPdf = "onSave",
 		semanticTokens = "disable",
 	},
-	-- https://github.com/neovim/neovim/issues/30675#issuecomment-2395272151
-	offset_encoding = "utf-8",
 }
 
 local mason_lspconfig = require("nvim_utils").prequire("mason-lspconfig")
@@ -164,9 +162,6 @@ vim.diagnostic.config({
 	underline = false,
 	severity_sort = true,
 	float = {
-		focusable = true,
-		style = "minimal",
-		border = "rounded",
 		source = true,
 		header = "",
 		prefix = "",

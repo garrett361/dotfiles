@@ -1,23 +1,12 @@
-local prequire = require("nvim_utils").prequire
-
--- rustaceanvim is configured through vim.g, not setup(), and the value has to be in place
--- before its ftplugin runs. A function defers evaluation to that point, so requiring
--- cmp_nvim_lsp here cannot race lazy.nvim's load order.
+-- rustaceanvim is configured through vim.g, not setup(), and the value has to be in place before
+-- its ftplugin runs.
 local function init()
-	vim.g.rustaceanvim = function()
-		return {
-			server = {
-				-- Kept in sync by hand with the capabilities in lua/user/lsp/init.lua, whose
-				-- local is file-scoped. rustaceanvim deep-merges this over its own
-				-- create_client_capabilities(), so its experimental capabilities survive.
-				capabilities = prequire("cmp_nvim_lsp").default_capabilities(),
-			},
-			-- nvim-dap-lldb already populates dap.configurations.rust with cargo-aware
-			-- entries, which is what <A-d> uses. Without this, rustaceanvim appends a second
-			-- set on attach and the picker shows both.
-			dap = { autoload_configurations = false },
-		}
-	end
+	vim.g.rustaceanvim = {
+		-- nvim-dap-lldb already populates dap.configurations.rust with cargo-aware entries,
+		-- which is what <A-d> uses. Without this, rustaceanvim appends a second set on attach
+		-- and the picker shows both.
+		dap = { autoload_configurations = false },
+	}
 end
 
 return {
