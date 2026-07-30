@@ -161,10 +161,6 @@ vim.lsp.config.tinymist = {
 	offset_encoding = "utf-8",
 }
 
--- Auto-call vim.lsp.enable for all mason-installed lsps. stylua is excluded because it is
--- installed here as a conform formatter, but lspconfig also ships a `stylua --lsp` server and
--- mason-lspconfig maps the package to it, so every lua buffer would start a second, useless
--- client (conform never asks the LSP to format).
 local mason_lspconfig = require("nvim_utils").prequire("mason-lspconfig")
 mason_lspconfig.setup({
 	-- clangd is the one server worth installing unprompted: it is a hard requirement for C and
@@ -172,7 +168,9 @@ mason_lspconfig.setup({
 	-- version stops tracking whatever Xcode ships. It has no aarch64 Linux build, so those
 	-- machines log a Mason error each launch and get no C/C++ support either way.
 	ensure_installed = { "clangd" },
-	automatic_enable = { exclude = { "stylua" } },
+	-- Off because nvim-lspconfig is gone: automatic_enable would enable Mason-installed servers
+	-- with no `filetypes`, and such a config attaches to every buffer rather than none.
+	automatic_enable = false,
 })
 
 -- Every server is listed explicitly rather than left to automatic_enable. A server whose binary is

@@ -10,9 +10,12 @@ Personal dotfiles repo (macOS + Linux): Neovim (Lua), zsh/bash, CLI tools.
 
 ## Neovim
 
-- LSP: `lua/user/lsp/init.lua` (lua_ls, clangd, ruff, ty, tinymist). mason-lspconfig auto-enables
-  only what Mason installed, so clangd needs an explicit `vim.lsp.enable`. rust-analyzer is owned
-  by rustaceanvim through `vim.g.rustaceanvim`, not this file.
+- LSP: `lua/user/lsp/init.lua` (lua_ls, clangd, ruff, ty, tinymist), all five configured natively
+  and listed explicitly in `vim.lsp.enable`. **nvim-lspconfig is deliberately absent**: it shipped
+  ~400 server configs that `automatic_enable` could start unasked, so mason-lspconfig is kept only
+  for `ensure_installed` with `automatic_enable = false`. Every server must declare `filetypes`,
+  since a config without it attaches to every buffer. rust-analyzer is owned by rustaceanvim
+  through `vim.g.rustaceanvim`, not this file.
 - Formatting is conform.nvim via `<leader>cf`, and via `<leader>w`/`<leader>W` when `FORMAT_NVIM=1`.
   There is no `BufWritePre` hook, so plain `:w` never formats.
 - `NVIM_APPNAME=nvim_min` uses `.config/nvim_min/`, which symlinks most of `.config/nvim/`.

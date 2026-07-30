@@ -3,12 +3,13 @@ local function config()
 	prequire("user.lsp")
 end
 return {
-	"neovim/nvim-lspconfig",
+	-- Eager on purpose: `config` loads user.lsp, which calls mason.setup(), which prepends Mason's
+	-- bin dir to PATH. Everything else here depends on that having happened.
+	"mason-org/mason.nvim",
 	lazy = false,
 	priority = 1000, -- load first
 	dependencies = {
-		"williamboman/mason.nvim",
-		"williamboman/mason-lspconfig.nvim",
+		"mason-org/mason-lspconfig.nvim",
 		"hrsh7th/cmp-nvim-lsp-signature-help",
 	},
 	config = config,
