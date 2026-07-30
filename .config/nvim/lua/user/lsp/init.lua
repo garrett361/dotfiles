@@ -1,9 +1,9 @@
 local mason = require("nvim_utils").prequire("mason")
 mason.setup()
 
--- nvim merges make_client_capabilities() underneath whatever is set here, so only cmp's delta
--- belongs in this table. The "*" config is merged under every server (:h lsp-config-merge).
 local cmp_nvim_lsp = require("nvim_utils").prequire("cmp_nvim_lsp")
+-- Only cmp's delta belongs here: nvim merges make_client_capabilities() underneath it. The "*"
+-- config is merged under every server (:h lsp-config-merge), rust-analyzer included.
 vim.lsp.config("*", { capabilities = cmp_nvim_lsp.default_capabilities() })
 
 vim.lsp.config.lua_ls = {

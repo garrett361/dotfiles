@@ -14,8 +14,10 @@ Personal dotfiles repo (macOS + Linux): Neovim (Lua), zsh/bash, CLI tools.
   and listed explicitly in `vim.lsp.enable`. **nvim-lspconfig is deliberately absent**: it shipped
   ~400 server configs that `automatic_enable` could start unasked, so mason-lspconfig is kept only
   for `ensure_installed` with `automatic_enable = false`. Every server must declare `filetypes`,
-  since a config without it attaches to every buffer. rust-analyzer is owned by rustaceanvim
-  through `vim.g.rustaceanvim`, not this file.
+  since a config without it attaches to every buffer. Shared completion capabilities live in one
+  `vim.lsp.config("*")` block, which nvim merges under every server. rust-analyzer is started by
+  rustaceanvim via `vim.g.rustaceanvim` rather than `vim.lsp.enable`, but it still picks up that
+  `"*"` block, so changes there affect Rust too.
 - Formatting is conform.nvim via `<leader>cf`, and via `<leader>w`/`<leader>W` when `FORMAT_NVIM=1`.
   There is no `BufWritePre` hook, so plain `:w` never formats.
 - `NVIM_APPNAME=nvim_min` uses `.config/nvim_min/`, which symlinks most of `.config/nvim/`.

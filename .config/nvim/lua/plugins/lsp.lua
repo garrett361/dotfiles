@@ -16,15 +16,37 @@ return {
 	keys = {
 		{ "<leader>cd", vim.lsp.buf.definition },
 		{ "<leader>ce", vim.lsp.buf.declaration },
-		{ "<leader>cs", "<cmd>split | lua vim.lsp.buf.definition()<cr>" },
 		{ "<leader>ci", vim.lsp.buf.hover },
 		{ "<leader>cI", "<cmd>checkhealth vim.lsp<cr>" },
-		-- float defaults true in goto_next but false in jump, so it's explicit here.
-		{ "<leader>cj", "<cmd>lua vim.diagnostic.jump({ count = 1, float = true })<cr>" },
-		{ "<leader>ck", "<cmd>lua vim.diagnostic.jump({ count = -1, float = true })<cr>" },
 		{ "<leader>co", vim.diagnostic.open_float },
 		{ "<leader>cr", vim.lsp.buf.references },
 		{ "<leader>cR", vim.lsp.buf.rename },
-		{ "<leader>cv", "<cmd>vsplit | lua vim.lsp.buf.definition()<cr>" },
+		{
+			"<leader>cs",
+			function()
+				vim.cmd([[:split]])
+				vim.lsp.buf.definition()
+			end,
+		},
+		{
+			"<leader>cv",
+			function()
+				vim.cmd([[:vsplit]])
+				vim.lsp.buf.definition()
+			end,
+		},
+		{
+			"<leader>cj",
+			-- Not redundant with the built-in ]d and [d, which pass no float.
+			function()
+				vim.diagnostic.jump({ count = 1, float = true })
+			end,
+		},
+		{
+			"<leader>ck",
+			function()
+				vim.diagnostic.jump({ count = -1, float = true })
+			end,
+		},
 	},
 }
