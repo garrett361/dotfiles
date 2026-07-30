@@ -301,23 +301,51 @@ if [ "$pinned_ok" -eq 1 ]; then
         "https://github.com/cli/cli/releases/download/v${GH_VERSION}/${GH_ASSET}" bin/gh
 fi
 
+# Both prefixes, not just PATH: the installer runs in a child shell so it cannot put brew on this
+# script's PATH, and the /etc/paths.d entry it writes on arm64 only applies to the next login shell.
+# Intel is covered because an Intel mac falls into the case block's *) arm and still runs brew.
+find_brew() {
+    local p
+    for p in $(command -v brew) /opt/homebrew/bin/brew /usr/local/bin/brew; do
+        if [ -x "$p" ]; then
+            echo "$p"
+            return 0
+        fi
+    done
+    return 1
+}
+
 if [ "$os" != Linux ]; then
-    # Install brew
-    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-    brew install tmux
-    brew install --cask font-jetbrains-mono-nerd-font
-    brew install nodejs
-    brew install luarocks
-    brew install --cask nikitabobko/tap/aerospace
-    brew install --cask mactex
-    brew install --cask skim
-    brew install git-lfs
-    brew install gnupg
-    brew install charmbracelet/tap/freeze
-    brew install tree
-    brew install openshift-cli
-    brew install mac-mouse-fix
-    brew install helm
+    # Only install when brew is genuinely missing. The installer asks for sudo before it checks
+    # whether brew exists, re-fetches the brew repo, and waits on a RETURN prompt, so running it
+    # unconditionally blocks every invocation for no gain.
+    brew_bin=$(find_brew) || {
+        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        brew_bin=$(find_brew)
+    }
+    if [ -z "$brew_bin" ]; then
+        echo "brew not found after install; skipping brew packages" >&2
+        skipped="$skipped brew"
+    else
+        # Installs go through $brew_bin rather than a bare `brew`, so a fresh machine where brew is
+        # not on PATH yet cannot turn into 14 silent command-not-found lines. shellenv is still
+        # worth running: brew warns when its prefix is off PATH, and some formulae shell out to it.
+        eval "$("$brew_bin" shellenv bash)"
+        "$brew_bin" install tmux
+        "$brew_bin" install --cask font-jetbrains-mono-nerd-font
+        "$brew_bin" install nodejs
+        "$brew_bin" install luarocks
+        "$brew_bin" install --cask nikitabobko/tap/aerospace
+        "$brew_bin" install --cask mactex
+        "$brew_bin" install --cask skim
+        "$brew_bin" install git-lfs
+        "$brew_bin" install gnupg
+        "$brew_bin" install charmbracelet/tap/freeze
+        "$brew_bin" install tree
+        "$brew_bin" install openshift-cli
+        "$brew_bin" install mac-mouse-fix
+        "$brew_bin" install helm
+    fi
 fi
 
 # Reported once here rather than per tool, so a missing prerequisite or a failed download is not
