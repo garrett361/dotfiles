@@ -11,12 +11,6 @@ local function init()
 				-- local is file-scoped. rustaceanvim deep-merges this over its own
 				-- create_client_capabilities(), so its experimental capabilities survive.
 				capabilities = prequire("cmp_nvim_lsp").default_capabilities(),
-				on_attach = function(client, bufnr)
-					if client.server_capabilities.inlayHintProvider then
-						vim.g.inlay_hints_visible = true
-						vim.lsp.inlay_hint.enable(true, { bufnr = bufnr })
-					end
-				end,
 			},
 			-- nvim-dap-lldb already populates dap.configurations.rust with cargo-aware
 			-- entries, which is what <A-d> uses. Without this, rustaceanvim appends a second

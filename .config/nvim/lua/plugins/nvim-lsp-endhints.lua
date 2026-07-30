@@ -7,7 +7,6 @@ local function config()
 			offspec = " ", -- hint kind not defined in official LSP spec
 			unknown = " ", -- hint kind is nil
 		},
-		autoEnableHints = false,
 	})
 end
 return { "chrisgrieser/nvim-lsp-endhints", event = "LspAttach", opts = {}, config = config }

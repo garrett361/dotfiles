@@ -6,13 +6,6 @@ mason.setup()
 local cmp_nvim_lsp = require("nvim_utils").prequire("cmp_nvim_lsp")
 vim.lsp.config("*", { capabilities = cmp_nvim_lsp.default_capabilities() })
 
-local function setup_inlay_hints(client, bufnr)
-	if client.server_capabilities.inlayHintProvider then
-		vim.g.inlay_hints_visible = true
-		vim.lsp.inlay_hint.enable(true, { bufnr = bufnr })
-	end
-end
-
 vim.lsp.config.lua_ls = {
 	cmd = { "lua-language-server" },
 	filetypes = { "lua" },
@@ -77,12 +70,6 @@ vim.lsp.config.clangd = {
 		return t[ftype] or ftype
 	end,
 	capabilities = { textDocument = { completion = { editsNearCursor = true } } },
-	on_attach = function(client, bufnr)
-		setup_inlay_hints(client, bufnr)
-		-- Formatting is left enabled here, unlike ruff: clangd embeds clang-format and reads
-		-- the same .clang-format, so conform routes c/cpp/cuda through it rather than a
-		-- standalone binary that would be a second copy of the same tool.
-	end,
 }
 
 vim.lsp.config.ruff = {
@@ -119,8 +106,7 @@ vim.lsp.config.ruff = {
 			},
 		},
 	},
-	on_attach = function(client, bufnr)
-		setup_inlay_hints(client, bufnr)
+	on_attach = function(client)
 		client.server_capabilities.hoverProvider = false
 		client.server_capabilities.documentFormattingProvider = false
 	end,
@@ -130,9 +116,6 @@ vim.lsp.config.ty = {
 	cmd = { "ty", "server" },
 	filetypes = { "python" },
 	root_markers = { "pyproject.toml", "ty.toml", ".ty.toml", ".git" },
-	on_attach = function(client, bufnr)
-		setup_inlay_hints(client, bufnr)
-	end,
 }
 
 vim.lsp.config.tinymist = {
