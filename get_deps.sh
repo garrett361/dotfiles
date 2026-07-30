@@ -31,9 +31,14 @@ fi
 "$HOME/.fzf-$arch/install" --bin
 
 # Claude Code
-# Wipe existing versions so the installer always copies the arch-correct binary
-# (the claude `install` subcommand skips copying if the version already exists)
-rm -f "$HOME/.local/share/claude/versions"/*
+# The wipe is Linux-only. There this path is just staging: the binary is re-homed to
+# claude-$arch below and ~/.local/bin/claude is deleted, so clearing it costs nothing and is what
+# forces the arch-correct copy (the claude `install` subcommand skips copying when the version
+# already exists). On macOS this path is the live install and the symlink on PATH points into it,
+# so wiping before the download would leave no claude at all if the download failed.
+if [ "$is_linux" -eq 1 ]; then
+    rm -f "$HOME/.local/share/claude/versions"/*
+fi
 curl -fsSL https://claude.ai/install.sh | bash
 if [ "$is_linux" -eq 1 ]; then
     if [ -L "$HOME/.local/bin/claude" ]; then
