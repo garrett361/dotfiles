@@ -70,7 +70,20 @@ local function config()
 			-- user/keymaps.lua: <C-e> is \> there (paired with <C-b> for \<), and the <C-s> and
 			-- <C-g> maps are defined without noremap, so their trailing <Left>s would be
 			-- remapped into menu navigation instead of moving the cursor.
-			keymap = { ["<Left>"] = false, ["<Right>"] = false, ["<C-e>"] = false },
+			keymap = {
+				["<Left>"] = false,
+				["<Right>"] = false,
+				["<C-e>"] = false,
+				-- The preset's <Tab> is { show_and_insert_or_accept_single, select_next },
+				-- and its first step no-ops whenever the menu is already open, which
+				-- auto_show above makes the norm. That left <Tab> as a pure cycle that
+				-- skipped the preselected first item, since preselect highlights without
+				-- inserting. Accept the highlighted item instead and move cycling to the
+				-- arrow keys, matching the old nvim-cmp bindings.
+				["<Tab>"] = { "show_and_insert_or_accept_single", "select_and_accept", "fallback" },
+				["<Down>"] = { "select_next", "fallback" },
+				["<Up>"] = { "select_prev", "fallback" },
+			},
 		},
 		keymap = {
 			-- Overrides win over the preset per key, so these five behave as they did under
