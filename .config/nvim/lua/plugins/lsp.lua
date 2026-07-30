@@ -1,35 +1,7 @@
-local function config()
-	local prequire = require("nvim_utils").prequire
-	prequire("user.lsp")
-end
-return {
-	-- Eager on purpose: `config` loads user.lsp, which calls mason.setup(), which prepends Mason's
-	-- bin dir to PATH. Everything else here depends on that having happened.
-	"mason-org/mason.nvim",
-	lazy = false,
-	priority = 1000, -- load first
-	config = config,
-	keys = {
-		{ "<leader>cd", vim.lsp.buf.definition },
-		{ "<leader>ce", vim.lsp.buf.declaration },
-		{ "<leader>ci", vim.lsp.buf.hover },
-		{ "<leader>cI", "<cmd>checkhealth vim.lsp<cr>" },
-		{ "<leader>co", vim.diagnostic.open_float },
-		{ "<leader>cr", vim.lsp.buf.references },
-		{ "<leader>cR", vim.lsp.buf.rename },
-		{
-			"<leader>cs",
-			function()
-				vim.cmd([[:split]])
-				vim.lsp.buf.definition()
-			end,
-		},
-		{
-			"<leader>cv",
-			function()
-				vim.cmd([[:vsplit]])
-				vim.lsp.buf.definition()
-			end,
-		},
-	},
-}
+require("nvim_utils").prequire("user.lsp")
+
+-- No plugin spec: nvim 0.12 configures LSP natively and mason is gone, so this file exists only to
+-- load user.lsp at spec-import time, before the first FileType autocmd fires. It stays under
+-- plugins/ because nvim_min symlinks that directory per file and so never sees it, whereas
+-- init.lua and user/keymaps.lua are shared.
+return {}

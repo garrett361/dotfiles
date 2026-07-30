@@ -102,7 +102,6 @@ local function config()
 		"blink-cmp-signature",
 		"checkhealth",
 		"lazy",
-		"mason",
 		"snacks_dashboard",
 		"snacks_notif",
 		"snacks_win",

@@ -1,6 +1,3 @@
-local mason = require("nvim_utils").prequire("mason")
-mason.setup()
-
 -- No capabilities block here: blink.cmp's own plugin/ file registers its delta via
 -- vim.lsp.config("*"), which nvim merges under every server (:h lsp-config-merge),
 -- rust-analyzer included.
@@ -106,9 +103,37 @@ vim.lsp.config.tinymist = {
 	},
 }
 
--- A server whose binary is missing only warns in :checkhealth vim.lsp and logs to :LspLog, so
--- listing all five is safe even where one of them is not installed.
-vim.lsp.enable({ "clangd", "lua_ls", "ruff", "tinymist", "ty" })
+local servers = { "clangd", "lua_ls", "ruff", "tinymist", "ty" }
+vim.lsp.enable(servers)
+
+-- get_deps.sh cannot install these here, so warning about them would only train us to ignore it.
+local uname = vim.uv.os_uname()
+local unshipped = {
+	clangd = uname.sysname == "Linux" and uname.machine == "aarch64",
+	tinymist = uname.sysname == "Linux",
+}
+
+-- nvim skips a server whose cmd is not executable and only logs it, so a machine that pulled but
+-- has not re-run get_deps.sh loses LSP silently. Say so once at startup instead.
+vim.schedule(function()
+	local missing = {}
+	for _, name in ipairs(servers) do
+		local cmd = vim.lsp.config[name].cmd
+		if not unshipped[name] and type(cmd) == "table" and vim.fn.executable(cmd[1]) == 0 then
+			missing[#missing + 1] = cmd[1]
+		end
+	end
+	-- Not a server, but its absence breaks <leader>cf on lua with no other signal.
+	if vim.fn.executable("stylua") == 0 then
+		missing[#missing + 1] = "stylua"
+	end
+	if #missing > 0 then
+		vim.notify(
+			"Missing tools, run get_deps.sh: " .. table.concat(missing, ", "),
+			vim.log.levels.WARN
+		)
+	end
+end)
 
 -- Configuring signs and other visuals
 

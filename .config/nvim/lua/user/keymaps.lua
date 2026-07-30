@@ -113,6 +113,24 @@ vim.keymap.set("n", "<leader><leader>m", function()
 	require("nvim_utils.marks").update_or_set_global_mark()
 end, { noremap = true })
 
+-- LSP. These live here rather than in a plugin spec because nvim 0.12 configures LSP natively and
+-- there is no LSP plugin left to hang them off. They load in nvim_min too, where they are inert.
+vim.keymap.set("n", "<leader>cd", vim.lsp.buf.definition, { noremap = true })
+vim.keymap.set("n", "<leader>ce", vim.lsp.buf.declaration, { noremap = true })
+vim.keymap.set("n", "<leader>ci", vim.lsp.buf.hover, { noremap = true })
+vim.keymap.set("n", "<leader>co", vim.diagnostic.open_float, { noremap = true })
+vim.keymap.set("n", "<leader>cr", vim.lsp.buf.references, { noremap = true })
+vim.keymap.set("n", "<leader>cR", vim.lsp.buf.rename, { noremap = true })
+vim.keymap.set("n", "<leader>cs", function()
+	vim.cmd([[:split]])
+	vim.lsp.buf.definition()
+end, { noremap = true })
+vim.keymap.set("n", "<leader>cv", function()
+	vim.cmd([[:vsplit]])
+	vim.lsp.buf.definition()
+end, { noremap = true })
+keymap("n", "<leader>cI", "<cmd>checkhealth vim.lsp<CR>", opts)
+
 -- Buffer management
 keymap("n", "<leader>x", "<cmd>bdelete<CR>", opts) -- Close buffer
 keymap("n", "<leader>X", "mp<cmd>%bd|e#<CR>'p", opts) -- Close all buffers except current

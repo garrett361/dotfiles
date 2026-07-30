@@ -23,12 +23,7 @@ M.config = function()
 		return "pytest", args
 	end
 
-	local py_path = "python3"
-	local mason_path = vim.fn.stdpath("data") .. "/mason/packages/debugpy/venv/bin/python3"
-	if vim.fn.filereadable(mason_path) == "1" then
-		py_path = mason_path
-	end
-	nvim_dap_python.setup(py_path)
+	nvim_dap_python.setup("python3")
 	table.insert(nvim_dap.configurations.python, {
 		type = "python",
 		request = "launch",
