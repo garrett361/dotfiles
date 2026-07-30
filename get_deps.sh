@@ -1,6 +1,6 @@
 #!/bin/bash
 
-is_linux=$(uname -s | grep -iq linux && echo 1 || echo 0)
+os=$(uname -s)
 arch=$(uname -m)
 
 force=0
@@ -11,16 +11,14 @@ for arg in "$@"; do
 done
 
 # git_tree: cascading-rebase CLI, its own repo cloned parallel to dotfiles.
-# Clone only if missing — never rm -rf (it's an active dev checkout).
+# Clone only if missing, never rm -rf (it's an active dev checkout).
 gt_dir="$(cd "$(dirname "$0")/.." && pwd)/git_tree"
 [ -d "$gt_dir/.git" ] || git clone git@github.com:garrett361/git_tree.git "$gt_dir"
 
 # Arch-specific bin dir so x86 and ARM installs don't collide on a shared home
 bin_dir=$HOME/.local/bin/$arch
 
-if [ ! -d $bin_dir ]; then
-    mkdir -p $bin_dir
-fi
+mkdir -p "$bin_dir"
 
 
 # fzf: clone to arch-specific dir; --bin skips generating ~/.fzf.bash/zsh (we source directly)
@@ -36,11 +34,11 @@ fi
 # forces the arch-correct copy (the claude `install` subcommand skips copying when the version
 # already exists). On macOS this path is the live install and the symlink on PATH points into it,
 # so wiping before the download would leave no claude at all if the download failed.
-if [ "$is_linux" -eq 1 ]; then
+if [ "$os" = Linux ]; then
     rm -f "$HOME/.local/share/claude/versions"/*
 fi
 curl -fsSL https://claude.ai/install.sh | bash
-if [ "$is_linux" -eq 1 ]; then
+if [ "$os" = Linux ]; then
     if [ -L "$HOME/.local/bin/claude" ]; then
         claude_real=$(readlink -f "$HOME/.local/bin/claude")
         version=$(basename "$claude_real")
@@ -54,7 +52,7 @@ if [ "$is_linux" -eq 1 ]; then
 fi
 
 # uv
-if [ "$is_linux" -eq 1 ]; then
+if [ "$os" = Linux ]; then
     UV_INSTALL_DIR="$bin_dir" curl -LsSf https://astral.sh/uv/install.sh | sh
 else
     curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -93,7 +91,7 @@ FD_VERSION="10.4.2"
 GH_VERSION="2.96.0"
 
 pinned_ok=1
-case "$(uname -s)-$arch" in
+case "$os-$arch" in
     Darwin-arm64)
         NVIM="nvim-macos-arm64"
         # Universal binary, so this one asset also covers Intel macs if an arm is ever added.
@@ -155,7 +153,7 @@ case "$(uname -s)-$arch" in
         ;;
     *)
         # Warn rather than exit: fzf, uv, claude and the brew branch still work.
-        echo "No pinned binaries for $(uname -s)-$arch; skipping pinned installs" >&2
+        echo "No pinned binaries for $os-$arch; skipping pinned installs" >&2
         pinned_ok=0
         ;;
 esac
@@ -266,9 +264,9 @@ if [ "$pinned_ok" -eq 1 ]; then
     install_pinned fd "$FD_VERSION" \
         "https://github.com/sharkdp/fd/releases/download/v${FD_VERSION}/${FD}.tar.gz"
 
-    # clangd is pinned rather than taken from brew or Xcode, whose clang lags well behind. Upstream
-    # ships no aarch64 Linux build, so CLANGD_ASSET is unset there and this is skipped; llvm does
-    # publish an LLVM-*-Linux-ARM64 tarball if one is ever worth its 1.77 GB.
+    # clangd is pinned rather than taken from brew or Xcode, whose clang lags well behind. Skipped
+    # where CLANGD_ASSET is unset; llvm does publish an LLVM-*-Linux-ARM64 tarball if one is ever
+    # worth its 1.77 GB.
     if [ -n "$CLANGD_ASSET" ]; then
         install_pinned clangd "$CLANGD_VERSION" \
             "https://github.com/clangd/clangd/releases/download/${CLANGD_VERSION}/${CLANGD_ASSET}" \
@@ -298,10 +296,9 @@ if [ "$pinned_ok" -eq 1 ]; then
 
     install_pinned gh "$GH_VERSION" \
         "https://github.com/cli/cli/releases/download/v${GH_VERSION}/${GH_ASSET}" bin/gh
-
 fi
 
-if [ "$is_linux" -eq 0 ]; then
+if [ "$os" != Linux ]; then
     # Install brew
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
     brew install tmux
@@ -315,13 +312,13 @@ if [ "$is_linux" -eq 0 ]; then
     brew install gnupg
     brew install charmbracelet/tap/freeze
     brew install tree
-    brew install openshift-cli 
+    brew install openshift-cli
     brew install mac-mouse-fix
-    brew install helm 
+    brew install helm
 fi
 
 # Reported once here rather than per tool, so a missing prerequisite or a failed download is not
-# lost in the middle of the output above. Placed after the gh block so it covers that too.
+# lost in the middle of the output above.
 if [ -n "$skipped" ]; then
     echo "Skipped (missing prerequisite or failed download):$skipped" >&2
 fi
