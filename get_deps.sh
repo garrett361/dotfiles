@@ -85,6 +85,7 @@ RG_VERSION="15.2.0"
 DELTA_VERSION="0.19.2"
 BAT_VERSION="0.26.1"
 FD_VERSION="10.4.2"
+GH_VERSION="2.96.0"
 
 pinned_ok=1
 case "$(uname -s)-$arch" in
@@ -105,6 +106,7 @@ case "$(uname -s)-$arch" in
         BAT="bat-v${BAT_VERSION}-aarch64-apple-darwin"
         FD="fd-v${FD_VERSION}-aarch64-apple-darwin"
         CODEX_ASSET="codex-aarch64-apple-darwin.tar.gz"
+        GH_ASSET="gh_${GH_VERSION}_macOS_arm64.zip"
         ;;
     Linux-x86_64)
         NVIM="nvim-linux-x86_64"
@@ -125,6 +127,7 @@ case "$(uname -s)-$arch" in
         BAT="bat-v${BAT_VERSION}-x86_64-unknown-linux-musl"
         FD="fd-v${FD_VERSION}-x86_64-unknown-linux-musl"
         CODEX_ASSET="codex-x86_64-unknown-linux-musl.tar.gz"
+        GH_ASSET="gh_${GH_VERSION}_linux_amd64.tar.gz"
         ;;
     Linux-aarch64)
         NVIM="nvim-linux-arm64"
@@ -143,6 +146,7 @@ case "$(uname -s)-$arch" in
         BAT="bat-v${BAT_VERSION}-aarch64-unknown-linux-musl"
         FD="fd-v${FD_VERSION}-aarch64-unknown-linux-musl"
         CODEX_ASSET="codex-aarch64-unknown-linux-musl.tar.gz"
+        GH_ASSET="gh_${GH_VERSION}_linux_arm64.tar.gz"
         ;;
     *)
         # Warn rather than exit: fzf, uv, claude and the brew branch still work.
@@ -287,29 +291,12 @@ if [ "$pinned_ok" -eq 1 ]; then
     install_pinned codex latest \
         "https://github.com/openai/codex/releases/latest/download/${CODEX_ASSET}" "${CODEX_ASSET%.tar.gz}"
 
+    install_pinned gh "$GH_VERSION" \
+        "https://github.com/cli/cli/releases/download/v${GH_VERSION}/${GH_ASSET}" bin/gh
+
 fi
 
-# gh is Linux-only here: macOS ships a .zip rather than a tarball, so it stays on brew.
-if [ $is_linux -eq 1 ]; then
-
-    GH_VERSION="2.96.0"
-
-    case "$arch" in
-        x86_64)
-            GH="gh_${GH_VERSION}_linux_amd64"
-            ;;
-        aarch64)
-            GH="gh_${GH_VERSION}_linux_arm64"
-            ;;
-        *)
-            echo "Unsupported arch: $arch"; exit 1
-            ;;
-    esac
-
-    install_pinned gh "$GH_VERSION" \
-        "https://github.com/cli/cli/releases/download/v${GH_VERSION}/${GH}.tar.gz" bin/gh
-
-else
+if [ "$is_linux" -eq 0 ]; then
     # Install brew
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
     brew install tmux
@@ -319,7 +306,6 @@ else
     brew install --cask nikitabobko/tap/aerospace
     brew install --cask mactex
     brew install --cask skim
-    brew install gh
     brew install git-lfs
     brew install gnupg
     brew install charmbracelet/tap/freeze
