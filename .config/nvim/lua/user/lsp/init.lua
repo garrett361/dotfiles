@@ -26,6 +26,9 @@ vim.lsp.config.lua_ls = {
 	},
 }
 
+-- get_deps.sh pins clangd rather than taking whatever Xcode or brew ships, since those lag badly.
+-- Upstream has no aarch64 Linux build, so those machines get no C/C++ LSP and, because conform
+-- routes c/cpp/cuda through the LSP, no C/C++ formatting either.
 vim.lsp.config.clangd = {
 	cmd = { "clangd" },
 	filetypes = { "c", "c.doxygen", "cpp", "cpp.doxygen", "objc", "objcpp", "cuda" },
@@ -103,20 +106,8 @@ vim.lsp.config.tinymist = {
 	},
 }
 
-local mason_lspconfig = require("nvim_utils").prequire("mason-lspconfig")
-mason_lspconfig.setup({
-	-- clangd is the one server worth installing unprompted: it is a hard requirement for C and
-	-- C++ LSP, and it also formats those buffers via conform. Mason owns it on macOS too, so the
-	-- version stops tracking whatever Xcode ships. It has no aarch64 Linux build, so those
-	-- machines log a Mason error each launch and get no C/C++ support either way.
-	ensure_installed = { "clangd" },
-	-- Off because nvim-lspconfig is gone: automatic_enable would enable Mason-installed servers
-	-- with no `filetypes`, and such a config attaches to every buffer rather than none.
-	automatic_enable = false,
-})
-
--- Every server is listed explicitly rather than left to automatic_enable. A server whose binary is
--- missing only warns in :checkhealth vim.lsp and logs to :LspLog, so listing all five is safe.
+-- A server whose binary is missing only warns in :checkhealth vim.lsp and logs to :LspLog, so
+-- listing all five is safe even where one of them is not installed.
 vim.lsp.enable({ "clangd", "lua_ls", "ruff", "tinymist", "ty" })
 
 -- Configuring signs and other visuals

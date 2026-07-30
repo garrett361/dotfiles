@@ -72,6 +72,7 @@ rustup component add rust-analyzer clippy rustfmt
 # Pinned binaries installed identically on macOS and Linux, so the two can't drift. brew is
 # reserved for GUI apps and tools with no Linux counterpart here.
 NVIM_VERSION="0.12.4"
+CLANGD_VERSION="22.1.6"
 CODELLDB_VERSION="1.12.2"
 TREE_SITTER_VERSION="0.26.11"
 STARSHIP_VERSION="1.26.0"
@@ -84,6 +85,8 @@ pinned_ok=1
 case "$(uname -s)-$arch" in
     Darwin-arm64)
         NVIM="nvim-macos-arm64"
+        # Universal binary, so this one asset also covers Intel macs if an arm is ever added.
+        CLANGD_ASSET="clangd-mac-${CLANGD_VERSION}.zip"
         CODELLDB_ASSET="codelldb-darwin-arm64.vsix"
         TREE_SITTER="tree-sitter-${TREE_SITTER_VERSION}-macos-arm64"
         TREE_SITTER_ASSET="tree-sitter-macos-arm64.gz"
@@ -97,6 +100,7 @@ case "$(uname -s)-$arch" in
         ;;
     Linux-x86_64)
         NVIM="nvim-linux-x86_64"
+        CLANGD_ASSET="clangd-linux-${CLANGD_VERSION}.zip"
         CODELLDB_ASSET="codelldb-linux-x64.vsix"
         TREE_SITTER="tree-sitter-${TREE_SITTER_VERSION}-linux-x64"
         TREE_SITTER_ASSET="tree-sitter-linux-x64.gz"
@@ -110,6 +114,8 @@ case "$(uname -s)-$arch" in
         ;;
     Linux-aarch64)
         NVIM="nvim-linux-arm64"
+        # No CLANGD_ASSET: upstream ships no aarch64 Linux build (clangd#514 is open since 2020),
+        # so these machines get no C/C++ LSP. Mason could not serve them either.
         CODELLDB_ASSET="codelldb-linux-arm64.vsix"
         TREE_SITTER="tree-sitter-${TREE_SITTER_VERSION}-linux-arm64"
         TREE_SITTER_ASSET="tree-sitter-linux-arm64.gz"
@@ -195,11 +201,41 @@ if [ "$pinned_ok" -eq 1 ]; then
     fi
     ln -sf "${FD}/fd" .
 
-    # codelldb: debug adapter for nvim-dap-lldb (c/cpp/rust). Ships as a per-platform vsix
-    # (a zip) with no brew formula, hence the only unzip dependency in this script.
+    # Several tools below ship zips. Collect what gets skipped so one missing prerequisite is
+    # reported once at the end rather than scrolling past in the middle of tar output.
+    have_unzip=0
+    command -v unzip &>/dev/null && have_unzip=1
+    skipped=""
+
+    # clangd: pinned here rather than left to mason-lspconfig, and deliberately not brew or Xcode,
+    # whose clang lags well behind. The zip already unpacks to a version-stamped dir.
+    if [ -n "$CLANGD_ASSET" ]; then
+        if [ "$have_unzip" -eq 0 ]; then
+            skipped="$skipped clangd"
+        else
+            clangd_dir="clangd_${CLANGD_VERSION}"
+            if [ "$force" -eq 1 ] || [ ! -d "$clangd_dir" ]; then
+                # Chained so a bad tag leaves the working copy alone; -o so a --force re-run does
+                # not stop at unzip's interactive replace prompt.
+                if curl -fLO "https://github.com/clangd/clangd/releases/download/${CLANGD_VERSION}/${CLANGD_ASSET}" \
+                    && unzip -q -o "$CLANGD_ASSET" \
+                    && [ -x "$clangd_dir/bin/clangd" ]; then
+                    find "$bin_dir" -maxdepth 1 -name 'clangd_*' ! -name "$clangd_dir" -exec rm -rf {} +
+                else
+                    echo "clangd ${CLANGD_VERSION} install failed; keeping existing" >&2
+                    skipped="$skipped clangd"
+                fi
+                rm -f "$CLANGD_ASSET"
+            fi
+            [ -d "$clangd_dir" ] && ln -sf "$clangd_dir/bin/clangd" .
+        fi
+    fi
+
+    # codelldb: debug adapter for nvim-dap-lldb (c/cpp/rust). Ships as a per-platform vsix (a zip)
+    # with no brew formula.
     codelldb_dir="$bin_dir/codelldb-${CODELLDB_VERSION}"
-    if ! command -v unzip &>/dev/null; then
-        echo "unzip not found; skipping codelldb (c/cpp/rust debugging)" >&2
+    if [ "$have_unzip" -eq 0 ]; then
+        skipped="$skipped codelldb"
     else
         if [ "$force" -eq 1 ] || [ ! -d "$codelldb_dir" ]; then
             rm -rf "$codelldb_dir"
@@ -228,6 +264,10 @@ if [ "$pinned_ok" -eq 1 ]; then
         rm -f "${CODEX_ASSET}"
     else
         echo "codex download failed; keeping whatever is already installed" >&2
+    fi
+
+    if [ -n "$skipped" ]; then
+        echo "Skipped (missing prerequisite or failed download):$skipped" >&2
     fi
 fi
 

@@ -8,9 +8,6 @@ return {
 	"mason-org/mason.nvim",
 	lazy = false,
 	priority = 1000, -- load first
-	dependencies = {
-		"mason-org/mason-lspconfig.nvim",
-	},
 	config = config,
 	keys = {
 		{ "<leader>cd", vim.lsp.buf.definition },

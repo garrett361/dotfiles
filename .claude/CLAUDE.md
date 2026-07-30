@@ -11,10 +11,11 @@ Personal dotfiles repo (macOS + Linux): Neovim (Lua), zsh/bash, CLI tools.
 ## Neovim
 
 - LSP: `lua/user/lsp/init.lua` (lua_ls, clangd, ruff, ty, tinymist), all five configured natively
-  and listed explicitly in `vim.lsp.enable`. **nvim-lspconfig is deliberately absent**: it shipped
-  ~400 server configs that `automatic_enable` could start unasked, so mason-lspconfig is kept only
-  for `ensure_installed` with `automatic_enable = false`. Every server must declare `filetypes`,
-  since a config without it attaches to every buffer. Completion capabilities are **not** set here:
+  and listed explicitly in `vim.lsp.enable`. **nvim-lspconfig and mason-lspconfig are deliberately
+  absent**: lspconfig shipped ~400 server configs that `automatic_enable` could start unasked, and
+  mason-lspconfig existed only to install clangd, which `get_deps.sh` now pins. Every server must
+  declare `filetypes`, since a config without it attaches to every buffer. Completion capabilities
+  are **not** set here:
   blink.cmp's own `plugin/` file registers its delta via `vim.lsp.config("*")`, which nvim merges
   under every server. rust-analyzer is started by rustaceanvim via `vim.g.rustaceanvim` rather than
   `vim.lsp.enable`, but it still picks up that `"*"` block, so blink affects Rust too.
