@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# Every path below is relative to the repo, and some of them gate an rm, so anchor the cwd rather
+# than trusting the caller's.
+cd "$(dirname "$0")" || exit 1
+
 mkdir -p ~/.config
 mkdir -p ~/.claude
 mkdir -p ~/.codex
@@ -17,22 +21,58 @@ for localdir in ".local" ".config"; do
 	ln -sfF $dirpath/* $HOME/$localdir
 done
 
+# Link a repo skills dir into a harness skills dir one entry at a time, never as a whole. A
+# harness skills dir is a shared namespace that other installers also write into (`git tree skills
+# --install`, `claude plugin init`); linking the repo dir itself would make this repo *be* that
+# namespace, so their machine-specific output would land here as untracked files.
+link_skills() {
+	local src_dir="$1" dest_dir="$2" skilldir name target
+	[ -d "$src_dir" ] || return 0
+	# The harness dir itself must be real, or the per-entry links below land inside the repo.
+	[ -L "$dest_dir" ] && rm -f "$dest_dir"
+	mkdir -p "$dest_dir"
+	for skilldir in "$src_dir"/*/; do
+		[ -d "$skilldir" ] || continue
+		name=$(basename "$skilldir")
+		target="$dest_dir/$name"
+		if [ -d "$target" ] && [ ! -L "$target" ]; then
+			echo "Refusing to replace existing skill directory: $target" >&2
+			continue
+		fi
+		ln -snf "$(readlink -f "$skilldir")" "$target"
+	done
+}
+
 # symlink the global claude dir to ~/.claude. Need distinguishing name (claude_global) because `.claude/` in dotfiles repo is interpreted as repo-specific claude settings.
-ln -sfF $(readlink -f claude_global)/* ${HOME}/.claude
+# `skills` is skipped here and handled by link_skills, which keeps the harness dir real.
+for entry in "$(readlink -f claude_global)"/*; do
+	[ "$(basename "$entry")" = "skills" ] && continue
+	ln -sfF "$entry" "${HOME}/.claude"
+done
+
+# A harness dir that is (or was) a link to one of these puts other installers' output in the repo.
+# Repo skills are real directories, so a symlink here is always someone else's and safe to drop.
+for repo_skills in claude_global/skills agents_global/skills; do
+	for entry in "$repo_skills"/*; do
+		[ -L "$entry" ] && rm -f "$entry"
+	done
+done
+
+link_skills "$(readlink -f claude_global/skills)" "${HOME}/.claude/skills"
 
 # Link repo-managed Codex globals without replacing Codex runtime state or system skills.
 ln -sfF "$(readlink -f codex_global/AGENTS.md)" "${HOME}/.codex/AGENTS.md"
 
-mkdir -p "${HOME}/.codex/skills"
-for skilldir in codex_global/skills/*/; do
-	[ -d "$skilldir" ] || continue
-	skillname=$(basename "$skilldir")
-	skilltarget="${HOME}/.codex/skills/${skillname}"
-	if [ -d "$skilltarget" ] && [ ! -L "$skilltarget" ]; then
-		echo "Refusing to replace existing Codex skill directory: $skilltarget" >&2
-		continue
-	fi
-	ln -snf "$(readlink -f "$skilldir")" "$skilltarget"
+# ~/.agents/skills is the cross-tool location, hence agents_global rather than a Codex-specific
+# name: nothing under it is Codex-only.
+link_skills "$(readlink -f agents_global/skills)" "${HOME}/.agents/skills"
+
+# Codex also reads $CODEX_HOME/skills, which it marks deprecated. Keep no repo-managed links there
+# or every skill shows up twice. Anything else in that directory, notably Codex's own .system, is
+# left alone.
+dotfiles_root="$(pwd -P)"
+for link in "${HOME}/.codex/skills"/*; do
+	[ -L "$link" ] && [[ "$(readlink "$link")" == "$dotfiles_root"/* ]] && rm -f "$link"
 done
 
 for localfile in ".commonrc" ".vimrc" ".bashrc" ".zshrc" ".profile" ".zprofile" ".stylua.toml" ".rg" ".slurm_fns.sh" ".lsf_fns.sh"; do
@@ -53,6 +93,12 @@ fi
 # bootstrap may not have ~/.local/bin on PATH yet. Command is git_tree-owned; see ../git_tree/CLAUDE.md.
 gt_bin="$HOME/.local/bin/git-tree"
 [ -x "$gt_bin" ] && "$gt_bin" manpage --install &>/dev/null || true
+
+# git-tree agent skills, linked into ~/.claude/skills and ~/.agents/skills. Command is
+# git_tree-owned; see ../git_tree/AGENTS.md. stdout is noise on a bootstrap, but stderr is kept:
+# the command refuses rather than overwrite a path it did not write, and a silent refusal would be
+# indistinguishable from a successful install.
+[ -x "$gt_bin" ] && "$gt_bin" skills --install >/dev/null || true
 
 if [ "$(uname -s)" = "Darwin" ]; then
     ln -sfF "$(readlink -f settings.json)" "$HOME/Library/Application Support/Code/User/settings.json"
