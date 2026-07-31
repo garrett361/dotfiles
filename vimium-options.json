@@ -1,12 +1,5 @@
 {
-  "keyMappings": "# Insert your preferred key mappings here.\nunmap j\nunmap k\nunmap J\nunmap K\n\n\n# Removing anything that conflicts with jupyter.\nunmap b\n\nmap U scrollPageUp\nmap D scrollPageDown\n\nunmap h\nunmap l\nmap h previousTab\nmap l nextTab",
-  "searchEngines": "w: https://www.wikipedia.org/w/index.php?title=Special:Search&search=%s Wikipedia\n\n# More examples.\n#\n# (Vimium supports search completion Wikipedia, as\n# above, and for these.)\n#\n# g: https://www.google.com/search?q=%s Google\n# l: https://www.google.com/search?q=%s&btnI I'm feeling lucky...\n# y: https://www.youtube.com/results?search_query=%s Youtube\n# gm: https://www.google.com/maps?q=%s Google maps\n# b: https://www.bing.com/search?q=%s Bing\n# d: https://duckduckgo.com/?q=%s DuckDuckGo\n# az: https://www.amazon.com/s/?field-keywords=%s Amazon\n# qw: https://www.qwant.com/?q=%s Qwant",
-  "settingsVersion": "2.1.2",
   "exclusionRules": [
-    {
-      "passKeys": "brgi",
-      "pattern": "https?://mail.google.com/*"
-    },
     {
       "passKeys": "br",
       "pattern": "https?://outlook.office.com/*"
@@ -46,6 +39,54 @@
     {
       "passKeys": "",
       "pattern": "https?://vim-adventures.com/*"
+    },
+    {
+      "passKeys": "",
+      "pattern": "https?://localhost:8887/*"
+    },
+    {
+      "passKeys": "brgif",
+      "pattern": "https?://mail.google.com/*"
+    },
+    {
+      "passKeys": "",
+      "pattern": "https?://ui.perfetto.dev/*"
+    },
+    {
+      "passKeys": "",
+      "pattern": "https?://app.coderpad.io/*"
+    },
+    {
+      "passKeys": "",
+      "pattern": "https?://app.excalidraw.com/*"
+    },
+    {
+      "passKeys": "",
+      "pattern": "https?://127.0.0.1*/*"
+    },
+    {
+      "passKeys": "",
+      "pattern": "https?://leetcode.com/*"
+    },
+    {
+      "passKeys": "",
+      "pattern": "https?://whiteboard.facebookrecruiting.com/*"
+    },
+    {
+      "passKeys": "",
+      "pattern": "https?://localhost:2718/*"
+    },
+    {
+      "passKeys": "",
+      "pattern": "https?://localhost:*"
+    },
+    {
+      "passKeys": "",
+      "pattern": "https?://web.whatsapp.com/*"
     }
-  ]
+  ],
+  "keyMappings": "# Insert your preferred key mappings here.\nunmap j\nunmap k\nunmap J\nunmap K\n\n\n# Removing anything that conflicts with jupyter.\nunmap b\n\nmap U scrollPageUp\nmap D scrollPageDown\n\nunmap h\nunmap l\nmap h previousTab\nmap l nextTab",
+  "newTabDestination": "browserNewTabPage",
+  "searchEngines": "w: https://www.wikipedia.org/w/index.php?title=Special:Search&search=%s Wikipedia\n\n# More examples.\n#\n# (Vimium supports search completion Wikipedia, as\n# above, and for these.)\n#\n# g: https://www.google.com/search?q=%s Google\n# l: https://www.google.com/search?q=%s&btnI I'm feeling lucky...\n# y: https://www.youtube.com/results?search_query=%s Youtube\n# gm: https://www.google.com/maps?q=%s Google maps\n# b: https://www.bing.com/search?q=%s Bing\n# d: https://duckduckgo.com/?q=%s DuckDuckGo\n# az: https://www.amazon.com/s/?field-keywords=%s Amazon\n# qw: https://www.qwant.com/?q=%s Qwant",
+  "settingsVersion": "2.4.2"
 }
