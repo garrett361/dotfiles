@@ -52,6 +52,16 @@ vim.api.nvim_create_autocmd({ "FileChangedShellPost" }, {
 	pattern = { "*" },
 })
 
+-- Diff colors, reapplied on every :colorscheme so a theme cannot overwrite them.
+vim.api.nvim_create_autocmd("ColorScheme", {
+	callback = function()
+		vim.api.nvim_set_hl(0, "DiffAdd", { bg = "#1a6236" })
+		vim.api.nvim_set_hl(0, "DiffDelete", { bg = "#ff3f5c" })
+		vim.api.nvim_set_hl(0, "DiffChange", { bg = "#346345" })
+		vim.api.nvim_set_hl(0, "DiffText", { bg = "#5a0267" })
+	end,
+})
+
 -- Clipboard handling: https://github.com/neovim/neovim/discussions/28010#discussioncomment-10187140
 vim.o.clipboard = "unnamedplus"
 if vim.env.SSH_TTY ~= nil then
