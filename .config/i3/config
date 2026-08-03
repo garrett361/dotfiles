@@ -178,3 +178,5 @@ bar {
 
 # Execs
 exec_always autorandr --change
+# Faster key repeat: 200 ms before repeating, 45 repeats/sec
+exec_always --no-startup-id xset r rate 200 45
