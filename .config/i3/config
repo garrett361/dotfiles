@@ -180,3 +180,6 @@ bar {
 exec_always autorandr --change
 # Faster key repeat: 200 ms before repeating, 45 repeats/sec
 exec_always --no-startup-id xset r rate 200 45
+# Charybdis trackball: hold the middle button and roll the ball to scroll. The ball emits no wheel
+# events of its own, so scrolling has to come from libinput's button method, which ships disabled.
+exec_always --no-startup-id xinput set-prop "Bastard Keyboards Charybdis Nano (3x5) Splinky Mouse" "libinput Scroll Method Enabled" 0 0 1
