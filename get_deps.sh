@@ -331,20 +331,21 @@ if [ "$os" != Linux ]; then
         # not on PATH yet cannot turn into 14 silent command-not-found lines. shellenv is still
         # worth running: brew warns when its prefix is off PATH, and some formulae shell out to it.
         eval "$("$brew_bin" shellenv bash)"
-        "$brew_bin" install tmux
-        "$brew_bin" install --cask font-jetbrains-mono-nerd-font
-        "$brew_bin" install nodejs
-        "$brew_bin" install luarocks
-        "$brew_bin" install --cask nikitabobko/tap/aerospace
-        "$brew_bin" install --cask mactex
-        "$brew_bin" install --cask skim
-        "$brew_bin" install git-lfs
-        "$brew_bin" install gnupg
-        "$brew_bin" install charmbracelet/tap/freeze
-        "$brew_bin" install tree
-        "$brew_bin" install openshift-cli
-        "$brew_bin" install mac-mouse-fix
-        "$brew_bin" install helm
+        "$brew_bin" install -y tmux
+        "$brew_bin" install -y --cask font-jetbrains-mono-nerd-font
+        "$brew_bin" install -y nodejs
+        "$brew_bin" install -y luarocks
+        "$brew_bin" install -y --cask nikitabobko/tap/aerospace
+        "$brew_bin" install -y --cask mactex
+        "$brew_bin" install -y --cask skim
+        "$brew_bin" install -y git-lfs
+        "$brew_bin" install -y gnupg
+        "$brew_bin" install -y charmbracelet/tap/freeze
+        "$brew_bin" install -y tree
+        "$brew_bin" install -y openshift-cli
+        "$brew_bin" install -y mac-mouse-fix
+        "$brew_bin" install -y helm
+        "$brew_bin" install -y --cask ghostty
     fi
 fi
 
