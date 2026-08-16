@@ -4,10 +4,23 @@
 # than trusting the caller's.
 cd "$(dirname "$0")" || exit 1
 
-mkdir -p ~/.config
 mkdir -p ~/.claude
 mkdir -p ~/.codex
-# Drop links whose target no longer exists in the repo. ln -sfF below only overwrites links it
+
+# Clear the destination and link to an exact path; handing ln a destination directory is not
+# portable. Real directories are left alone: they belong to other installers.
+link_entry() {
+	local src="$1" dest="$2"
+	[ -e "$src" ] || return 0
+	if [ -d "$dest" ] && [ ! -L "$dest" ]; then
+		echo "Refusing to replace existing directory: $dest" >&2
+		return 1
+	fi
+	rm -f "$dest"
+	ln -sf "$src" "$dest"
+}
+
+# Drop links whose target no longer exists in the repo. link_entry below only overwrites paths it
 # still creates, so removing a config dir here would otherwise leave a dangling link forever.
 for localdir in ".local" ".config"; do
 	for link in "$HOME/$localdir"/*; do
@@ -17,8 +30,10 @@ done
 
 # Link all config and script files to their expected locations.
 for localdir in ".local" ".config"; do
-	dirpath=$(readlink -f $localdir)
-	ln -sfF $dirpath/* $HOME/$localdir
+	mkdir -p "$HOME/$localdir"
+	for entry in "$(readlink -f "$localdir")"/*; do
+		link_entry "$entry" "$HOME/$localdir/$(basename "$entry")"
+	done
 done
 
 # Link a repo skills dir into a harness skills dir one entry at a time, never as a whole. A
@@ -26,7 +41,7 @@ done
 # --install`, `claude plugin init`); linking the repo dir itself would make this repo *be* that
 # namespace, so their machine-specific output would land here as untracked files.
 link_skills() {
-	local src_dir="$1" dest_dir="$2" skilldir name target
+	local src_dir="$1" dest_dir="$2" skilldir name
 	[ -d "$src_dir" ] || return 0
 	# The harness dir itself must be real, or the per-entry links below land inside the repo.
 	[ -L "$dest_dir" ] && rm -f "$dest_dir"
@@ -34,12 +49,7 @@ link_skills() {
 	for skilldir in "$src_dir"/*/; do
 		[ -d "$skilldir" ] || continue
 		name=$(basename "$skilldir")
-		target="$dest_dir/$name"
-		if [ -d "$target" ] && [ ! -L "$target" ]; then
-			echo "Refusing to replace existing skill directory: $target" >&2
-			continue
-		fi
-		ln -snf "$(readlink -f "$skilldir")" "$target"
+		link_entry "$(readlink -f "$skilldir")" "$dest_dir/$name"
 	done
 }
 
@@ -47,7 +57,7 @@ link_skills() {
 # `skills` is skipped here and handled by link_skills, which keeps the harness dir real.
 for entry in "$(readlink -f claude_global)"/*; do
 	[ "$(basename "$entry")" = "skills" ] && continue
-	ln -sfF "$entry" "${HOME}/.claude"
+	link_entry "$entry" "${HOME}/.claude/$(basename "$entry")"
 done
 
 # A harness dir that is (or was) a link to one of these puts other installers' output in the repo.
@@ -61,7 +71,7 @@ done
 link_skills "$(readlink -f claude_global/skills)" "${HOME}/.claude/skills"
 
 # Link repo-managed Codex globals without replacing Codex runtime state or system skills.
-ln -sfF "$(readlink -f codex_global/AGENTS.md)" "${HOME}/.codex/AGENTS.md"
+link_entry "$(readlink -f codex_global/AGENTS.md)" "${HOME}/.codex/AGENTS.md"
 
 # ~/.agents/skills is the cross-tool location, hence agents_global rather than a Codex-specific
 # name: nothing under it is Codex-only.
@@ -76,8 +86,7 @@ for link in "${HOME}/.codex/skills"/*; do
 done
 
 for localfile in ".commonrc" ".vimrc" ".bashrc" ".zshrc" ".profile" ".zprofile" ".stylua.toml" ".rg" ".slurm_fns.sh" ".lsf_fns.sh"; do
-    filepath=$(readlink -f $localfile)
-	ln -sfF $filepath $HOME/$localfile
+	link_entry "$(readlink -f "$localfile")" "$HOME/$localfile"
 done
 
 # git-tree: install as uv tool (editable, auto-discovered by git as `git tree`) from the sibling
@@ -100,6 +109,8 @@ gt_bin="$HOME/.local/bin/git-tree"
 # indistinguishable from a successful install.
 [ -x "$gt_bin" ] && "$gt_bin" skills --install >/dev/null || true
 
-if [ "$(uname -s)" = "Darwin" ]; then
-    ln -sfF "$(readlink -f settings.json)" "$HOME/Library/Application Support/Code/User/settings.json"
+# Skipped when VS Code has never run, since ln cannot create the parent directory itself.
+vscode_dir="$HOME/Library/Application Support/Code/User"
+if [ "$(uname -s)" = "Darwin" ] && [ -d "$vscode_dir" ]; then
+	link_entry "$(readlink -f settings.json)" "$vscode_dir/settings.json"
 fi
