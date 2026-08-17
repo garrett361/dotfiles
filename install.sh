@@ -85,9 +85,15 @@ for link in "${HOME}/.codex/skills"/*; do
 	[ -L "$link" ] && [[ "$(readlink "$link")" == "$dotfiles_root"/* ]] && rm -f "$link"
 done
 
-for localfile in ".commonrc" ".vimrc" ".bashrc" ".zshrc" ".profile" ".zprofile" ".stylua.toml" ".rg" ".slurm_fns.sh" ".lsf_fns.sh"; do
+for localfile in ".commonrc" ".vimrc" ".bashrc" ".zshrc" ".profile" ".bash_profile" ".zprofile" ".stylua.toml" ".rg" ".slurm_fns.sh" ".lsf_fns.sh"; do
 	link_entry "$(readlink -f "$localfile")" "$HOME/$localfile"
 done
+
+# ~/.ssh stays machine-local (keys, known_hosts, host aliases), so link the one file the repo owns
+# rather than the directory. sshd runs it for every session, the only hook that fires for
+# `ssh host <cmd>` and `ssh -t host tmux attach`, which never source a profile.
+mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
+link_entry "$(readlink -f .ssh/rc)" "$HOME/.ssh/rc"
 
 # git-tree: install as uv tool (editable, auto-discovered by git as `git tree`) from the sibling
 # repo cloned by get_deps.sh. --force keeps re-pointing deterministic; warn loudly if it's missing.

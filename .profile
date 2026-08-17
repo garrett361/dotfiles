@@ -1,3 +1,17 @@
+# ssh agent: 1password on macos, a forwarded agent on remote hosts. `ssh` itself takes whichever agent
+# `IdentityAgent` in ~/.ssh/config names, which per ssh_config(5) overrides this variable; everything
+# else (ssh-add, anything not reading that file) has only this variable to go on. Skipped for inbound
+# ssh sessions so they keep their own agent rather than this machine's vault.
+_op_sock="$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+if [ -z "$SSH_CONNECTION" ] && [ -S "$_op_sock" ]; then
+    export SSH_AUTH_SOCK="$_op_sock"
+elif [ -S "$HOME/.ssh/agent.sock" ]; then
+    # ~/.ssh/rc keeps that stable name on the live forwarded socket. Preferring it over the
+    # per-session path sshd hands us is what lets a tmux pane outlive the session that started it.
+    export SSH_AUTH_SOCK="$HOME/.ssh/agent.sock"
+fi
+unset _op_sock
+
 _arch=$(uname -m)
 
 [ -d "$HOME/bin" ] && PATH="$HOME/bin:$PATH"

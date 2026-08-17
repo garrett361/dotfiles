@@ -64,3 +64,8 @@ __pycache__/
 # API keys
 API_KEYS/
 .secrets
+
+# ssh: this repo is public and tracks .ssh/ for the sshd session hook, which is the only thing that
+# belongs there. Keys, known_hosts and machine-local host aliases must not follow a `git add -A`.
+.ssh/*
+!.ssh/rc

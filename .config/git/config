@@ -73,7 +73,6 @@
 	recurse = true
 [user]
 	name = Garrett Goon
-	email = goon@ibm.com
-	signingkey = C535EE1BA19BB68A
+	email = garrett@primeintellect.ai
 [rerere]
 	enabled = true
