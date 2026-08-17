@@ -2,16 +2,7 @@ local exec = require("nvim_utils.exec")
 local prequire = require("nvim_utils").prequire
 local function config()
 	local gitlinker = prequire("gitlinker")
-	gitlinker.setup({
-		router = {
-			browse = {
-				["^github%.ibm%.com"] = require("gitlinker.routers").github_browse,
-			},
-			blame = {
-				["^github%.ibm%.com"] = require("gitlinker.routers").github_blame,
-			},
-		},
-	})
+	gitlinker.setup({})
 end
 
 ---Returns the text immediately preceding the first "/". E.g. "fsfsd sfs/sdsfs" returns "sfs".

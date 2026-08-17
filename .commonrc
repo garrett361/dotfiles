@@ -179,29 +179,6 @@ function gc()
     _clone_from_host "github.com" "$1" && _add_upstream_if_fork
 }
 
-function gc_ibm()
-{
-    _clone_from_host "github.ibm.com" "$1" && _add_upstream_if_fork
-}
-
-function vela1()
-{
-    export KUBECONFIG=~/.kube/config-vela1
-    oc projects
-}
-
-function vela2()
-{
-    export KUBECONFIG=~/.kube/config-vela2
-    oc projects
-}
-
-function aiu()
-{
-    export KUBECONFIG=~/.kube/aiu
-    oc projects
-}
-
 
 ################################   OTHER  ################################
 
