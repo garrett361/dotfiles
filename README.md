@@ -1,5 +1,17 @@
 # dotfiles
 
+Setup:
+
+```
+# Install dependencies
+./get_deps.sh 
+
+# Set up symlinks and other installation steps
+./install.sh
+```
+
+## Notes
+
 Set `export NVIM_APPNAME=nvim_min` to use the minimal nvim config.
 
 `git-tree`, my stacked-branch / cascading-rebase CLI, lives in its own repo:
