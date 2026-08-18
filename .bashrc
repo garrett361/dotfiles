@@ -18,9 +18,11 @@ _fzf_dir="$HOME/.fzf-$(uname -m)"
 unset _fzf_dir
 
 # Key bindings
-bind '"\C-g": "tmux-sessionizer\n"'
-bind '"\C-f": "tmux-list-sessionizer\n"'
-bind '"\C-x\C-e": edit-and-execute-command'
+if [[ $- == *i* ]]; then
+	bind '"\C-g": "tmux-sessionizer\n"'
+	bind '"\C-f": "tmux-list-sessionizer\n"'
+	bind '"\C-x\C-e": edit-and-execute-command'
+fi
 
 # starship (guard against arch mismatch in containers)
 if command -v starship &>/dev/null && starship --version &>/dev/null; then
