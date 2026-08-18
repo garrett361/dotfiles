@@ -53,9 +53,9 @@ fi
 
 # uv
 if [ "$os" = Linux ]; then
-    UV_INSTALL_DIR="$bin_dir" curl -LsSf https://astral.sh/uv/install.sh | sh
+    curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR="$bin_dir" UV_NO_MODIFY_PATH=1 sh
 else
-    curl -LsSf https://astral.sh/uv/install.sh | sh
+    curl -LsSf https://astral.sh/uv/install.sh | UV_NO_MODIFY_PATH=1 sh
 fi
 
 # Rust toolchain. RUSTUP_HOME has to be set here rather than inherited: .commonrc exports it,
@@ -69,8 +69,8 @@ export RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup-$arch}"
 # migration happens: the profiles keep resolving to the existing ~/.cargo.
 export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo-$arch}"
 if ! command -v rustup &>/dev/null; then
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-    # The installer only edits shell profiles, so source its env to use rustup below.
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
+    # The profiles stay authoritative for PATH, so source the env file to use rustup below.
     . "$CARGO_HOME/env"
 fi
 rustup default stable
