@@ -94,6 +94,7 @@ DELTA_VERSION="0.19.2"
 BAT_VERSION="0.26.1"
 FD_VERSION="10.4.2"
 GH_VERSION="2.96.0"
+GIT_LFS_VERSION="3.7.1"
 
 pinned_ok=1
 case "$os-$arch" in
@@ -115,6 +116,7 @@ case "$os-$arch" in
         FD="fd-v${FD_VERSION}-aarch64-apple-darwin"
         CODEX_ASSET="codex-aarch64-apple-darwin.tar.gz"
         GH_ASSET="gh_${GH_VERSION}_macOS_arm64.zip"
+        GIT_LFS_ASSET="git-lfs-darwin-arm64-v${GIT_LFS_VERSION}.zip"
         ;;
     Linux-x86_64)
         NVIM="nvim-linux-x86_64"
@@ -136,6 +138,7 @@ case "$os-$arch" in
         FD="fd-v${FD_VERSION}-x86_64-unknown-linux-musl"
         CODEX_ASSET="codex-x86_64-unknown-linux-musl.tar.gz"
         GH_ASSET="gh_${GH_VERSION}_linux_amd64.tar.gz"
+        GIT_LFS_ASSET="git-lfs-linux-amd64-v${GIT_LFS_VERSION}.tar.gz"
         ;;
     Linux-aarch64)
         NVIM="nvim-linux-arm64"
@@ -155,6 +158,7 @@ case "$os-$arch" in
         FD="fd-v${FD_VERSION}-aarch64-unknown-linux-musl"
         CODEX_ASSET="codex-aarch64-unknown-linux-musl.tar.gz"
         GH_ASSET="gh_${GH_VERSION}_linux_arm64.tar.gz"
+        GIT_LFS_ASSET="git-lfs-linux-arm64-v${GIT_LFS_VERSION}.tar.gz"
         ;;
     *)
         # Warn rather than exit: fzf, uv, claude and the brew branch still work.
@@ -299,6 +303,8 @@ if [ "$pinned_ok" -eq 1 ]; then
 
     install_pinned gh "$GH_VERSION" \
         "https://github.com/cli/cli/releases/download/v${GH_VERSION}/${GH_ASSET}" bin/gh
+    install_pinned git-lfs "$GIT_LFS_VERSION" \
+        "https://github.com/git-lfs/git-lfs/releases/download/v${GIT_LFS_VERSION}/${GIT_LFS_ASSET}"
 fi
 
 # Both prefixes, not just PATH: the installer runs in a child shell so it cannot put brew on this
@@ -328,7 +334,7 @@ if [ "$os" != Linux ]; then
         skipped="$skipped brew"
     else
         # Installs go through $brew_bin rather than a bare `brew`, so a fresh machine where brew is
-        # not on PATH yet cannot turn into 14 silent command-not-found lines. shellenv is still
+        # not on PATH yet cannot turn into 13 silent command-not-found lines. shellenv is still
         # worth running: brew warns when its prefix is off PATH, and some formulae shell out to it.
         eval "$("$brew_bin" shellenv bash)"
         "$brew_bin" install -y tmux
@@ -338,7 +344,6 @@ if [ "$os" != Linux ]; then
         "$brew_bin" install -y --cask nikitabobko/tap/aerospace
         "$brew_bin" install -y --cask mactex
         "$brew_bin" install -y --cask skim
-        "$brew_bin" install -y git-lfs
         "$brew_bin" install -y gnupg
         "$brew_bin" install -y charmbracelet/tap/freeze
         "$brew_bin" install -y tree
