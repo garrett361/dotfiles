@@ -18,7 +18,8 @@
       "Bash(isort:*)",
       "Bash(rg:*)",
       "Bash(fd:*)"
-    ]
+    ],
+    "defaultMode": "plan"
   },
   "statusLine": {
     "type": "command",
