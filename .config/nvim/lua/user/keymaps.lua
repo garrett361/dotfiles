@@ -133,7 +133,17 @@ keymap("n", "<leader>cI", "<cmd>checkhealth vim.lsp<CR>", opts)
 
 -- Buffer management
 keymap("n", "<leader>x", "<cmd>bdelete<CR>", opts) -- Close buffer
-keymap("n", "<leader>X", "mp<cmd>%bd|e#<CR>'p", opts) -- Close all buffers except current
+-- Close all buffers except current. Terminal buffers are force-killed (bd!) first, since a
+-- running shell has no unsaved work to lose and would otherwise abort the %bd below; other
+-- buffers still block %bd on unsaved changes. bufdo isn't used here since it mutates the
+-- buffer list while iterating it, which breaks e#'s alternate-file tracking below.
+keymap(
+	"n",
+	"<leader>X",
+	"mp<cmd>for b in filter(getbufinfo(), {_, v -> getbufvar(v.bufnr, '&buftype') ==# 'terminal'}) "
+		.. "| execute 'bd! ' . b.bufnr | endfor | %bd | e#<CR>`p",
+	opts
+)
 
 -- Write/Quit/etc. The W/w ones are overwritten by the conform/lint plugin, when loaded.
 keymap("n", "<leader>w", "<cmd>w<CR>", opts)
