@@ -20,5 +20,8 @@ These govern your replies to me, prose, and docs alike.
 - If multiple interpretations exist, present them; don't pick silently.
 - If something is unclear, stop, name what's confusing, and ask.
 
+## Git
+- Never run `git push` (or otherwise publish commits/branches to a remote) without my explicit verbal approval in the conversation first, every time, even if a push was approved earlier in the same session or for a similar task.
+
 ## My tools
 - `git tree`: my stacked-branch / cascading-rebase CLI (worktree-per-branch, `propagate`, stacked `push`). Reach for it for stacked/dependent-branch work in any repo. To see a stack's structure, run `git tree --json` (machine-readable forest on stdout). `git tree -h` lists the command surface (there is no `list` or `status` subcommand). If `git tree` isn't found, the binary is `~/.local/bin/git-tree`. Full agent contract and internals live in `~/github/garrett361/git_tree/AGENTS.md`; read it before modifying the tool.
