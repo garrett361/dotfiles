@@ -28,7 +28,7 @@
     pd = push -d
     pf = push --force-with-lease
     pl = pull
-    ps = push --set-upstream --recurse-submodules=no
+    ps = "!f() { git push --set-upstream --recurse-submodules=no \"${1:-origin}\" HEAD; }; f"
     pushf = push --force-with-lease
     r = rebase
     ra = rebase --abort
