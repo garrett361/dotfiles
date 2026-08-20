@@ -7,7 +7,7 @@
   "makurai-nvim": { "branch": "main", "commit": "138d113a190c26ef7261bc5bc6b7fb22ae72ae60" },
   "mini.nvim": { "branch": "main", "commit": "946ae64e0ee807ae3c41f382f0114b4ed4915b2c" },
   "nvim-treehopper": { "branch": "master", "commit": "e3861c0231631c6af317d6746bb78fdb428a58f3" },
-  "nvim-treesitter": { "branch": "master", "commit": "cf12346a3414fa1b06af75c79faebe7f76df080a" },
+  "nvim-treesitter": { "branch": "main", "commit": "cf12346a3414fa1b06af75c79faebe7f76df080a" },
   "nvim-treesitter-context": { "branch": "master", "commit": "b311b30818951d01f7b4bf650521b868b3fece16" },
   "oil.nvim": { "branch": "master", "commit": "b73018b75affd13fa38e2fc94ef753b465f770d7" },
   "rainbow-delimiters.nvim": { "branch": "master", "commit": "a798325b7f36acc62741d1029930a7b96d4dd4bf" },
