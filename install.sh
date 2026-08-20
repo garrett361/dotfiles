@@ -115,6 +115,18 @@ gt_bin="$HOME/.local/bin/git-tree"
 # indistinguishable from a successful install.
 [ -x "$gt_bin" ] && "$gt_bin" skills --install >/dev/null || true
 
+# Restore nvim plugin state from lazy-lock.json.
+nvim_bin="$HOME/.local/bin/$(uname -m)/nvim"
+[ -x "$nvim_bin" ] || nvim_bin=$(command -v nvim)
+if [ -x "$nvim_bin" ]; then
+	for appname in nvim nvim_min; do
+		[ -d "$HOME/.config/$appname" ] || continue
+		NVIM_APPNAME="$appname" "$nvim_bin" --headless "+Lazy! restore" +qa </dev/null
+	done
+else
+	echo "nvim not found; skipping plugin restore (run ./get_deps.sh first)" >&2
+fi
+
 # Skipped when VS Code has never run, since ln cannot create the parent directory itself.
 vscode_dir="$HOME/Library/Application Support/Code/User"
 if [ "$(uname -s)" = "Darwin" ] && [ -d "$vscode_dir" ]; then
