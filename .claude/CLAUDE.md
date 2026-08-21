@@ -39,7 +39,8 @@ Personal dotfiles repo (macOS + Linux): Neovim (Lua), zsh/bash, CLI tools.
 In login shells `.zprofile`/`.profile` run before `.commonrc`, which `.bashrc` and `.zshrc` source.
 PATH and toolchain env belong in the profiles; `.commonrc` covers interactive shells. `RUSTUP_HOME`
 is set in both on purpose, since neither alone reaches every shell type. `.zprofile` and `.profile`
-share their login-time setup via `.commonprofile`.
+share their login-time setup via `.commonprofile`, which also sources an optional `~/.localrc` for
+machine-local settings (never symlinked by `install.sh`, like `.secrets`).
 
 ## Conventions
 

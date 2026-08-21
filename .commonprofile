@@ -28,3 +28,5 @@ fi
 
 [ "$_arch" = "x86_64" ] && [ -f "$HOME/x86/bin/env" ] && . "$HOME/x86/bin/env"
 unset _arch
+
+[ -f "$HOME/.localrc" ] && . "$HOME/.localrc"
