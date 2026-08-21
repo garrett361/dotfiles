@@ -39,12 +39,12 @@ local function diffview_prev(selected)
 	vim.cmd("DiffviewOpen " .. commit_hash .. "^!")
 end
 
----Diffview between selected commit and HEAD
+---Diffview between selected commit's parent and HEAD (inclusive of selected commit)
 ---@param selected string
 local function diffview_head(selected)
 	require("diffview") --Needed to lazy load diffview
 	local commit_hash = string.match(selected[1], "^%S+")
-	vim.cmd("DiffviewOpen " .. commit_hash)
+	vim.cmd("DiffviewOpen " .. commit_hash .. "^")
 end
 
 ---Interactive rebase relative to the selected commit
