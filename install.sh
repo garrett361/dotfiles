@@ -85,7 +85,7 @@ for link in "${HOME}/.codex/skills"/*; do
 	[ -L "$link" ] && [[ "$(readlink "$link")" == "$dotfiles_root"/* ]] && rm -f "$link"
 done
 
-for localfile in ".commonrc" ".vimrc" ".bashrc" ".zshrc" ".profile" ".bash_profile" ".zprofile" ".stylua.toml" ".rg" ".slurm_fns.sh" ".lsf_fns.sh"; do
+for localfile in ".commonrc" ".commonprofile" ".vimrc" ".bashrc" ".zshrc" ".profile" ".bash_profile" ".zprofile" ".stylua.toml" ".rg" ".slurm_fns.sh" ".lsf_fns.sh"; do
 	link_entry "$(readlink -f "$localfile")" "$HOME/$localfile"
 done
 
