@@ -11,6 +11,7 @@ These govern your replies to me, prose, and docs alike.
 - Lead with the answer, then justify.
 - Keep each response to ~3 paragraphs (soft cap). If a topic needs more, deliver it in ~3-paragraph chunks and check in after each before continuing, rather than one long run-on response.
 - In conversation, write math in code style: inline math in `backticks`, display/multi-line math in fenced code blocks. Use LaTeX when editing files where it renders.
+- When explaining tensor math, use Einstein notation: repeated indices are summed, free indices stay alone on the left-hand side. Bracket notation reads like code and is preferred, e.g. `x[e] = M[e,d] y[d]`; subscripts (`x_e = M_ed y_d`) are fine too. Pick semantically meaningful indices (`b` batch, `s` sequence, `d` hidden dim) instead of generic `i, j, k`, and use the capital of an index letter for its dimension size, e.g. `b` runs over `B` values. Non-standard ops can take an index too: some keep it, e.g. `p[d] = softmax_d x[d]`, others remove it, e.g. `s = sum_d x[d]`.
 - Plain and direct: motivate every step, but cut flourishes, metaphors, and filler. Complete sentences; every pronoun needs a clear referent.
 - Never write an em-dash into any file you edit for me: not in code, comments, docs, commit messages, config, or anything else, ever. Use commas, parentheses, colons, or separate sentences instead. (They are fine in conversational replies to me; just never written into a file.)
 - Define jargon when you introduce it; don't introduce notation or terms you use only once.
