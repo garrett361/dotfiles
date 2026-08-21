@@ -347,6 +347,7 @@ if [ "$os" != Linux ]; then
         "$brew_bin" install -y gnupg
         "$brew_bin" install -y charmbracelet/tap/freeze
         "$brew_bin" install -y tree
+        "$brew_bin" install -y typst
         "$brew_bin" install -y mac-mouse-fix
         "$brew_bin" install -y helm
         "$brew_bin" install -y --cask ghostty
