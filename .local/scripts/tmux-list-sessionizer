@@ -1,37 +1,27 @@
 #!/usr/bin/env bash
 
-# counts the number of arguments passed to the script, -eq 1 check if it equals 1.
-selected=$(tmux list-sessions -F "#{session_name}"| fzf -m --header="Multi-select to delete")
-num_selected=$(echo "$selected" | wc -w)
+selected=$(tmux list-sessions -F "#S" | fzf -m \
+  --header="Tab: select for deletion | Enter: switch | Ctrl-X: kill selected" \
+  --bind 'enter:transform:[[ $FZF_SELECT_COUNT -eq 0 ]] && echo accept || echo "change-header:Multi-select is for deletion only -- press Ctrl-X to kill, or Tab to deselect"' \
+  --bind 'ctrl-x:execute(
+      echo "Kill these sessions? [y/N]"
+      printf "%s\n" {+}
+      read -r response
+      case "$response" in
+          [yY][eE][sS]|[yY])
+              for name in {+}; do tmux kill-session -t "$name"; done
+              ;;
+          *)
+              echo "Delete aborted!"
+              ;;
+      esac
+  )+reload(tmux list-sessions -F "#S")+clear-multi+change-header(Tab: select for deletion | Enter: switch | Ctrl-X: kill selected)')
 
-if [ $num_selected -eq 0 ]; then
-	exit 0
-elif [ $num_selected -eq 1 ]; then
-    clients=$(tmux list-clients)
-    if [[ -z $TMUX ]] || [[ -z $clients ]]; then
-      tmux attach-session -t $selected
-    else
-      tmux switch-client -t $selected
-    fi
+[[ -z "$selected" ]] && exit 0
+
+clients=$(tmux list-clients)
+if [[ -z $TMUX ]] || [[ -z $clients ]]; then
+  tmux attach-session -t "$selected"
 else
-    echo -e "Delete these sesions? [y/N]\n${selected}"
-    read response
-    case "$response" in
-        [yY][eE][sS]|[yY])
-            DELETE=1
-            ;;
-        *)
-            DELETE=0
-            ;;
-    esac
-
-
-    if [ $DELETE = "1" ]; then
-        for name in $selected; do
-            tmux kill-session -t $name;
-        done
-    else
-        echo "Delete aborted!"
-    fi
+  tmux switch-client -t "$selected"
 fi
-
