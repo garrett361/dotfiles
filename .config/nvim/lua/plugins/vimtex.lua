@@ -24,6 +24,11 @@ local function config()
 	vim.cmd([[let g:vimtex_view_skim_activate = 1]])
 	vim.cmd([[let g:vimtex_view_enabled = 1]])
 	vim.cmd([[let g:vimtex_mappings_enabled = 1]])
+
+	-- Treesitter owns latex highlighting (see lua/plugins/treesitter.lua). With both
+	-- engines on, vim.treesitter.start() clears b:current_syntax, then vimtex's
+	-- post-compile package init unlets it again and throws E108 on pgfplots docs.
+	vim.cmd([[let g:vimtex_syntax_enabled = 0]])
 end
 
 return {
