@@ -340,6 +340,7 @@ if [ "$os" != Linux ]; then
         "$brew_bin" install -y tmux
         "$brew_bin" install -y --cask font-jetbrains-mono-nerd-font
         "$brew_bin" install -y nodejs
+        "$brew_bin" install -y bun
         "$brew_bin" install -y luarocks
         "$brew_bin" install -y --cask nikitabobko/tap/aerospace
         "$brew_bin" install -y --cask mactex
