@@ -214,3 +214,8 @@ slurm_alloc() {
         "${extra[@]}"
 }
 
+# Single letters are safe because .commonrc only sources this file on a slurm cluster. `r` is
+# deliberately avoided for slurm_attach: it is a zsh builtin that re-runs the last command.
+alias d="slurm_kill"
+alias a="slurm_attach"
+alias i="slurm_info"
