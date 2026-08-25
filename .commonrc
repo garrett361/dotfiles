@@ -215,5 +215,8 @@ export RUSTUP_HOME="$HOME/.rustup-$(uname -m)"
 # comment for why it has to be exported rather than left to rustup's env file.
 [ -f "$HOME/.cargo-$(uname -m)/env" ] && export CARGO_HOME="$HOME/.cargo-$(uname -m)"
 
-[ -f "$HOME/.slurm_fns.sh" ] && source "$HOME/.slurm_fns.sh"
-[ -f "$HOME/.lsf_fns.sh" ]   && source "$HOME/.lsf_fns.sh"
+# Gate on each scheduler's own CLI. install.sh links both files everywhere, so a plain -f check is
+# always true and an LSF box ends up with slurm helpers and vice versa. This also confines the
+# aliases at the bottom of each file to machines where they resolve.
+command -v squeue >/dev/null 2>&1 && [ -f "$HOME/.slurm_fns.sh" ] && source "$HOME/.slurm_fns.sh"
+command -v bjobs  >/dev/null 2>&1 && [ -f "$HOME/.lsf_fns.sh" ]   && source "$HOME/.lsf_fns.sh"
