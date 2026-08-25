@@ -183,3 +183,34 @@ slurm_kill() {
             ;;
     esac
 }
+
+slurm_alloc() {
+    local gpus=8
+    local -a extra=()
+
+    while [ $# -gt 0 ]; do
+        case $1 in
+            --gpus=*)
+                gpus="${1#--gpus=}"
+                shift
+                ;;
+            *)
+                extra+=("$1")
+                shift
+                ;;
+        esac
+    done
+
+    # A step inherits every GRES the job requested except those granted implicitly by --exclusive,
+    # so without an explicit request slurm_attach's srun would land on the node with no GPUs.
+    # salloc reports the job id and node itself, and slurm_attach finds the job by picker, so
+    # there is nothing worth adding to its output.
+    salloc --no-shell \
+        --job-name=dev \
+        --nodes=1 \
+        --exclusive \
+        --mem=0 \
+        --gres="gpu:$gpus" \
+        "${extra[@]}"
+}
+
