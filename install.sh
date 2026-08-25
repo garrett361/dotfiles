@@ -4,6 +4,14 @@
 # than trusting the caller's.
 cd "$(dirname "$0")" || exit 1
 
+# --force bypasses the nvim plugin-restore cache below, forcing both appnames to resync.
+force=0
+for arg in "$@"; do
+	case "$arg" in
+		-f | --force) force=1 ;;
+	esac
+done
+
 mkdir -p ~/.claude
 mkdir -p ~/.codex
 
@@ -115,13 +123,32 @@ gt_bin="$HOME/.local/bin/git-tree"
 # indistinguishable from a successful install.
 [ -x "$gt_bin" ] && "$gt_bin" skills --install >/dev/null || true
 
-# Restore nvim plugin state from lazy-lock.json.
+# Restore nvim plugin state from lazy-lock.json, skipping when a lock file's content hash
+# matches its cache from the last successful restore. The cache lives outside the repo, since it's
+# machine-local rather than dotfiles state.
 nvim_bin="$HOME/.local/bin/$(uname -m)/nvim"
 [ -x "$nvim_bin" ] || nvim_bin=$(command -v nvim)
 if [ -x "$nvim_bin" ]; then
+	hash_file() { sha256sum "$1" 2>/dev/null || shasum -a 256 "$1"; }
+	cache_dir="$HOME/.cache/dotfiles"
+	mkdir -p "$cache_dir"
+	# A failed clone (e.g. no network) doesn't make headless nvim exit non-zero on its own, so
+	# check lazy's own per-plugin install state instead of trusting $? from the restore command.
+	# One line, `;`-separated: a raw newline in a `-c` argument is parsed as a second Ex command,
+	# which would truncate the for loop mid-block.
+	restore_check='local n=0; for _, p in pairs(require("lazy.core.config").plugins) do if not p._.installed then n = n + 1 end end; if n > 0 then vim.cmd("cquit! 1") end'
 	for appname in nvim nvim_min; do
 		[ -d "$HOME/.config/$appname" ] || continue
-		NVIM_APPNAME="$appname" "$nvim_bin" --headless "+Lazy! restore" +qa </dev/null
+		lockfile="$HOME/.config/$appname/lazy-lock.json"
+		cache_file="$cache_dir/nvim-restore-$appname.sha256"
+		if [ -f "$lockfile" ] && [ "$force" -eq 0 ]; then
+			current_hash=$(hash_file "$lockfile" | awk '{print $1}')
+			[ "$(cat "$cache_file" 2>/dev/null)" = "$current_hash" ] && continue
+		fi
+		if NVIM_APPNAME="$appname" "$nvim_bin" --headless \
+			-c "Lazy! restore" -c "lua $restore_check" -c "qa" </dev/null; then
+			[ -f "$lockfile" ] && hash_file "$lockfile" | awk '{print $1}' >"$cache_file"
+		fi
 	done
 else
 	echo "nvim not found; skipping plugin restore (run ./get_deps.sh first)" >&2
