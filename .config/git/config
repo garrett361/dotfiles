@@ -23,17 +23,17 @@
     m = merge
     ma = merge --abort
     mc = merge --continue
-    p = push --recurse-submodules=no
+    p = push
     pa = pull --autostash
     pd = push -d
     pf = push --force-with-lease
     pl = pull
-    ps = "!f() { git push --set-upstream --recurse-submodules=no \"${1:-origin}\" HEAD; }; f"
+    ps = "!f() { git push --set-upstream \"${1:-origin}\" HEAD; }; f"
     pushf = push --force-with-lease
     r = rebase
     ra = rebase --abort
     rau = remote add upstream
-    rc = rebase --continue -c rerere.enabled=true
+    rc = rebase --continue
     rh = reset --hard
     ri = rebase --interactive
     ria = rebase --interactive --autosquash
@@ -44,6 +44,7 @@
     sa = stash apply
     sc = stash clear
     sp = stash pop
+    subup = submodule update --init --recursive
     t = tree
     wt = worktree
     wta = worktree add
@@ -69,8 +70,6 @@
 	defaultBranch = main
 [pull]
 	rebase = true
-[submodule]
-	recurse = true
 [user]
 	name = Garrett Goon
 	email = garrett@primeintellect.ai
