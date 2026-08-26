@@ -156,13 +156,18 @@ prl_logs() {
         [ -n "$f" ] && files+=("$base_dir/$f")
     done <<< "$selected_files"
 
-    local win
-    win=$(tmux new-window -P -F '#{window_id}' -n prl-logs "tail -n +1 -F -- \"${files[0]}\"")
-    local f
+    local win pane0
+    read -r win pane0 <<< "$(tmux new-window -P -F '#{window_id} #{pane_id}' -n prl-logs "tail -n +1 -F -- \"${files[0]}\"")"
+    tmux select-pane -t "$pane0" -T "${files[0]}"
+
+    local f pane
     for f in "${files[@]:1}"; do
-        tmux split-window -t "$win" "tail -n +1 -F -- \"$f\""
+        pane=$(tmux split-window -t "$win" -P -F '#{pane_id}' "tail -n +1 -F -- \"$f\"")
+        tmux select-pane -t "$pane" -T "$f"
     done
     tmux select-layout -t "$win" tiled
+    tmux set-window-option -t "$win" pane-border-status top
+    tmux set-window-option -t "$win" pane-border-format '#{pane_title}'
 }
 
 # make a directory and cd to it
