@@ -77,6 +77,9 @@ alias x="codex"
 # tail/follow from beginnin
 alias tf="tail -n +1 -F"
 
+# fzf-pick prime-rl log files (under $PRL_OUTPUT_DIR) to tail in a new tmux window
+alias l="prl_logs"
+
 ################################   FUNCTIONS  ################################
 
 _open_logs_in_panes() {
@@ -117,6 +120,49 @@ _open_logs_in_panes() {
             tail -n +1 -f "$1"
             ;;
     esac
+}
+
+# fzf-pick .log files under $PRL_OUTPUT_DIR (most recently modified first) and tail the
+# selection in a new tmux window, one tiled pane per file.
+prl_logs() {
+    if [ -z "$TMUX" ]; then
+        echo "prl_logs requires a tmux session"
+        return 1
+    fi
+
+    local base_dir="$PRL_OUTPUT_DIR"
+    if [ -z "$base_dir" ]; then
+        read -r -p "PRL_OUTPUT_DIR is not set. Enter base directory: " base_dir
+    fi
+    base_dir="${base_dir/#\~/$HOME}"
+    base_dir=$(cd "$base_dir" 2>/dev/null && pwd)
+    if [ -z "$base_dir" ]; then
+        echo "Directory does not exist"
+        return 1
+    fi
+
+    local selected_files
+    selected_files=$(cd "$base_dir" && find -L . -path '*/logs/latest/*' -type f -name '*.log' \
+        -printf '%T@ %p\n' 2>/dev/null | sort -rn | cut -d' ' -f2- | sed 's|^\./||' \
+        | fzf -m --bind ctrl-a:select-all \
+        --bind 'ctrl-y:execute-silent(printf "%s/%s" "'"$base_dir"'" {} | clip_copy)' \
+        --header="Select log files from $base_dir (Tab=multi, Ctrl-A=all, Ctrl-Y=copy path)" \
+        --preview="echo '$base_dir/{}'; echo; tail -50 -- '$base_dir/{}'" \
+        --preview-window=down)
+    [ -z "$selected_files" ] && return 0
+
+    local -a files=()
+    while IFS= read -r f; do
+        [ -n "$f" ] && files+=("$base_dir/$f")
+    done <<< "$selected_files"
+
+    local win
+    win=$(tmux new-window -P -F '#{window_id}' -n prl-logs "tail -n +1 -F -- \"${files[0]}\"")
+    local f
+    for f in "${files[@]:1}"; do
+        tmux split-window -t "$win" "tail -n +1 -F -- \"$f\""
+    done
+    tmux select-layout -t "$win" tiled
 }
 
 # make a directory and cd to it
