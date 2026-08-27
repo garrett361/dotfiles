@@ -1,6 +1,6 @@
 local aliases = {
-	c = { prompt = "/commit-staged", flags = { "--model", "haiku" } },
-	rc = { prompt = "/reword-commit", flags = { "--model", "haiku" } },
+	c = { prompt = "/commit-staged", flags = { "--model", "haiku", "--permission-mode", "default" } },
+	rc = { prompt = "/reword-commit", flags = { "--model", "haiku", "--permission-mode", "default" } },
 	rs = { prompt = "/review-staged", flags = { "--model", "sonnet" } },
 }
 
