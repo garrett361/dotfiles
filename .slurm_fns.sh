@@ -147,15 +147,24 @@ slurm_attach() {
     local node_count
     node_count=$(echo "$hostnames" | grep -c .)
 
-    if [ "$node_count" -le 1 ]; then
-        srun --jobid="$jobid" --overlap --pty "$SHELL"
-    else
+    # -l makes the remote shell a login shell, so it runs .profile/.zprofile ->
+    # .commonprofile -> .localrc; a plain "$SHELL" here never sources .localrc at all.
+    local -a srun_cmd=(srun --jobid="$jobid" --overlap --pty "$SHELL" -l)
+
+    if [ "$node_count" -gt 1 ]; then
         local node
         node=$(echo "$hostnames" | awk 'NR==1 {print $0 " (head)"} NR>1 {print}' \
             | fzf --header="Select node ($jobid)" \
             | sed 's/ (head)$//')
-        [ -n "$node" ] && srun --jobid="$jobid" --overlap --nodelist="$node" --ntasks=1 --pty "$SHELL"
+        [ -z "$node" ] && return 0
+        srun_cmd=(srun --jobid="$jobid" --overlap --nodelist="$node" --ntasks=1 --pty "$SHELL" -l)
     fi
+
+    # Also pin new windows/panes in this tmux session to the same job/node, so a fresh SSH
+    # connection to the head node only has to run `a` once per session rather than per window.
+    [ -n "$TMUX" ] && tmux set-option default-command "${srun_cmd[*]}"
+
+    "${srun_cmd[@]}"
 }
 
 slurm_kill() {
