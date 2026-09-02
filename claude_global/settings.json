@@ -2,6 +2,8 @@
   "permissions": {
     "allow": [
       "Read(~/.claude/**)",
+      "Read(~/tmp/**)",
+      "Edit(~/tmp/**)",
       "WebFetch(domain:arxiv.org)",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
