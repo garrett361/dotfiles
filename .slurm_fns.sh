@@ -128,41 +128,97 @@ slurm_logs_all() {
     _open_logs_in_panes "$abs_files"
 }
 
-slurm_attach() {
-    local jobid
-    jobid=$(_slurm_jobs --state=RUNNING "$@")
-    [ -z "$jobid" ] && return 0
+# One line per (running job, node), as "<jobid> <node> <nodecount> <label...>". The three
+# machine-readable fields come first so that a job name containing spaces cannot shift them; the
+# label is everything callers display and fzf searches.
+_slurm_targets() {
+    # Unwidthed format specifiers: the "%.12i" style used by _slurm_jobs truncates, and a
+    # truncated job id fed to `srun --jobid=` fails. Split on "|" rather than whitespace, since
+    # job names may contain spaces. The sed strips squeue's padding around the delimiters.
+    local jobs
+    jobs=$(squeue --me --states=RUNNING --noheader --format='%i|%j|%P|%N' 2>/dev/null \
+        | sed 's/ *| */|/g; s/^ *//; s/ *$//')
+    [ -z "$jobs" ] && return 1
 
-    local nodelist
-    nodelist=$(scontrol show job "$jobid" | sed -n 's/.* NodeList=\([^ ]*\).*/\1/p' | head -1)
+    local out="" jobid name partition nodelist hostnames nodecount node marker first
+    while IFS='|' read -r jobid name partition nodelist; do
+        [ -z "$jobid" ] && continue
+        # A pending or completing job reports no nodes; "(null)" would otherwise reach
+        # `scontrol show hostnames` and come back as a selectable node.
+        case "$nodelist" in
+            "" | "(null)") continue ;;
+        esac
 
-    if [ -z "$nodelist" ] || [ "$nodelist" = "(null)" ]; then
-        echo "No node found for job $jobid (job may not be running)"
-        return 1
+        hostnames=$(scontrol show hostnames "$nodelist" 2>/dev/null)
+        [ -z "$hostnames" ] && continue
+        nodecount=$(printf '%s\n' "$hostnames" | grep -c .)
+
+        first=1
+        while IFS= read -r node; do
+            [ -z "$node" ] && continue
+            marker=""
+            if [ "$first" = 1 ] && [ "$nodecount" -gt 1 ]; then
+                marker="  (head)"
+            fi
+            first=0
+            out="$out$(printf '%s %s %s %-10s %-24s %-14s %s%s' \
+                "$jobid" "$node" "$nodecount" "$jobid" "$name" "$partition" "$node" "$marker")"$'\n'
+        done <<< "$hostnames"
+    done <<< "$jobs"
+
+    [ -z "$out" ] && return 1
+    printf '%s' "$out"
+}
+
+# fzf over _slurm_targets, printing the selected record. --local prepends an entry for the machine
+# tmux itself is on and makes it the highlighted default; only tmux-slurm-shell passes it, so
+# slurm_attach can never be handed the "local" token. Returns non-zero for anything that is not a
+# selection, without distinguishing why: every caller treats those cases identically.
+_slurm_pick_target() {
+    local local_line="" host=""
+    if [ "$1" = "--local" ]; then
+        host=$(hostname -s)
+        local_line=$(printf 'local %s 1 %-10s %s' "$host" "local" "$host")
+        shift
     fi
 
-    local hostnames
-    hostnames=$(scontrol show hostnames "$nodelist")
+    local targets
+    targets=$(_slurm_targets)
 
-    local node_count
-    node_count=$(echo "$hostnames" | grep -c .)
+    if [ -z "$targets" ]; then
+        [ -z "$local_line" ] && return 1
+        printf '%s\n' "$local_line"
+        return 0
+    fi
+
+    local list="$targets"
+    [ -n "$local_line" ] && list=$(printf '%s\n%s' "$local_line" "$targets")
+
+    local header="Select where to open a shell"
+    [ -n "$local_line" ] && header="Select where to open a shell (Esc stays on $host)"
+
+    local selected
+    # --with-nth hides the three machine-readable fields; fzf's default AWK-style delimiter needs
+    # no --delimiter. The query is a filter, not a pre-selection, so an unmatched one is visible.
+    selected=$(printf '%s\n' "$list" | fzf --with-nth=4.. --query="$*" --header="$header")
+    [ -z "$selected" ] && return 1
+    printf '%s\n' "$selected"
+}
+
+slurm_attach() {
+    local target
+    target=$(_slurm_pick_target "$@") || return 0
+
+    local jobid node nodecount label
+    read -r jobid node nodecount label <<< "$target"
 
     # -l makes the remote shell a login shell, so it runs .profile/.zprofile ->
     # .commonprofile -> .localrc; a plain "$SHELL" here never sources .localrc at all.
-    local -a srun_cmd=(srun --jobid="$jobid" --overlap --pty "$SHELL" -l)
-
-    if [ "$node_count" -gt 1 ]; then
-        local node
-        node=$(echo "$hostnames" | awk 'NR==1 {print $0 " (head)"} NR>1 {print}' \
-            | fzf --header="Select node ($jobid)" \
-            | sed 's/ (head)$//')
-        [ -z "$node" ] && return 0
-        srun_cmd=(srun --jobid="$jobid" --overlap --nodelist="$node" --ntasks=1 --pty "$SHELL" -l)
-    fi
-
-    # Also pin new windows/panes in this tmux session to the same job/node, so a fresh SSH
-    # connection to the head node only has to run `a` once per session rather than per window.
-    [ -n "$TMUX" ] && tmux set-option default-command "${srun_cmd[*]}"
+    local -a srun_cmd=(srun --jobid="$jobid" --overlap)
+    # Single-node jobs keep the bare form. srun otherwise derives the task count from the
+    # allocation, and pinning it to 1 can change GPU binding under a --gpus-per-task job.
+    [ "$nodecount" -gt 1 ] && srun_cmd+=(--nodelist="$node" --ntasks=1)
+    srun_cmd+=(--pty "$SHELL" -l)
 
     "${srun_cmd[@]}"
 }

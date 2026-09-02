@@ -42,6 +42,11 @@ is set in both on purpose, since neither alone reaches every shell type. `.zprof
 share their login-time setup via `.commonprofile`, which also sources an optional `~/.localrc` for
 machine-local settings (never symlinked by `install.sh`, like `.secrets`).
 
+On hosts where `.local/scripts/tmux-slurm-shell` is installed, `prefix+c` is rebound to it: it
+offers a shell on the tmux host or inside a running slurm allocation. Nothing else in tmux is
+intercepted, and `default-command` is deliberately left unset, since it would apply to every pane
+created without an explicit command and close them all if the script were ever missing.
+
 ## Conventions
 
 - Lua: `stylua`, 100 col, tabs (stylua's default; `.stylua.toml` sets only width). Use `prequire()`

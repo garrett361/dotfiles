@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+#
+# tmux-slurm-shell: choose where a new tmux window's shell should run.
+#
+# Bound to prefix+c in tmux.common.conf, guarded by test -x so that a host without this script
+# keeps tmux's stock binding. Offers the machine tmux itself runs on (the highlighted default)
+# plus one entry per node of every running slurm allocation, then execs a login shell there.
+#
+# Every path that is not an explicit selection (Escape, no running jobs, a missing dependency, a
+# slurm error) falls back to a plain login shell on this machine. Nothing here may exit without
+# exec'ing something: tmux closes the window the moment this process ends, which is exactly how
+# the previous default-command approach hid its errors.
+
+fallback() {
+    exec "${SHELL:-/bin/bash}" -l
+}
+
+command -v squeue > /dev/null 2>&1 || fallback
+# fzf lives under $HOME/.fzf-$(uname -m)/bin, which .commonrc puts on PATH. That file is
+# interactive-only, and this script inherits the tmux server's environment instead.
+command -v fzf > /dev/null 2>&1 || fallback
+[ -f "$HOME/.slurm_fns.sh" ] || fallback
+
+# shellcheck source=/dev/null
+. "$HOME/.slurm_fns.sh" 2> /dev/null
+declare -F _slurm_pick_target > /dev/null || fallback
+
+target=$(_slurm_pick_target --local) || fallback
+[ -n "$target" ] || fallback
+
+read -r jobid node nodecount label <<< "$target"
+[ "$jobid" = "local" ] && fallback
+
+srun_cmd=(srun --jobid="$jobid" --overlap)
+[ "$nodecount" -gt 1 ] && srun_cmd+=(--nodelist="$node" --ntasks=1)
+srun_cmd+=(--pty "${SHELL:-/bin/bash}" -l)
+
+exec "${srun_cmd[@]}"
