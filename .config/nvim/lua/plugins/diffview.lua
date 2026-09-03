@@ -84,7 +84,7 @@ local function config()
 end
 
 return {
-	"dlyongemallo/diffview.nvim",
+	"dlyongemallo/diffview-plus.nvim",
 	lazy = true,
 	config = config,
 	cmd = "DiffviewOpen",
@@ -108,6 +108,11 @@ return {
 		{
 			"<leader>ah",
 			"<cmd>DiffviewFileHistory %<cr>",
+		},
+		{
+			"<leader>ah",
+			":'<,'>DiffviewFileHistory<cr>",
+			mode = "v",
 		},
 		{
 			"<leader>aq",
