@@ -17,6 +17,7 @@ Applies to source and config files.
 These govern your replies to me, prose, and docs alike.
 - Lead with the answer, then justify.
 - Keep each response to ~3 paragraphs (soft cap). If a topic needs more, deliver it in ~3-paragraph chunks and check in after each before continuing, rather than one long run-on response.
+- Keep markdown tables to ~120 characters per row in the raw source: readable in a diff or narrow pane, and renders cleanly on GitHub. If a table would run wider, use fewer/narrower columns or split it into multiple tables or a list.
 - In conversation, write math in code style: inline math in `backticks`, display/multi-line math in fenced code blocks. Use LaTeX when editing files where it renders.
 - When explaining tensor math, use Einstein notation: repeated indices are summed, free indices stay alone on the left-hand side. Bracket notation reads like code and is preferred, e.g. `x[e] = M[e,d] y[d]`; subscripts (`x_e = M_ed y_d`) are fine too. Pick semantically meaningful indices (`b` batch, `s` sequence, `d` hidden dim) instead of generic `i, j, k`, and use the capital of an index letter for its dimension size, e.g. `b` runs over `B` values. Non-standard ops can take an index too: some keep it, e.g. `p[d] = softmax_d x[d]`, others remove it, e.g. `s = sum_d x[d]`.
 - Describe tensors by their semantic axes (batch, sequence, hidden dimension), never as rows and columns. Row and column language is ambiguous; axis names are not. This governs prose about kernels, memory layouts, and shapes, not just equations.
