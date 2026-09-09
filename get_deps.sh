@@ -303,6 +303,16 @@ if [ "$pinned_ok" -eq 1 ]; then
 
     install_pinned gh "$GH_VERSION" \
         "https://github.com/cli/cli/releases/download/v${GH_VERSION}/${GH_ASSET}" bin/gh
+
+    # gh-stack: gh extension the git-tree-stack-prs skill uses to link a branch chain into a GitHub
+    # PR stack (`gh stack link`). `gh extension install` has no separate "already installed, skip"
+    # behavior of its own, so check `gh extension list` first to keep re-runs quiet.
+    if [ -x "$bin_dir/gh" ]; then
+        if [ "$force" -eq 1 ] || ! "$bin_dir/gh" extension list | grep -q "github/gh-stack"; then
+            "$bin_dir/gh" extension install github/gh-stack --force
+        fi
+    fi
+
     install_pinned git-lfs "$GIT_LFS_VERSION" \
         "https://github.com/git-lfs/git-lfs/releases/download/v${GIT_LFS_VERSION}/${GIT_LFS_ASSET}"
 fi
