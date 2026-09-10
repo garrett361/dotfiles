@@ -27,6 +27,7 @@ These govern your replies to me, prose, and docs alike.
 
 ## Git
 - Never run `git push` (or otherwise publish commits/branches to a remote) without my explicit verbal approval in the conversation first, every time, even if a push was approved earlier in the same session or for a similar task.
+- Never add a file to `.gitignore` or `.git/info/exclude` just to keep it out of a commit. Ignore rules hide files from search tooling that respects them, which I rely on. Scratch markdown (plans, PR drafts, handoffs, notes) stays visible and untracked: simply don't `git add` it.
 
 ## My tools
 - `git tree`: my stacked-branch / cascading-rebase CLI (worktree-per-branch, `propagate`, stacked `push`). Reach for it for stacked/dependent-branch work in any repo. To see a stack's structure, run `git tree --json` (machine-readable forest on stdout). `git tree -h` lists the command surface (there is no `list` or `status` subcommand). If `git tree` isn't found, the binary is `~/.local/bin/git-tree`. Full agent contract and internals live in `~/github/garrett361/git_tree/AGENTS.md`; read it before modifying the tool.
