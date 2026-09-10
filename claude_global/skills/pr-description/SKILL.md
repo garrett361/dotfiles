@@ -29,11 +29,10 @@ correct it early if it's wrong.
 
 ## 2. Draft
 
-A paragraph on the goal, motivation, and what changed and why. A single
-sentence is the ideal to strive for whenever it can carry the point on its
-own; expand to a few sentences only as far as genuinely needed. Then a plain
-bullet list, only if there are necessary PR details the prose didn't cover.
-Never use section headers like `## Summary` for this part.
+1-2 sentences on the goal, motivation, and what changed and why — a single
+sentence is the ideal when it alone can carry the point. Then a plain bullet
+list, only if there are necessary PR details the prose didn't cover. Never
+use section headers like `## Summary` for this part.
 
 Exception: add a `## Verification` section, but only when there's a
 non-trivial verification step a reviewer wouldn't otherwise know to run,
@@ -47,7 +46,8 @@ to disk until the user explicitly agrees on the text.
 
 ## 4. Write the file
 
-Find the repo root with `git rev-parse --show-toplevel`. If `PR.md` already
-exists there, ask the user (via `AskUserQuestion`) what filename to use
-instead rather than guessing or overwriting. Write the agreed text as
-GitHub-flavored markdown, then report the path written.
+Find the repo root with `git rev-parse --show-toplevel` and write the agreed
+text there as `PR.md` (GitHub-flavored markdown) — a stable default name
+makes the draft easy to find and re-iterate on. If `PR.md` already exists,
+ask the user (via `AskUserQuestion`) what filename to use instead rather than
+guessing or overwriting. Report the path written.
