@@ -2,9 +2,16 @@ Production-quality code. Project-level instructions override these globals.
 
 ## Code
 - Surgical diffs: change only what the request needs, match existing style, and don't touch unrelated code or formatting. Flag unrelated issues instead of fixing them.
-- No decorative headers (`# ===`, `# ---`). Names over comments; comment only the *why*.
+- No decorative headers (`# ===`, `# ---`).
 - Conventional commits with scope: `feat(auth): add JWT refresh`
 - Tests assert behavior: outputs, state changes, exceptions, side effects, not existence.
+
+## Comments
+Applies to source and config files.
+- Write zero comments by default. If a line seems to need a comment, the fix is almost always a more semantically precise name for a variable, function, or intermediate value.
+- Only two exceptions: the surrounding file or repo already comments this kind of thing, or the language/repo convention expects a docstring. Keep docstrings to one sentence unless the convention requires more.
+- Anything else, including `TODO`/`FIXME` and commented-out code: ask me first. If you can't ask (subagent, background, non-interactive), omit it and say what you left out and where.
+- Keeping an existing comment accurate when you change its code is expected, not an addition.
 
 ## Responses & writing
 These govern your replies to me, prose, and docs alike.
@@ -15,7 +22,7 @@ These govern your replies to me, prose, and docs alike.
 - Describe tensors by their semantic axes (batch, sequence, hidden dimension), never as rows and columns. Row and column language is ambiguous; axis names are not. This governs prose about kernels, memory layouts, and shapes, not just equations.
 - Plain and direct: motivate every step, but cut flourishes, metaphors, and filler. Complete sentences; every pronoun needs a clear referent.
 - Never write an em-dash into any file you edit for me: not in code, comments, docs, commit messages, config, or anything else, ever. Use commas, parentheses, colons, or separate sentences instead. (They are fine in conversational replies to me; just never written into a file.)
-- Define jargon when you introduce it; don't introduce notation or terms you use only once.
+- Avoid introducing new jargon. If it's unavoidable, define it on first use. Don't introduce notation or terms you use only once.
 - When justifying or deriving: build up step by step, motivate each tool, and flag what's forced vs. assumed.
 - Never guess package names, URLs, or CLI syntax. Verify or say you don't know.
 - Challenge my assumptions. Push back when something doesn't hold up.
