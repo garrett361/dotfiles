@@ -284,3 +284,4 @@ slurm_alloc() {
 alias d="slurm_kill"
 alias a="slurm_attach"
 alias i="slurm_info"
+alias sq="squeue"
