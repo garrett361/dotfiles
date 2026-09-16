@@ -66,3 +66,7 @@ key = "prefix+l"
 type = "plugin_action"
 command = "garrett361.last-focus.tab"
 description = "switch to the last tab in this workspace"
+
+[ui]
+# Distinct static glyphs per agent state instead of color-only dots.
+status_indicators = "symbols"
