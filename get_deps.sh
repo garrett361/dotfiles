@@ -108,6 +108,7 @@ BAT_VERSION="0.26.1"
 FD_VERSION="10.4.2"
 GH_VERSION="2.96.0"
 GIT_LFS_VERSION="3.7.1"
+JQ_VERSION="1.8.2"
 # herdr self-updates with `herdr update`, but the next run of this script puts the pin back, so
 # bump this instead. Upstream's installer has no version knob, hence the release asset directly.
 HERDR_VERSION="0.9.0"
@@ -134,6 +135,7 @@ case "$os-$arch" in
         GH_ASSET="gh_${GH_VERSION}_macOS_arm64.zip"
         GIT_LFS_ASSET="git-lfs-darwin-arm64-v${GIT_LFS_VERSION}.zip"
         HERDR_ASSET="herdr-macos-aarch64"
+        JQ_ASSET="jq-macos-arm64"
         ;;
     Linux-x86_64)
         NVIM="nvim-linux-x86_64"
@@ -157,6 +159,7 @@ case "$os-$arch" in
         GH_ASSET="gh_${GH_VERSION}_linux_amd64.tar.gz"
         GIT_LFS_ASSET="git-lfs-linux-amd64-v${GIT_LFS_VERSION}.tar.gz"
         HERDR_ASSET="herdr-linux-x86_64"
+        JQ_ASSET="jq-linux-amd64"
         ;;
     Linux-aarch64)
         NVIM="nvim-linux-arm64"
@@ -178,6 +181,7 @@ case "$os-$arch" in
         GH_ASSET="gh_${GH_VERSION}_linux_arm64.tar.gz"
         GIT_LFS_ASSET="git-lfs-linux-arm64-v${GIT_LFS_VERSION}.tar.gz"
         HERDR_ASSET="herdr-linux-aarch64"
+        JQ_ASSET="jq-linux-arm64"
         ;;
     *)
         # Warn rather than exit: fzf, uv, claude and the brew branch still work.
@@ -340,6 +344,11 @@ if [ "$pinned_ok" -eq 1 ]; then
 
     install_pinned git-lfs "$GIT_LFS_VERSION" \
         "https://github.com/git-lfs/git-lfs/releases/download/v${GIT_LFS_VERSION}/${GIT_LFS_ASSET}"
+
+    # The herdr popup scripts in .local/scripts all parse herdr's JSON with jq, and it is absent
+    # from stock Linux images. Its release tag carries the jq- prefix rather than a bare v.
+    install_pinned jq "$JQ_VERSION" \
+        "https://github.com/jqlang/jq/releases/download/jq-${JQ_VERSION}/${JQ_ASSET}"
 fi
 
 # Both prefixes, not just PATH: the installer runs in a child shell so it cannot put brew on this
