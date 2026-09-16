@@ -95,6 +95,9 @@ BAT_VERSION="0.26.1"
 FD_VERSION="10.4.2"
 GH_VERSION="2.96.0"
 GIT_LFS_VERSION="3.7.1"
+# herdr self-updates with `herdr update`, but the next run of this script puts the pin back, so
+# bump this instead. Upstream's installer has no version knob, hence the release asset directly.
+HERDR_VERSION="0.9.0"
 
 pinned_ok=1
 case "$os-$arch" in
@@ -117,6 +120,7 @@ case "$os-$arch" in
         CODEX_ASSET="codex-aarch64-apple-darwin.tar.gz"
         GH_ASSET="gh_${GH_VERSION}_macOS_arm64.zip"
         GIT_LFS_ASSET="git-lfs-darwin-arm64-v${GIT_LFS_VERSION}.zip"
+        HERDR_ASSET="herdr-macos-aarch64"
         ;;
     Linux-x86_64)
         NVIM="nvim-linux-x86_64"
@@ -139,6 +143,7 @@ case "$os-$arch" in
         CODEX_ASSET="codex-x86_64-unknown-linux-musl.tar.gz"
         GH_ASSET="gh_${GH_VERSION}_linux_amd64.tar.gz"
         GIT_LFS_ASSET="git-lfs-linux-amd64-v${GIT_LFS_VERSION}.tar.gz"
+        HERDR_ASSET="herdr-linux-x86_64"
         ;;
     Linux-aarch64)
         NVIM="nvim-linux-arm64"
@@ -159,6 +164,7 @@ case "$os-$arch" in
         CODEX_ASSET="codex-aarch64-unknown-linux-musl.tar.gz"
         GH_ASSET="gh_${GH_VERSION}_linux_arm64.tar.gz"
         GIT_LFS_ASSET="git-lfs-linux-arm64-v${GIT_LFS_VERSION}.tar.gz"
+        HERDR_ASSET="herdr-linux-aarch64"
         ;;
     *)
         # Warn rather than exit: fzf, uv, claude and the brew branch still work.
@@ -223,7 +229,10 @@ install_pinned() {
                 *.tar.gz) tar -xzf "$tmp/$asset" -C "$tmp/x" ;;
                 *.zip | *.vsix) unzip -q "$tmp/$asset" -d "$tmp/x" </dev/null ;;
                 *.gz) gunzip -c "$tmp/$asset" >"$tmp/x/$exe" ;;
-                *) echo "$name: unhandled archive type $asset" >&2; false ;;
+                # No extension at all means upstream ships the bare executable (herdr does).
+                # Anything with an extension we do not handle is still an error.
+                *.*) echo "$name: unhandled archive type $asset" >&2; false ;;
+                *) mv "$tmp/$asset" "$tmp/x/$exe" ;;
             esac \
             && src=$(single_dir "$tmp/x") \
             && [ -f "$src/$exe" ] \
@@ -312,6 +321,9 @@ if [ "$pinned_ok" -eq 1 ]; then
             "$bin_dir/gh" extension install github/gh-stack --force
         fi
     fi
+
+    install_pinned herdr "$HERDR_VERSION" \
+        "https://github.com/herdrdev/herdr/releases/download/v${HERDR_VERSION}/${HERDR_ASSET}"
 
     install_pinned git-lfs "$GIT_LFS_VERSION" \
         "https://github.com/git-lfs/git-lfs/releases/download/v${GIT_LFS_VERSION}/${GIT_LFS_ASSET}"
