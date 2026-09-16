@@ -1,0 +1,381 @@
+#!/usr/bin/env bash
+#
+# herdr-agent-picker: fuzzy-pick among herdr agents with a live preview of what each one is doing.
+# herdr's own agent panel is a sidebar list stepped through with prefix+j/k: no search, no preview,
+# and no way to show only the agents that are blocked or done.
+#
+# Usage:
+#   herdr-agent-picker                    # Interactive: pick an agent with fzf
+#   herdr-agent-picker --list [STATUS]    # Rows fzf consumes; lines 1-2 are the --header-lines block
+#   herdr-agent-picker --cycle next|prev  # Print the fzf actions that advance the status filter
+#   herdr-agent-picker --preview PANE KIND CWD STATUS   # Preview body for one agent
+#
+# Bound to prefix+a as a `popup` custom command in ~/.config/herdr/config.toml. See
+# herdr-list-sessionizer for the workspace-level twin.
+#
+# The modes without an explicit STATUS read it back out of $FZF_PROMPT, which fzf exports to the
+# child processes of its reload, transform and preview actions. That is the whole filter-state
+# design: fzf keeps no user state across reloads, so the prompt is the state and every child
+# re-derives it. It also keeps the --bind strings static, so they need no interpolation and can
+# stay in single quotes.
+
+script_dir=$(cd -- "$(dirname -- "$0")" && pwd -P)
+self="$script_dir/herdr-agent-picker"
+
+# herdr runs custom commands through /bin/sh with no login profile, so the interactive PATH from
+# .commonrc is not available. Same approach as herdr-sessionizer.
+PATH="$script_dir:$HOME/.fzf-$(uname -m)/bin:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+export PATH
+
+# Exported rather than spliced into the --bind strings: fzf runs action commands through $SHELL -c,
+# which inherits this, so every bind below stays single-quoted with no nested escaping and keeps
+# working if the path ever gains a space.
+export HERDR_PICKER_SELF="$self"
+
+# `all` must come first: Tab skips empty statuses, and an unconditional stop at index 0 is what
+# guarantees the walk terminates in both directions even when every bucket is empty. The rest is
+# attention order, since blocked and done are the states that want the user.
+ORDER="all blocked done unknown working idle"
+
+KEYS="Tab/S-Tab: status | Enter: focus | C-r: refresh | C-o: preview layout"
+
+# A popup closes the instant this process exits, so a bare error message would never be read.
+die() {
+    printf 'herdr-agent-picker: %s\n' "$1" >&2
+    if [[ -t 0 ]]; then
+        printf 'press enter to close... ' >&2
+        read -r _
+    fi
+    exit 1
+}
+
+# herdr injects HERDR_BIN_PATH into custom commands, which also pins the CLI to the server that
+# opened the popup. Fall back to PATH when run from an ordinary shell.
+herdr_bin="${HERDR_BIN_PATH:-$(command -v herdr)}"
+[[ -n "$herdr_bin" && -x "$herdr_bin" ]] || die "herdr binary not found"
+command -v jq > /dev/null 2>&1 || die "jq not found on PATH"
+
+# FZF_PROMPT carries the filter, so parse it defensively: anything unrecognized becomes `all`
+# rather than an empty list the user cannot explain.
+parse_filter() {
+    local name=${1%%>*}
+    name=${name//[![:lower:]]/}
+    case " $ORDER " in
+        *" $name "*) printf '%s' "$name" ;;
+        *) printf 'all' ;;
+    esac
+}
+
+# One place where prompt text becomes a status name, for every mode reachable from a bind.
+filter_arg() {
+    if [[ -n "$1" ]]; then
+        parse_filter "$1"
+    else
+        parse_filter "$FZF_PROMPT"
+    fi
+}
+
+agent_json() {
+    "$herdr_bin" agent list 2> /dev/null
+}
+
+# Emits "<status>\t<count>" in ORDER order, so the banner reads left to right in the order Tab
+# walks. Every status appears even at zero, which is what lets --cycle tell whether a bucket is
+# empty without a second lookup.
+counts_of() {
+    printf '%s' "$1" | jq -r --arg order "$ORDER" '
+        [.result.agents[]?.agent_status] as $s
+        | ($order | split(" "))
+        | map(if . == "all" then "all\t\($s | length)"
+              else . as $k | "\($k)\t\([$s[] | select(. == $k)] | length)" end)
+        | .[]'
+}
+
+count_of() {
+    local name num
+    # No pipeline, so the loop runs in this shell and `return` returns from count_of.
+    while IFS=$'\t' read -r name num; do
+        if [[ "$name" == "$1" ]]; then
+            printf '%s' "$num"
+            return
+        fi
+    done <<< "$2"
+    printf '0'
+}
+
+# Seven raw fields per agent, taking the agent list as an argument so one snapshot backs both the
+# rows and the banner counts. Fetching twice let a status change between the two calls put a count
+# in the banner that the rows did not show.
+raw_rows() {
+    local filter=$1 ag_list=$2 ws_list labels
+
+    # Display only: a failed or reshaped workspace list costs the pretty label, not the row.
+    ws_list=$("$herdr_bin" workspace list 2> /dev/null) || ws_list=""
+    labels=""
+    [[ -n "$ws_list" ]] && labels=$(printf '%s' "$ws_list" \
+        | jq -c '[.result.workspaces[]? | {key: .workspace_id, value: .label}] | from_entries' \
+            2> /dev/null)
+    [[ -n "$labels" ]] || labels="{}"
+
+    # sort_by pins the order: --track survives reordering, but a list that reshuffles itself every
+    # couple of seconds is unreadable, and herdr promises no ordering.
+    #
+    # The task text falls back through title, terminal title, agent name and cwd basename. Only
+    # Claude is known to publish a useful terminal title; the other harnesses fall through to the
+    # cwd basename, which is the data's limit rather than something the picker can fix.
+    printf '%s' "$ag_list" | jq -r --argjson ws "$labels" --arg f "$filter" '
+        [.result.agents[]? | select($f == "all" or .agent_status == $f)]
+        | sort_by(.workspace_id, .pane_id)
+        | .[]
+        | [ .pane_id,
+            (.agent // "?"),
+            (.foreground_cwd // .cwd // ""),
+            (.agent_status // "unknown"),
+            ($ws[.workspace_id] // .workspace_id // ""),
+            ([.title, .terminal_title_stripped, .name, (.cwd // "" | split("/") | last)]
+             | map(select(. != null and . != "")) | first // ""
+             | gsub("[[:cntrl:]]"; "")),
+            (if .focused then "*" else " " end) ]
+        | @tsv'
+}
+
+# Rows are "<pane>\t<kind>\t<cwd>\t<status>\t<aligned display>". fzf shows only field 5
+# (--with-nth=5) and tracks field 1 (--id-nth=1), so the pane id stays available for focus and
+# preview without spending a column on it. Field 1 holds the pane id alone because a field that
+# changed with agent state would break cursor tracking on every reload.
+#
+# Lines 1 and 2 are the banner and the column labels, consumed by --header-lines=2. Emitting them
+# from the same awk pass as the rows is the point: the widths come from the data, and with a reload
+# every two seconds a separately generated header would drift out of alignment between ticks.
+#
+# The status colour is applied here rather than in jq so the padding is measured on the bare word.
+# fzf strips ANSI before matching under --ansi, so colouring does not affect what the user can type
+# to narrow the list.
+aligned() {
+    raw_rows "$1" "$3" | awk -F'\t' -v banner="$2" '
+        function hue(s) {
+            if (s == "blocked") return "\033[31m"
+            if (s == "done") return "\033[32m"
+            if (s == "working") return "\033[36m"
+            if (s == "idle") return "\033[2m"
+            return "\033[35m"
+        }
+        BEGIN {
+            w1 = length("workspace"); w2 = length("status"); w3 = length("harness")
+            cap = 18; kindcap = 10
+        }
+        {
+            n++
+            pane[n] = $1; kind[n] = $2; dir[n] = $3; st[n] = $4
+            ws[n] = $5; title[n] = $6; mark[n] = $7
+            if (length($5) > w1) w1 = length($5)
+            if (length($4) > w2) w2 = length($4)
+            if (length($2) > w3) w3 = length($2)
+        }
+        END {
+            # Capped so one long label cannot shove the task column off the right edge.
+            if (w1 > cap) w1 = cap
+            if (w3 > kindcap) w3 = kindcap
+            printf "\t\t\t\t%s\n", banner
+            printf "\t\t\t\t  %-*s  %-*s  %-*s  %s\n", \
+                w1, "workspace", w3, "harness", w2, "status", "task"
+            for (i = 1; i <= n; i++) {
+                label = ws[i]
+                if (length(label) > w1) label = substr(label, 1, w1 - 1) "~"
+                who = kind[i]
+                if (length(who) > w3) who = substr(who, 1, w3 - 1) "~"
+                printf "%s\t%s\t%s\t%s\t%s %-*s  %-*s  %s%-*s\033[0m  %s\n",
+                    pane[i], kind[i], dir[i], st[i],
+                    mark[i], w1, label, w3, who, hue(st[i]), w2, st[i], title[i]
+            }
+        }'
+}
+
+# Reverse video rather than another line of chrome: the active bucket has to be readable without
+# spending a row on it.
+banner() {
+    local active=$1 counts=$2 out="" sep="" name num
+    local inv=$'\033[7m' off=$'\033[0m'
+    while IFS=$'\t' read -r name num; do
+        if [[ "$name" == "$active" ]]; then
+            out="$out$sep$inv $name $num $off"
+        else
+            out="$out$sep$name $num"
+        fi
+        sep=" · "
+    done <<< "$counts"
+    printf '%s' "$out"
+}
+
+case "$1" in
+    --list)
+        list_filter=$(filter_arg "$2")
+        # Capture before piping into jq: jq exits 0 on empty stdin, which would turn a dead server
+        # into a silently empty menu.
+        list_json=$(agent_json)
+        if [[ -z "$list_json" ]]; then
+            # Reached from inside a live fzf reload, where dying would just blank the list with no
+            # explanation. Two header lines and no rows leaves Enter and the preview as no-ops.
+            printf '\t\t\t\therdr agent list failed, is the server running?\n'
+            printf '\t\t\t\t  workspace  harness  status  task\n'
+            exit 0
+        fi
+        aligned "$list_filter" "$(banner "$list_filter" "$(counts_of "$list_json")")" "$list_json"
+        exit 0
+        ;;
+
+    --cycle)
+        cur=$(parse_filter "$FZF_PROMPT")
+        counts=$(counts_of "$(agent_json)")
+
+        order=($ORDER)
+        n=${#order[@]}
+        idx=0
+        for ((i = 0; i < n; i++)); do
+            [[ "${order[$i]}" == "$cur" ]] && idx=$i
+        done
+        if [[ "$2" == "prev" ]]; then step=-1; else step=1; fi
+
+        next=all
+        for ((i = 0; i < n; i++)); do
+            idx=$(((idx + step + n) % n))
+            cand=${order[$idx]}
+            # `all` is an unconditional stop, so the walk terminates even with no agents at all;
+            # every other bucket must be non-empty, so Tab never parks the user on an empty list.
+            if [[ "$cand" == "all" ]] || [[ "$(count_of "$cand" "$counts")" -gt 0 ]]; then
+                next=$cand
+                break
+            fi
+        done
+
+        # No banner action here: the reload regenerates the banner as line 1 of its own output, so
+        # the counts and the rows can never disagree. A change-footer in this chain would be
+        # silently dropped anyway, since --track suppresses it.
+        #
+        # $HERDR_PICKER_SELF is emitted unexpanded on purpose: fzf hands the command to a fresh
+        # shell, so a path containing parens could never confuse fzf's own action parser. The next
+        # status is passed explicitly rather than read back from the prompt, which would depend on
+        # change-prompt having already run.
+        printf '%s' "change-prompt($next> )"
+        printf '%s' '+reload("$HERDR_PICKER_SELF" --list '"$next"')'
+        printf '%s' '+refresh-preview'
+        printf '\n'
+        exit 0
+        ;;
+
+    --preview)
+        pane=$2 kind=$3 dir=$4 status=$5
+        if [[ -z "$pane" ]]; then
+            printf 'no agent selected\n'
+            exit 0
+        fi
+        # Dimmed, and pinned by the ~1 flag on --preview-window so it survives the follow scroll.
+        printf '\033[2m%s  %s  %s  %s\033[0m\n' "$pane" "$kind" "$status" "$dir"
+
+        # FZF_PREVIEW_LINES is the exact window height, so one less than that is never short and
+        # never wasteful. recent-unwrapped plus fzf's own `wrap` re-wraps at the preview width;
+        # `recent` would arrive pre-wrapped to the source pane's width and look ragged here.
+        lines=$((${FZF_PREVIEW_LINES:-40} - 1))
+        [[ $lines -lt 5 ]] && lines=5
+
+        # `agent read` is non-mutating: unlike focus it does not mark the agent seen, so previewing
+        # a `done` agent does not silently demote it to `idle` under the cursor. It reports failure
+        # as JSON on stdout with exit 1, so branch on the status and not on the output.
+        out=$("$herdr_bin" agent read "$pane" \
+            --source recent-unwrapped --lines "$lines" --format ansi 2> /dev/null) || {
+            printf 'could not read %s (the pane may have closed)\n' "$pane"
+            exit 0
+        }
+        printf '%s\n' "$out"
+        exit 0
+        ;;
+esac
+
+# fzf is not version pinned here (get_deps.sh clones master), so the newer bindings are probed
+# rather than assumed. --filter parses every option and exits without needing a tty, returning 2 on
+# an unknown option or action and 0 on a match.
+fzf_supports() {
+    printf 'x\n' | fzf "$@" --filter x > /dev/null 2>&1
+}
+
+# One probe for the whole live-refresh surface, since these features arrived together and are only
+# used together. Tab depends on none of them and works on any fzf with `transform`.
+#
+# --track keeps the cursor on the same agent across a reload, but it also makes fzf drop a
+# change-footer issued from a transform, which is why the banner rides in the reload's own output
+# instead of being pushed as a separate action.
+tick_bind=()
+if fzf_supports --track --id-nth 1 --bind 'every(2):reload-sync(true)+refresh-preview'; then
+    tick_bind=(--track --id-nth=1
+        --bind='start,every(2):reload-sync("$HERDR_PICKER_SELF" --list)+refresh-preview')
+else
+    KEYS="$KEYS (auto-refresh needs a newer fzf)"
+fi
+
+# A dead server makes the whole popup useless, so fail loudly here rather than leaving the user to
+# read it off a pseudo-row.
+[[ -n "$(agent_json)" ]] || die "herdr agent list failed (is a herdr server running?)"
+
+# A size threshold in --preview-window (the "<140(down,50%)" form) silently disables
+# change-preview-window, so the orientation is chosen once here instead. The popup is a fixed size,
+# so there is nothing to re-adapt to. tput reads stdout, which is the pipe of the command
+# substitution below and would report a default 80, so ask the terminal itself.
+cols=$(stty size < /dev/tty 2> /dev/null | cut -d' ' -f2)
+[[ "$cols" =~ ^[0-9]+$ ]] || cols=140
+if [[ "$cols" -lt 140 ]]; then
+    preview_window='down,50%,wrap,follow,~1'
+    preview_alt='right,60%,wrap,follow,~1'
+else
+    preview_window='right,60%,wrap,follow,~1'
+    preview_alt='down,50%,wrap,follow,~1'
+fi
+
+# follow matters: recent-unwrapped plus wrap can make one logical line occupy several preview rows,
+# and fzf renders previews from the top, so the newest output would otherwise scroll off the
+# bottom. The size threshold flips the split below the list when the popup is too narrow to spare
+# 60% of its width.
+#
+# No `set -u` anywhere in this family of scripts: macOS ships bash 3.2, where "${arr[@]}" on an
+# empty array is an unbound-variable error, and tick_bind is empty on older fzf.
+selected=$("$self" --list all | fzf \
+    --delimiter=$'\t' --with-nth=5 --header-lines=2 --ansi \
+    --header="$KEYS" --prompt='all> ' \
+    --preview-window="$preview_window" \
+    --preview='"$HERDR_PICKER_SELF" --preview {1} {2} {3} {4}' \
+    --bind='enter:accept-non-empty' \
+    --bind='tab:transform:"$HERDR_PICKER_SELF" --cycle next' \
+    --bind='btab:transform:"$HERDR_PICKER_SELF" --cycle prev' \
+    --bind='ctrl-r:reload("$HERDR_PICKER_SELF" --list)+refresh-preview' \
+    --bind="ctrl-o:change-preview-window($preview_alt|hidden|)" \
+    "${tick_bind[@]}")
+status=$?
+case $status in
+    0) ;;
+    # 130 is a normal abort; 1 is Enter on an empty list, which a status filter makes routine.
+    1 | 130) exit 0 ;;
+    *) die "fzf exited $status" ;;
+esac
+
+[[ -z "$selected" ]] && exit 0
+
+# head -n1 because fzf still binds double-click:accept, which returns every selected line.
+pane_id=$(printf '%s\n' "$selected" | head -n 1 | cut -f1)
+# Empty for the pseudo-row that stands in for a failed `agent list`.
+[[ -n "$pane_id" ]] || exit 0
+
+# Both calls are needed, in this order. `agent focus` selects the pane within its tab and marks a
+# done agent seen, which the done filter depends on, but on herdr 0.9.0 it does not move the
+# attached client: the server projects focus to clients only for workspace, tab and pane focus
+# requests (herdrdev/herdr#3760, fixed after the 0.9.0 tag). `tab focus` is projected, makes the
+# cross-workspace hop itself, and leaves the tab's focused pane alone, so it lands on the pane the
+# first call just selected.
+tab_id=$("$herdr_bin" agent list 2> /dev/null \
+    | jq -r --arg p "$pane_id" 'first(.result.agents[]? | select(.pane_id == $p) | .tab_id) // empty')
+
+"$herdr_bin" agent focus "$pane_id" > /dev/null \
+    || die "failed to focus $pane_id (the pane may have closed)"
+
+# An untaken `if` exits 0, where a trailing `&&` would leave the popup exiting 1.
+if [[ -n "$tab_id" ]]; then
+    "$herdr_bin" tab focus "$tab_id" > /dev/null 2>&1
+fi
