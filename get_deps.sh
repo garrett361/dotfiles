@@ -131,7 +131,7 @@ case "$os-$arch" in
         DELTA="delta-${DELTA_VERSION}-aarch64-apple-darwin"
         BAT="bat-v${BAT_VERSION}-aarch64-apple-darwin"
         FD="fd-v${FD_VERSION}-aarch64-apple-darwin"
-        CODEX_ASSET="codex-aarch64-apple-darwin.tar.gz"
+        CODEX_ASSET="codex-package-aarch64-apple-darwin.tar.gz"
         GH_ASSET="gh_${GH_VERSION}_macOS_arm64.zip"
         GIT_LFS_ASSET="git-lfs-darwin-arm64-v${GIT_LFS_VERSION}.zip"
         HERDR_ASSET="herdr-macos-aarch64"
@@ -155,7 +155,7 @@ case "$os-$arch" in
         DELTA="delta-${DELTA_VERSION}-x86_64-unknown-linux-musl"
         BAT="bat-v${BAT_VERSION}-x86_64-unknown-linux-musl"
         FD="fd-v${FD_VERSION}-x86_64-unknown-linux-musl"
-        CODEX_ASSET="codex-x86_64-unknown-linux-musl.tar.gz"
+        CODEX_ASSET="codex-package-x86_64-unknown-linux-musl.tar.gz"
         GH_ASSET="gh_${GH_VERSION}_linux_amd64.tar.gz"
         GIT_LFS_ASSET="git-lfs-linux-amd64-v${GIT_LFS_VERSION}.tar.gz"
         HERDR_ASSET="herdr-linux-x86_64"
@@ -177,7 +177,7 @@ case "$os-$arch" in
         DELTA="delta-${DELTA_VERSION}-aarch64-unknown-linux-gnu"
         BAT="bat-v${BAT_VERSION}-aarch64-unknown-linux-musl"
         FD="fd-v${FD_VERSION}-aarch64-unknown-linux-musl"
-        CODEX_ASSET="codex-aarch64-unknown-linux-musl.tar.gz"
+        CODEX_ASSET="codex-package-aarch64-unknown-linux-musl.tar.gz"
         GH_ASSET="gh_${GH_VERSION}_linux_arm64.tar.gz"
         GIT_LFS_ASSET="git-lfs-linux-arm64-v${GIT_LFS_VERSION}.tar.gz"
         HERDR_ASSET="herdr-linux-aarch64"
@@ -214,16 +214,16 @@ single_dir() {
     if [ $# -eq 1 ] && [ -d "$1" ]; then echo "$1"; else echo "${1%/*}"; fi
 }
 
-# One installer for every pinned release. Upstream ships several archive shapes but they are all
-# "an archive holding one executable", so the only per-tool facts are the URL, where the executable
-# sits inside the archive, and whether it needs a wrapper instead of a symlink.
+# One installer for every pinned release. Upstream ships several archive shapes, so the per-tool
+# facts are the URL, where the primary executable sits inside the archive, whether it needs a
+# wrapper instead of a symlink, and any companion executable installed from the same archive.
 #
-#   install_pinned <name> <version> <url> [path-to-exe-inside-archive] [wrapper]
+#   install_pinned <name> <version> <url> [path-to-exe-inside-archive] [wrapper] [companion-exe]
 #
 # The guard is the executable itself rather than its directory, so any half-finished state (partial
 # rm, interrupted extract) is retried by the next ordinary run instead of needing --force.
 install_pinned() {
-    local name=$1 version=$2 url=$3 exe=${4:-$1} wrapper=${5:-}
+    local name=$1 version=$2 url=$3 exe=${4:-$1} wrapper=${5:-} companion=${6:-}
     local dir="$name-$version" tmp="$name-$version.tmp" asset="${url##*/}" src
     case "$asset" in
         *.zip | *.vsix)
@@ -233,7 +233,8 @@ install_pinned() {
             fi
             ;;
     esac
-    if [ "$force" -eq 1 ] || [ "$version" = latest ] || [ ! -x "$dir/$exe" ]; then
+    if [ "$force" -eq 1 ] || [ "$version" = latest ] || [ ! -x "$dir/$exe" ] || \
+        { [ -n "$companion" ] && [ ! -x "$dir/$companion" ]; }; then
         rm -rf "$tmp"
         # One && chain, including the swap: a failed rm or mv has to reach the else arm, or the
         # prune below would still run and delete what it just staged. The archive downloads inside
@@ -253,7 +254,9 @@ install_pinned() {
             esac \
             && src=$(single_dir "$tmp/x") \
             && [ -f "$src/$exe" ] \
+            && { [ -z "$companion" ] || [ -f "$src/$companion" ]; } \
             && chmod +x "$src/$exe" \
+            && { [ -z "$companion" ] || chmod +x "$src/$companion"; } \
             && { [ ! -e "$dir" ] || mv "$dir" "$tmp/old"; } \
             && mv "$src" "$dir"; then
             # Prune only once the new version is in place, or this eats what it just installed.
@@ -277,6 +280,10 @@ install_pinned() {
                 chmod +x "$name"
         else
             ln -sf "$dir/$exe" "$name"
+        fi
+        if [ -n "$companion" ] && [ -x "$dir/$companion" ]; then
+            rm -f "${companion##*/}"
+            ln -sf "$dir/$companion" "${companion##*/}"
         fi
     fi
 }
@@ -325,7 +332,8 @@ if [ "$pinned_ok" -eq 1 ]; then
     # codex tracks latest rather than a pinned version, like Claude Code above, since both release
     # very frequently. `latest` as the version reinstalls on every run.
     install_pinned codex latest \
-        "https://github.com/openai/codex/releases/latest/download/${CODEX_ASSET}" "${CODEX_ASSET%.tar.gz}"
+        "https://github.com/openai/codex/releases/latest/download/${CODEX_ASSET}" \
+        bin/codex "" bin/codex-code-mode-host
 
     install_pinned gh "$GH_VERSION" \
         "https://github.com/cli/cli/releases/download/v${GH_VERSION}/${GH_ASSET}" bin/gh
