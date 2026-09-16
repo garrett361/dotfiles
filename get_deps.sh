@@ -51,6 +51,19 @@ if [ "$os" = Linux ]; then
     rm -f "$HOME/.local/bin/claude"
 fi
 
+# prime-agent. Arch-suffixed install dir and bin dir, like claude above, so x86 and ARM don't
+# collide on a shared home. PATH is prepended so the installer sees its bin dir already there and
+# skips the `export PATH` line it would otherwise append to ~/.zshrc, a symlink into this repo.
+curl --proto '=https' --proto-redir '=https' -fsSL \
+    https://app.primeintellect.ai/prime-agent/install.sh \
+    | PATH="$bin_dir:$PATH" \
+        PRIME_AGENT_INSTALL_DIR="$HOME/.local/share/prime-agent-$arch" \
+        PRIME_AGENT_BIN_DIR="$bin_dir" \
+        PRIME_AGENT_INSTALLER_NONINTERACTIVE=1 \
+        PRIME_AGENT_INSTALLER_PLAIN=1 \
+        PRIME_AGENT_BOOTSTRAP_KERNEL_ON_INSTALL=0 \
+        sh
+
 # uv
 if [ "$os" = Linux ]; then
     curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR="$bin_dir" UV_NO_MODIFY_PATH=1 sh

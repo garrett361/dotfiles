@@ -73,6 +73,7 @@ alias ts="tmux-sessionizer"
 
 alias c="claude"
 alias x="codex"
+alias p="prime-agent"
 
 # tail/follow from beginnin
 alias tf="tail -n +1 -F"

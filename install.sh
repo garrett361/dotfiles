@@ -14,6 +14,7 @@ done
 
 mkdir -p ~/.claude
 mkdir -p ~/.codex
+mkdir -p ~/.prime/agent
 
 # Clear the destination and link to an exact path; handing ln a destination directory is not
 # portable. Real directories are left alone: they belong to other installers.
@@ -100,6 +101,10 @@ link_skills "$(readlink -f claude_global/skills)" "${HOME}/.claude/skills"
 
 # Link repo-managed Codex globals without replacing Codex runtime state or system skills.
 link_entry "$(readlink -f codex_global/AGENTS.md)" "${HOME}/.codex/AGENTS.md"
+
+# Linked per file, never the directory: ~/.prime/agent is also prime-agent's runtime state
+# (auth.json, sessions/) and this repo is public.
+link_entry "$(readlink -f prime_agent_global/AGENTS.md)" "${HOME}/.prime/agent/AGENTS.md"
 
 # ~/.agents/skills is the cross-tool location, hence agents_global rather than a Codex-specific
 # name: nothing under it is Codex-only.
