@@ -280,7 +280,7 @@ case "$1" in
 
         # `agent read` is non-mutating: unlike focus it does not mark the agent seen, so previewing
         # a `done` agent does not silently demote it to `idle` under the cursor. It reports failure
-        # as JSON on stdout with exit 1, so branch on the status and not on the output.
+        # as JSON on stderr with exit 1, leaving stdout empty, so branch on the status.
         out=$("$herdr_bin" agent read "$pane" \
             --source recent-unwrapped --lines "$lines" --format ansi 2> /dev/null) || {
             printf 'could not read %s (the pane may have closed)\n' "$pane"
@@ -299,7 +299,8 @@ fzf_supports() {
 }
 
 # One probe for the whole live-refresh surface, since these features arrived together and are only
-# used together. Tab depends on none of them and works on any fzf with `transform`.
+# used together. Tab needs only `transform` and an fzf that exports FZF_PROMPT, both of which long
+# predate the probed features, so it keeps working when the probe fails.
 #
 # --track keeps the cursor on the same agent across a reload, but it also makes fzf drop a
 # change-footer issued from a transform, which is why the banner rides in the reload's own output
@@ -376,6 +377,8 @@ tab_id=$("$herdr_bin" agent list 2> /dev/null \
     || die "failed to focus $pane_id (the pane may have closed)"
 
 # An untaken `if` exits 0, where a trailing `&&` would leave the popup exiting 1.
-if [[ -n "$tab_id" ]]; then
-    "$herdr_bin" tab focus "$tab_id" > /dev/null 2>&1
-fi
+# Reported rather than swallowed: on 0.9.0 a tab focus that does not happen means the view stays
+# put, so silence here reads as Enter doing nothing at all.
+[[ -n "$tab_id" ]] || die "could not resolve the tab for $pane_id; the view may not have moved"
+"$herdr_bin" tab focus "$tab_id" > /dev/null 2>&1 \
+    || die "failed to focus tab $tab_id (it may have closed)"
