@@ -40,9 +40,18 @@ done
 for localdir in ".local" ".config"; do
 	mkdir -p "$HOME/$localdir"
 	for entry in "$(readlink -f "$localdir")"/*; do
+		# herdr owns ~/.config/herdr: it keeps its sockets, logs and session.json there, so
+		# link_entry refuses the directory. Its one tracked file is linked separately below.
+		[ "$localdir/$(basename "$entry")" = ".config/herdr" ] && continue
 		link_entry "$entry" "$HOME/$localdir/$(basename "$entry")"
 	done
 done
+
+# The one herdr file we track, linked into herdr's own real directory. The dangling-link sweep
+# above only scans one level of ~/.config, so dropping config.toml from the repo would leave this
+# link behind.
+mkdir -p "${HOME}/.config/herdr"
+link_entry "$(readlink -f .config/herdr)/config.toml" "${HOME}/.config/herdr/config.toml"
 
 # Link a repo skills dir into a harness skills dir one entry at a time, never as a whole. A
 # harness skills dir is a shared namespace that other installers also write into (`git tree skills
