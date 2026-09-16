@@ -74,3 +74,6 @@ API_KEYS/
 # (session snapshot, sockets, logs), which must never follow a `git add -A` into a public repo.
 .config/herdr/*
 !.config/herdr/config.toml
+# Plugins are repo-owned too: `herdr plugin link` registers them in place, so they live here
+# rather than being copied into herdr's directory.
+!.config/herdr/plugins/

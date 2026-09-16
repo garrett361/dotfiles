@@ -53,6 +53,17 @@ done
 mkdir -p "${HOME}/.config/herdr"
 link_entry "$(readlink -f .config/herdr)/config.toml" "${HOME}/.config/herdr/config.toml"
 
+# herdr plugins stay in the repo: `plugin link` registers a directory in place and runs no build,
+# so there is nothing to symlink. Re-linking an already-linked plugin is a no-op. Needs a running
+# server, so a failure is a warning rather than a bootstrap error.
+if command -v herdr &>/dev/null; then
+	for plugin in "$(readlink -f .config/herdr/plugins)"/*/; do
+		[ -f "$plugin/herdr-plugin.toml" ] || continue
+		herdr plugin link "$plugin" >/dev/null 2>&1 \
+			|| echo "herdr plugin link failed for $plugin (is the herdr server running?)" >&2
+	done
+fi
+
 # Link a repo skills dir into a harness skills dir one entry at a time, never as a whole. A
 # harness skills dir is a shared namespace that other installers also write into (`git tree skills
 # --install`, `claude plugin init`); linking the repo dir itself would make this repo *be* that

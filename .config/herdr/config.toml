@@ -56,3 +56,10 @@ command = "$HOME/.local/scripts/herdr-list-sessionizer"
 description = "sessionizer: focus or close an open workspace"
 width = "90%"
 height = "85%"
+
+# tmux's prefix+L. herdr has no last_workspace action, so the plugin records focus changes.
+[[keys.command]]
+key = "prefix+shift+l"
+type = "plugin_action"
+command = "garrett361.last-workspace.switch"
+description = "switch to the last workspace"
