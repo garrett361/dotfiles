@@ -24,13 +24,16 @@ focus_pane_down = "prefix+down"
 focus_pane_up = "prefix+up"
 focus_pane_right = "prefix+right"
 
-# j/k follow the agent panel's order. h and l stay unbound; prefix+tab still cycles panes.
+# j/k follow the agent panel's order. h stays unbound; prefix+tab still cycles panes.
 next_agent = "prefix+j"
 previous_agent = "prefix+k"
 
 # prefix+g goes to the sessionizer below, matching tmux. The session navigator takes the shifted
 # key, being the same idea as prefix+f widened to the whole session tree.
 goto = "prefix+shift+f"
+
+# tmux's prefix+l, but global and depth 1: any other pane focus overwrites the way back.
+last_pane = "prefix+l"
 
 # tmux-sessionizer for herdr: fuzzy-pick a project directory, then focus the workspace rooted there
 # or create it. Absolute path on purpose, since custom commands run through /bin/sh with no login
