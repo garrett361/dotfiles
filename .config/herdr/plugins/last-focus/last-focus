@@ -1,0 +1,115 @@
+#!/bin/sh
+#
+# last-focus: record focus changes and toggle back to the previous workspace or pane.
+#
+#   last-focus record-workspace   # herdr's workspace.focused event hook
+#   last-focus record-pane        # herdr's pane.focused event hook
+#   last-focus switch-workspace   # plugin action, tmux's prefix+L
+#   last-focus switch-pane        # plugin action, tmux's prefix+; but scoped per workspace
+#
+# Each state file is two lines, current then previous. Switching fires another focus event, so the
+# matching record hook runs again and swaps the pair, which is what makes these toggles.
+#
+# Panes are tracked per workspace, one file each, unlike herdr's built-in last_pane which keeps a
+# single global slot and so loses the way back as soon as you focus anything in the destination.
+
+state_dir="${HERDR_PLUGIN_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/herdr-last-focus}"
+
+# Pull a field out of the event payload when herdr did not set the matching variable. sed rather
+# than jq, which is not guaranteed on the hook's PATH.
+from_event() {
+    [ -n "${HERDR_PLUGIN_EVENT_JSON:-}" ] || return 0
+    printf '%s' "$HERDR_PLUGIN_EVENT_JSON" \
+        | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p"
+}
+
+# The action context names the workspace the key was pressed in.
+from_context() {
+    [ -n "${HERDR_PLUGIN_CONTEXT_JSON:-}" ] || return 0
+    printf '%s' "$HERDR_PLUGIN_CONTEXT_JSON" \
+        | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p"
+}
+
+read_line() {
+    [ -f "$2" ] || return 0
+    sed -n "${1}p" "$2" 2> /dev/null
+}
+
+# herdr fires hooks concurrently, so two focus events milliseconds apart can both read the old
+# state and lose an update. mkdir is the portable atomic test-and-set.
+record() {
+    new="$1" file="$2"
+    [ -n "$new" ] || return 0
+    mkdir -p "$(dirname "$file")" || return 0
+
+    lock="$file.lock"
+    i=0
+    while ! mkdir "$lock" 2> /dev/null; do
+        i=$((i + 1))
+        # Rather than drop the update, assume a crashed holder and take the lock.
+        if [ "$i" -gt 50 ]; then
+            break
+        fi
+        sleep 0.02
+    done
+    trap 'rmdir "$lock" 2> /dev/null' EXIT INT TERM
+
+    cur=$(read_line 1 "$file")
+    # Refocusing what is already current must not clobber the way back.
+    if [ "$new" != "$cur" ]; then
+        tmp="$file.$$"
+        printf '%s\n%s\n' "$new" "$cur" > "$tmp" && mv "$tmp" "$file"
+    fi
+}
+
+# There is no `herdr pane focus <id>`: the CLI only exposes the directional form. The socket API
+# does have pane.focus, so call it directly. python3 is already required by herdr's own Claude
+# integration hook, so this adds no new dependency.
+focus_pane() {
+    command -v python3 > /dev/null 2>&1 || return 1
+    python3 - "$1" <<'PY' 2> /dev/null
+import json, os, socket, sys
+path = os.environ.get("HERDR_SOCKET_PATH") or os.path.expanduser("~/.config/herdr/herdr.sock")
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.settimeout(3)
+s.connect(path)
+req = {"id": "last-focus", "method": "pane.focus", "params": {"pane_id": sys.argv[1]}}
+s.sendall((json.dumps(req) + "\n").encode())
+buf = b""
+while b"\n" not in buf:
+    chunk = s.recv(4096)
+    if not chunk:
+        break
+    buf += chunk
+sys.exit(0 if b'"result"' in buf else 1)
+PY
+}
+
+case "$1" in
+    record-workspace)
+        record "${HERDR_WORKSPACE_ID:-$(from_event workspace_id)}" "$state_dir/workspace"
+        ;;
+    record-pane)
+        ws="${HERDR_WORKSPACE_ID:-$(from_event workspace_id)}"
+        pane="${HERDR_PANE_ID:-$(from_event pane_id)}"
+        [ -n "$ws" ] || exit 0
+        record "$pane" "$state_dir/panes/$ws"
+        ;;
+    switch-workspace)
+        prev=$(read_line 2 "$state_dir/workspace")
+        [ -n "$prev" ] || exit 0
+        # A closed workspace makes this fail; leave state alone so the next switch repairs it.
+        "${HERDR_BIN_PATH:-herdr}" workspace focus "$prev" > /dev/null 2>&1 || exit 0
+        ;;
+    switch-pane)
+        ws="${HERDR_WORKSPACE_ID:-$(from_context workspace_id)}"
+        [ -n "$ws" ] || exit 0
+        prev=$(read_line 2 "$state_dir/panes/$ws")
+        [ -n "$prev" ] || exit 0
+        focus_pane "$prev" || exit 0
+        ;;
+    *)
+        echo "usage: last-focus record-workspace|record-pane|switch-workspace|switch-pane" >&2
+        exit 2
+        ;;
+esac

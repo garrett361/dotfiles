@@ -32,9 +32,6 @@ previous_agent = "prefix+k"
 # key, being the same idea as prefix+f widened to the whole session tree.
 goto = "prefix+shift+f"
 
-# tmux's prefix+l, but global and depth 1: any other pane focus overwrites the way back.
-last_pane = "prefix+l"
-
 # tmux-sessionizer for herdr: fuzzy-pick a project directory, then focus the workspace rooted there
 # or create it. Absolute path on purpose, since custom commands run through /bin/sh with no login
 # profile and ~/.local/scripts is only on PATH for interactive shells.
@@ -57,9 +54,16 @@ description = "sessionizer: focus or close an open workspace"
 width = "90%"
 height = "85%"
 
-# tmux's prefix+L. herdr has no last_workspace action, so the plugin records focus changes.
+# tmux's prefix+L and prefix+l. herdr has no last_workspace action, and its built-in last_pane is
+# one global slot rather than per workspace, so the plugin tracks both.
 [[keys.command]]
 key = "prefix+shift+l"
 type = "plugin_action"
-command = "garrett361.last-workspace.switch"
+command = "garrett361.last-focus.workspace"
 description = "switch to the last workspace"
+
+[[keys.command]]
+key = "prefix+l"
+type = "plugin_action"
+command = "garrett361.last-focus.pane"
+description = "switch to the last pane in this workspace"
