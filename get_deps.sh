@@ -390,6 +390,24 @@ if [ "$os" != Linux ]; then
     fi
 fi
 
+# herdr's agent-state hooks report a session id so a pane survives a server restart. codex reads
+# hooks from its own hooks.json, so herdr owns that file outright. Claude's entry shares the
+# settings.json this repo symlinks into place, where herdr would replace the portable $HOME command
+# with an absolute one, so install into a throwaway dir and keep only the script.
+herdr_bin=$bin_dir/herdr
+[ -x "$herdr_bin" ] || herdr_bin=$(command -v herdr)
+if [ -n "$herdr_bin" ]; then
+    mkdir -p "$HOME/.codex"
+    "$herdr_bin" integration install codex
+
+    herdr_tmp=$(mktemp -d)
+    if CLAUDE_CONFIG_DIR="$herdr_tmp" "$herdr_bin" integration install claude; then
+        mkdir -p "$HOME/.claude/hooks"
+        cp "$herdr_tmp/hooks/herdr-agent-state.sh" "$HOME/.claude/hooks/herdr-agent-state.sh"
+    fi
+    rm -rf "$herdr_tmp"
+fi
+
 # Reported once here rather than per tool, so a missing prerequisite or a failed download is not
 # lost in the middle of the output above.
 if [ -n "$skipped" ]; then
