@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+#
+# project-dir-picker: fuzzy-pick a project directory and print it.
+#
+# Shared by tmux-sessionizer and herdr-sessionizer so both offer the same candidates.
+#
+# Configuration:
+#   Create ~/.config/tmux-sessionizer-dirs with one pattern per line:
+#
+#     .git:$GITHUB/*/*              # Git repos under $GITHUB (2 levels deep)
+#     /proj/work/*                  # All directories under /proj/work
+#     pyproject.toml:/proj/python/* # Python projects with pyproject.toml
+#
+#   Pattern syntax:
+#     - "glob"         Include all directories matching the glob
+#     - "filter:glob"  Include only directories where filter path exists
+#
+#   Environment variables (like $GITHUB) are expanded. Lines starting with # are ignored.
+#   With no config file the list falls back to $GITHUB/*/*, and to $HOME/github/*/* when GITHUB
+#   is unset, which is the case outside interactive shells: only .commonrc exports it.
+#
+# Output: the selected absolute path on stdout and nothing else. fzf draws on /dev/tty, so this
+# works under command substitution.
+#
+# Exit status: 0 on a selection and on a cancel (which prints nothing), 1 when no candidate
+# directories exist, and fzf's own status when fzf itself fails. Callers must distinguish these:
+# a herdr popup closes the moment its command exits, so a swallowed failure is invisible.
+#
+# No `set -u`: macOS ships bash 3.2, where expanding an empty array under -u is an error.
+
+CONFIG_FILE="$HOME/.config/tmux-sessionizer-dirs"
+
+dirs=()
+
+add_glob() {
+    local pattern="$1" filter="$2" dir
+    local matched=()
+
+    shopt -s nullglob
+    matched=($pattern)
+    shopt -u nullglob
+
+    for dir in "${matched[@]}"; do
+        [[ -d "$dir" ]] || continue
+        if [[ -n "$filter" ]]; then
+            [[ -e "$dir/$filter" ]] && dirs+=("$dir")
+        else
+            dirs+=("$dir")
+        fi
+    done
+}
+
+add_config_entry() {
+    local entry="$1" filter="" pattern="$1"
+
+    if [[ "$entry" == *:* ]]; then
+        filter="${entry%%:*}"
+        pattern="${entry#*:}"
+    fi
+
+    add_glob "$pattern" "$filter"
+}
+
+if [[ -f "$CONFIG_FILE" ]]; then
+    while IFS= read -r line; do
+        [[ -z "$line" || "$line" == \#* ]] && continue
+        # Expand env vars without globbing; the glob itself is expanded inside add_glob.
+        add_config_entry "$(eval "echo \"$line\"")"
+    done < "$CONFIG_FILE"
+else
+    # Straight to add_glob, so a colon in $GITHUB or $HOME is not mistaken for a filter prefix.
+    add_glob "${GITHUB:-$HOME/github}/*/*" ""
+fi
+
+((${#dirs[@]})) || exit 1
+
+selected=$(printf '%s\n' "${dirs[@]}" | fzf)
+status=$?
+case $status in
+    0) ;;
+    # Esc and Ctrl-C are ordinary outcomes. Anything else (a missing fzf, a bad option) is a real
+    # failure and must not look like a cancel.
+    130) exit 0 ;;
+    *)
+        printf 'project-dir-picker: fzf exited %d\n' "$status" >&2
+        exit "$status"
+        ;;
+esac
+
+[[ -n "$selected" ]] && printf '%s\n' "$selected"
+exit 0

@@ -6,71 +6,21 @@
 #   tmux-sessionizer           # Interactive: select directory with fzf
 #   tmux-sessionizer /path     # Direct: use specified directory
 #
-# Configuration:
-#   Create ~/.config/tmux-sessionizer-dirs with one pattern per line:
-#
-#     .git:$GITHUB/*/*              # Git repos under $GITHUB (2 levels deep)
-#     /proj/work/*                  # All directories under /proj/work
-#     pyproject.toml:/proj/python/* # Python projects with pyproject.toml
-#
-#   Pattern syntax:
-#     - "glob"         Include all directories matching the glob
-#     - "filter:glob"  Include only directories where filter path exists
-#
-#   Environment variables (like $GITHUB) are expanded. Lines starting with #
-#   are ignored.
+# The candidate directory list and its configuration live in project-dir-picker, shared with
+# herdr-sessionizer.
 #
 # Session naming:
 #   Full path with slashes/dots replaced: /a/b/c/project -> a_b_c_project
-
-CONFIG_FILE="$HOME/.config/tmux-sessionizer-dirs"
 
 # --- Directory selection ---
 
 if [[ $# -eq 1 ]]; then
     selected=$1
 else
-    # Build list of directories from config file
-    dirs=()
-
-    if [[ -f "$CONFIG_FILE" ]]; then
-        while IFS= read -r line; do
-            [[ -z "$line" || "$line" == \#* ]] && continue
-
-            # Expand env vars without glob expansion
-            entry=$(eval "echo \"$line\"")
-
-            filter=""
-            pattern="$entry"
-
-            if [[ "$entry" == *:* ]]; then
-                filter="${entry%%:*}"
-                pattern="${entry#*:}"
-            fi
-
-            shopt -s nullglob
-            matched=($pattern)
-            shopt -u nullglob
-
-            for dir in "${matched[@]}"; do
-                [[ -d "$dir" ]] || continue
-                if [[ -n "$filter" ]]; then
-                    [[ -e "$dir/$filter" ]] && dirs+=("$dir")
-                else
-                    dirs+=("$dir")
-                fi
-            done
-        done < "$CONFIG_FILE"
-    else
-        shopt -s nullglob
-        matched=($GITHUB/*/*)
-        shopt -u nullglob
-        for dir in "${matched[@]}"; do
-            [[ -d "$dir" ]] && dirs+=("$dir")
-        done
-    fi
-
-    selected=$(printf '%s\n' "${dirs[@]}" | fzf)
+    # Resolve the sibling from this script's own location rather than PATH, so it is found
+    # however this script was invoked.
+    script_dir=$(cd -- "$(dirname -- "$0")" && pwd -P)
+    selected=$("$script_dir/project-dir-picker")
 fi
 
 [[ -z "$selected" ]] && exit 0

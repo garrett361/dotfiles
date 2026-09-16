@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+#
+# herdr-list-sessionizer: the herdr counterpart of tmux-list-sessionizer. Fuzzy-pick among open
+# herdr workspaces and focus the choice; Ctrl-X closes the selected ones.
+#
+# Usage:
+#   herdr-list-sessionizer          # Interactive: pick a workspace with fzf
+#   herdr-list-sessionizer --list   # Print the rows fzf consumes (used by its reload binding)
+#   herdr-list-sessionizer --header # Print the header block (used by its transform-header binding)
+#
+# Bound to prefix+f as a `popup` custom command in ~/.config/herdr/config.toml. herdr's own
+# workspace_picker (prefix+w) is a persistent sidebar surface navigated with the arrow keys, not a
+# fuzzy picker, which is why this exists. See herdr-sessionizer for the directory-based twin.
+
+script_dir=$(cd -- "$(dirname -- "$0")" && pwd -P)
+self="$script_dir/herdr-list-sessionizer"
+
+# herdr runs custom commands through /bin/sh with no login profile, so the interactive PATH from
+# .commonrc is not available. Same approach as herdr-sessionizer.
+PATH="$script_dir:$HOME/.fzf-$(uname -m)/bin:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+export PATH
+
+KEYS="Tab: select for closing | Enter: focus | Ctrl-X: close selected"
+
+die() {
+    printf 'herdr-list-sessionizer: %s\n' "$1" >&2
+    if [[ -t 0 ]]; then
+        printf 'press enter to close... ' >&2
+        read -r _
+    fi
+    exit 1
+}
+
+herdr_bin="${HERDR_BIN_PATH:-$(command -v herdr)}"
+[[ -n "$herdr_bin" && -x "$herdr_bin" ]] || die "herdr binary not found"
+command -v jq > /dev/null 2>&1 || die "jq not found on PATH"
+
+raw_rows() {
+    local session_json herdr_config cwds ws_list
+    # session.json sits beside config.toml, which HERDR_CONFIG_PATH can relocate independently of
+    # the socket. A workspace's root directory is recorded nowhere else for plain checkouts, since
+    # `workspace list` reports a path only for workspaces in a worktree group. Display only: if the
+    # snapshot is missing or its schema changed, the column just goes blank.
+    herdr_config="${HERDR_CONFIG_PATH:-$HOME/.config/herdr/config.toml}"
+    session_json="$(dirname -- "$herdr_config")/session.json"
+    cwds=$(jq -c '[.workspaces[]? | {key: .id, value: .identity_cwd}] | from_entries' \
+        "$session_json" 2> /dev/null) || cwds=""
+    [[ -n "$cwds" ]] || cwds="{}"
+
+    # Capture before piping into jq: jq exits 0 on empty stdin, which would turn a dead server into
+    # a silently empty menu.
+    ws_list=$("$herdr_bin" workspace list) \
+        || die "herdr workspace list failed (is a herdr server running?)"
+
+    printf '%s' "$ws_list" | jq -r --argjson cwd "$cwds" '
+        .result.workspaces[]
+        | [.workspace_id, .label, .agent_status, ($cwd[.workspace_id] // "")]
+        | @tsv'
+}
+
+# Rows are "<id>\t<aligned display>". fzf shows only field 2 (--with-nth=2) but its placeholders
+# return the original line, so the id stays available for focus and close without cluttering the
+# menu. The header is padded by the same widths so its labels line up with the columns, and the
+# reload binding regenerates it so the two cannot drift apart as workspaces come and go.
+aligned() {
+    raw_rows | awk -F'\t' -v mode="$1" -v keys="$KEYS" '
+        BEGIN { w1 = length("workspace"); w2 = length("agent") }
+        {
+            id[NR] = $1; name[NR] = $2; st[NR] = $3; dir[NR] = $4
+            if (length($2) > w1) w1 = length($2)
+            if (length($3) > w2) w2 = length($3)
+        }
+        END {
+            if (mode == "header") {
+                printf "%-*s  %-*s  %s\n", w1, "workspace", w2, "agent", "directory"
+                print keys
+            } else {
+                for (i = 1; i <= NR; i++)
+                    printf "%s\t%-*s  %-*s  %s\n", id[i], w1, name[i], w2, st[i], dir[i]
+            }
+        }'
+}
+
+case "$1" in
+    --list) aligned rows; exit 0 ;;
+    --header) aligned header; exit 0 ;;
+esac
+
+# Column labels first so they render adjacent to the list; fzf draws header lines in order,
+# directly below the list in its default bottom-up layout.
+header=$(aligned header) || exit 1
+
+# Closing the workspace that hosts this popup tears the popup down, so any ids selected after it
+# in the loop go unclosed. Rerun and they are still listed.
+selected=$(aligned rows | fzf -m \
+    --delimiter=$'\t' --with-nth=2 \
+    --header="$header" \
+    --bind 'enter:transform:[ $FZF_SELECT_COUNT -eq 0 ] && echo accept || echo "change-header:Multi-select is for closing only -- press Ctrl-X to close, or Tab to deselect"' \
+    --bind "ctrl-x:execute(
+      echo \"Close these workspaces? [y/N]\"
+      printf \"%s\n\" {+} | cut -f2
+      read -r response
+      case \"\$response\" in
+          [yY][eE][sS]|[yY])
+              printf \"%s\n\" {+} | cut -f1 | while read -r id; do
+                  \"$herdr_bin\" workspace close \"\$id\" > /dev/null || echo \"could not close \$id\"
+              done
+              ;;
+          *)
+              echo \"Close aborted!\"
+              ;;
+      esac
+  )+reload($self --list)+clear-multi+transform-header($self --header)")
+status=$?
+case $status in
+    0) ;;
+    130) exit 0 ;;
+    *) die "fzf exited $status" ;;
+esac
+
+[[ -z "$selected" ]] && exit 0
+
+# head -n1 because fzf still binds double-click:accept, which returns every selected line.
+workspace_id=$(printf '%s\n' "$selected" | head -n 1 | cut -f1)
+[[ -n "$workspace_id" ]] || exit 0
+
+"$herdr_bin" workspace focus "$workspace_id" > /dev/null \
+    || die "failed to focus workspace $workspace_id"

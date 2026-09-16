@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+#
+# herdr-sessionizer: the herdr counterpart of tmux-sessionizer. Fuzzy-pick a project directory,
+# then focus the herdr workspace rooted there, creating it if there is none.
+#
+# Usage:
+#   herdr-sessionizer           # Interactive: select directory with fzf
+#   herdr-sessionizer /path     # Direct: use specified directory
+#
+# Bound to prefix+g as a `popup` custom command in ~/.config/herdr/config.toml. herdr runs custom
+# commands through /bin/sh with no login profile, so nothing here may assume the interactive PATH
+# that .commonrc sets up; every dependency is resolved explicitly below.
+
+script_dir=$(cd -- "$(dirname -- "$0")" && pwd -P)
+
+# fzf lives under ~/.fzf-$(uname -m)/bin and herdr is usually a homebrew binary. Only .commonrc
+# puts either on PATH, and it is interactive-only. Same approach as tmux-slurm-shell.
+PATH="$script_dir:$HOME/.fzf-$(uname -m)/bin:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+export PATH
+
+# A popup closes the instant this process exits, so a bare error message would never be seen.
+die() {
+    printf 'herdr-sessionizer: %s\n' "$1" >&2
+    if [[ -t 0 ]]; then
+        printf 'press enter to close... ' >&2
+        read -r _
+    fi
+    exit 1
+}
+
+# herdr injects HERDR_BIN_PATH into custom commands, which also pins the CLI to the server that
+# opened the popup. Fall back to PATH when run from an ordinary shell.
+herdr_bin="${HERDR_BIN_PATH:-$(command -v herdr)}"
+[[ -n "$herdr_bin" && -x "$herdr_bin" ]] || die "herdr binary not found"
+command -v jq > /dev/null 2>&1 || die "jq not found on PATH"
+[[ -x "$script_dir/project-dir-picker" ]] || die "project-dir-picker not found next to this script"
+
+if [[ $# -eq 1 ]]; then
+    selected=$1
+else
+    # The picker exits 0 on cancel and nonzero only on a real failure, so this never hides one.
+    selected=$("$script_dir/project-dir-picker") || die "project-dir-picker failed"
+fi
+
+[[ -z "$selected" ]] && exit 0
+
+# herdr records workspace roots resolved, so resolve here too or a symlinked path would look like
+# a different directory and create a duplicate workspace.
+resolved=$(cd -- "$selected" 2> /dev/null && pwd -P) || die "not a directory: $selected"
+selected=$resolved
+
+# Resolve directory to workspace. `workspace list` reports a path only for workspaces in a worktree
+# group (worktree.checkout_path), so it cannot answer this in general. `worktree list --cwd` can: it
+# reports open_workspace_id for every checkout of the repo containing that directory, for ordinary
+# checkouts as well as linked worktrees. A non-git path fails with not_git_worktree, handled below.
+#
+# Match on .path rather than .result.source.source_workspace_id, because --cwd resolves upward to
+# the repo root and a subdirectory would otherwise match the whole repo's workspace.
+worktrees=$("$herdr_bin" worktree list --cwd "$selected" 2> /dev/null) || worktrees=""
+
+workspace_id=""
+if [[ -n "$worktrees" ]]; then
+    workspace_id=$(printf '%s' "$worktrees" | jq -r --arg p "$selected" \
+        'first(.result.worktrees[]? | select(.path == $p and .open_workspace_id != null)
+               | .open_workspace_id) // empty')
+fi
+
+if [[ -z "$workspace_id" ]]; then
+    # Not inside a git work tree, so the lookup above does not apply. herdr's own persisted
+    # snapshot is then the only record of a workspace's root directory. Private and versioned, so
+    # every failure here falls through to creating a workspace rather than guessing wrong.
+    # It sits beside config.toml, which HERDR_CONFIG_PATH can relocate independently of the socket.
+    herdr_config="${HERDR_CONFIG_PATH:-$HOME/.config/herdr/config.toml}"
+    session_json="$(dirname -- "$herdr_config")/session.json"
+
+    # Capture before piping into jq: jq exits 0 on empty stdin, which would mask a dead server.
+    ws_list=$("$herdr_bin" workspace list) \
+        || die "herdr workspace list failed (is a herdr server running?)"
+    open_ids=$(printf '%s' "$ws_list" | jq -r '.result.workspaces[].workspace_id')
+
+    while IFS=$'\t' read -r id cwd; do
+        [[ -n "$id" && -n "$cwd" ]] || continue
+        # A closed workspace can linger in the snapshot; the live list is authoritative.
+        printf '%s\n' "$open_ids" | grep -qxF "$id" || continue
+        resolved=$(cd -- "$cwd" 2> /dev/null && pwd -P) || resolved=$cwd
+        if [[ "$resolved" == "$selected" ]]; then
+            workspace_id=$id
+            break
+        fi
+    done < <(jq -r '.workspaces[]? | select(.identity_cwd != null)
+                    | [.id, .identity_cwd] | @tsv' "$session_json" 2> /dev/null)
+fi
+
+if [[ -n "$workspace_id" ]]; then
+    "$herdr_bin" workspace focus "$workspace_id" > /dev/null \
+        || die "failed to focus workspace $workspace_id"
+else
+    # No --label: herdr derives the basename itself, which is what a workspace created any other
+    # way shows in the sidebar. --focus is required; the API default is false.
+    "$herdr_bin" workspace create --cwd "$selected" --focus > /dev/null \
+        || die "failed to create a workspace at $selected"
+fi

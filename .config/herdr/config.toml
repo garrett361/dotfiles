@@ -27,3 +27,29 @@ focus_pane_right = "prefix+right"
 # j/k follow the agent panel's order. h and l stay unbound; prefix+tab still cycles panes.
 next_agent = "prefix+j"
 previous_agent = "prefix+k"
+
+# prefix+g goes to the sessionizer below, matching tmux. The session navigator takes the shifted
+# key, being the same idea as prefix+f widened to the whole session tree.
+goto = "prefix+shift+f"
+
+# tmux-sessionizer for herdr: fuzzy-pick a project directory, then focus the workspace rooted there
+# or create it. Absolute path on purpose, since custom commands run through /bin/sh with no login
+# profile and ~/.local/scripts is only on PATH for interactive shells.
+[[keys.command]]
+key = "prefix+g"
+type = "popup"
+command = "$HOME/.local/scripts/herdr-sessionizer"
+description = "sessionizer: focus or create a workspace by directory"
+width = "90%"
+height = "85%"
+
+# tmux-list-sessionizer for herdr, on the same key tmux uses. herdr's own workspace_picker
+# (prefix+w, left at its default) is a sidebar surface navigated with the arrow keys rather than a
+# fuzzy picker, so this keeps the tmux workflow: type to match, Enter to focus, Ctrl-X to close.
+[[keys.command]]
+key = "prefix+f"
+type = "popup"
+command = "$HOME/.local/scripts/herdr-list-sessionizer"
+description = "sessionizer: focus or close an open workspace"
+width = "90%"
+height = "85%"
