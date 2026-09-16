@@ -70,3 +70,5 @@ description = "switch to the last tab in this workspace"
 [ui]
 # Distinct static glyphs per agent state instead of color-only dots.
 status_indicators = "symbols"
+
+prompt_new_tab_name = false
