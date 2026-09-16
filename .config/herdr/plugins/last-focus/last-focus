@@ -1,33 +1,26 @@
 #!/bin/sh
 #
-# last-focus: record focus changes and toggle back to the previous workspace or pane.
+# last-focus: record focus changes and toggle back to the previous workspace or tab.
 #
 #   last-focus record-workspace   # herdr's workspace.focused event hook
-#   last-focus record-pane        # herdr's pane.focused event hook
+#   last-focus record-tab         # herdr's tab.focused event hook
 #   last-focus switch-workspace   # plugin action, tmux's prefix+L
-#   last-focus switch-pane        # plugin action, tmux's prefix+; but scoped per workspace
+#   last-focus switch-tab         # plugin action, tmux's prefix+l
 #
 # Each state file is two lines, current then previous. Switching fires another focus event, so the
 # matching record hook runs again and swaps the pair, which is what makes these toggles.
 #
-# Panes are tracked per workspace, one file each, unlike herdr's built-in last_pane which keeps a
-# single global slot and so loses the way back as soon as you focus anything in the destination.
+# Tabs are tracked per workspace, one file each. herdr's built-in last_pane is a single global slot
+# at pane granularity, which is neither per workspace nor per tab.
 
 state_dir="${HERDR_PLUGIN_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/herdr-last-focus}"
 
-# Pull a field out of the event payload when herdr did not set the matching variable. sed rather
-# than jq, which is not guaranteed on the hook's PATH.
-from_event() {
-    [ -n "${HERDR_PLUGIN_EVENT_JSON:-}" ] || return 0
-    printf '%s' "$HERDR_PLUGIN_EVENT_JSON" \
-        | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p"
-}
-
-# The action context names the workspace the key was pressed in.
-from_context() {
-    [ -n "${HERDR_PLUGIN_CONTEXT_JSON:-}" ] || return 0
-    printf '%s' "$HERDR_PLUGIN_CONTEXT_JSON" \
-        | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p"
+# Pull a field out of the event payload. The payload names the subject of the event, whereas the
+# HERDR_* variables describe the invocation context; they agree today but the payload is the one
+# that is defined to be about this event. sed rather than jq, which the hook PATH does not promise.
+from_json() {
+    [ -n "$2" ] || return 0
+    printf '%s' "$2" | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p"
 }
 
 read_line() {
@@ -55,61 +48,43 @@ record() {
     trap 'rmdir "$lock" 2> /dev/null' EXIT INT TERM
 
     cur=$(read_line 1 "$file")
-    # Refocusing what is already current must not clobber the way back.
+    # Re-entering a workspace refocuses its current tab; that must not clobber the way back.
     if [ "$new" != "$cur" ]; then
         tmp="$file.$$"
         printf '%s\n%s\n' "$new" "$cur" > "$tmp" && mv "$tmp" "$file"
     fi
 }
 
-# There is no `herdr pane focus <id>`: the CLI only exposes the directional form. The socket API
-# does have pane.focus, so call it directly. python3 is already required by herdr's own Claude
-# integration hook, so this adds no new dependency.
-focus_pane() {
-    command -v python3 > /dev/null 2>&1 || return 1
-    python3 - "$1" <<'PY' 2> /dev/null
-import json, os, socket, sys
-path = os.environ.get("HERDR_SOCKET_PATH") or os.path.expanduser("~/.config/herdr/herdr.sock")
-s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-s.settimeout(3)
-s.connect(path)
-req = {"id": "last-focus", "method": "pane.focus", "params": {"pane_id": sys.argv[1]}}
-s.sendall((json.dumps(req) + "\n").encode())
-buf = b""
-while b"\n" not in buf:
-    chunk = s.recv(4096)
-    if not chunk:
-        break
-    buf += chunk
-sys.exit(0 if b'"result"' in buf else 1)
-PY
-}
+herdr_bin="${HERDR_BIN_PATH:-herdr}"
 
 case "$1" in
     record-workspace)
-        record "${HERDR_WORKSPACE_ID:-$(from_event workspace_id)}" "$state_dir/workspace"
+        ws=$(from_json workspace_id "${HERDR_PLUGIN_EVENT_JSON:-}")
+        record "${ws:-$HERDR_WORKSPACE_ID}" "$state_dir/workspace"
         ;;
-    record-pane)
-        ws="${HERDR_WORKSPACE_ID:-$(from_event workspace_id)}"
-        pane="${HERDR_PANE_ID:-$(from_event pane_id)}"
+    record-tab)
+        ws=$(from_json workspace_id "${HERDR_PLUGIN_EVENT_JSON:-}")
+        tab=$(from_json tab_id "${HERDR_PLUGIN_EVENT_JSON:-}")
+        ws="${ws:-$HERDR_WORKSPACE_ID}"
         [ -n "$ws" ] || exit 0
-        record "$pane" "$state_dir/panes/$ws"
+        record "${tab:-$HERDR_TAB_ID}" "$state_dir/tabs/$ws"
         ;;
     switch-workspace)
         prev=$(read_line 2 "$state_dir/workspace")
         [ -n "$prev" ] || exit 0
         # A closed workspace makes this fail; leave state alone so the next switch repairs it.
-        "${HERDR_BIN_PATH:-herdr}" workspace focus "$prev" > /dev/null 2>&1 || exit 0
+        "$herdr_bin" workspace focus "$prev" > /dev/null 2>&1 || exit 0
         ;;
-    switch-pane)
-        ws="${HERDR_WORKSPACE_ID:-$(from_context workspace_id)}"
+    switch-tab)
+        # The action context names the workspace the key was pressed in.
+        ws="${HERDR_WORKSPACE_ID:-$(from_json workspace_id "${HERDR_PLUGIN_CONTEXT_JSON:-}")}"
         [ -n "$ws" ] || exit 0
-        prev=$(read_line 2 "$state_dir/panes/$ws")
+        prev=$(read_line 2 "$state_dir/tabs/$ws")
         [ -n "$prev" ] || exit 0
-        focus_pane "$prev" || exit 0
+        "$herdr_bin" tab focus "$prev" > /dev/null 2>&1 || exit 0
         ;;
     *)
-        echo "usage: last-focus record-workspace|record-pane|switch-workspace|switch-pane" >&2
+        echo "usage: last-focus record-workspace|record-tab|switch-workspace|switch-tab" >&2
         exit 2
         ;;
 esac

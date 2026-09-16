@@ -54,8 +54,7 @@ description = "sessionizer: focus or close an open workspace"
 width = "90%"
 height = "85%"
 
-# tmux's prefix+L and prefix+l. herdr has no last_workspace action, and its built-in last_pane is
-# one global slot rather than per workspace, so the plugin tracks both.
+# tmux's prefix+L and prefix+l. herdr has neither a last_workspace nor a last_tab action.
 [[keys.command]]
 key = "prefix+shift+l"
 type = "plugin_action"
@@ -65,5 +64,5 @@ description = "switch to the last workspace"
 [[keys.command]]
 key = "prefix+l"
 type = "plugin_action"
-command = "garrett361.last-focus.pane"
-description = "switch to the last pane in this workspace"
+command = "garrett361.last-focus.tab"
+description = "switch to the last tab in this workspace"

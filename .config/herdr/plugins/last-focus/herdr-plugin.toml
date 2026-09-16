@@ -1,11 +1,10 @@
-# tmux's prefix+L and prefix+; for herdr, which has no last_workspace action and whose built-in
-# last_pane is a single global slot rather than per-workspace. herdr spawns the record hooks itself
-# on every focus event, so there is no daemon.
+# tmux's prefix+L and prefix+l for herdr, which has no last_workspace or last_tab action. herdr
+# spawns the record hooks itself on every focus event, so there is no daemon.
 id = "garrett361.last-focus"
 name = "Last focus"
 version = "0.1.0"
 min_herdr_version = "0.9.0"
-description = "Toggle back to the previous workspace, or the previous pane within a workspace"
+description = "Toggle back to the previous workspace, or the previous tab within a workspace"
 platforms = ["linux", "macos"]
 
 [[events]]
@@ -13,8 +12,8 @@ on = "workspace.focused"
 command = ["sh", "-c", '"$HERDR_PLUGIN_ROOT/last-focus" record-workspace']
 
 [[events]]
-on = "pane.focused"
-command = ["sh", "-c", '"$HERDR_PLUGIN_ROOT/last-focus" record-pane']
+on = "tab.focused"
+command = ["sh", "-c", '"$HERDR_PLUGIN_ROOT/last-focus" record-tab']
 
 [[actions]]
 id = "workspace"
@@ -23,7 +22,7 @@ contexts = ["workspace"]
 command = ["sh", "-c", '"$HERDR_PLUGIN_ROOT/last-focus" switch-workspace']
 
 [[actions]]
-id = "pane"
-title = "Switch to last pane in this workspace"
+id = "tab"
+title = "Switch to last tab in this workspace"
 contexts = ["workspace"]
-command = ["sh", "-c", '"$HERDR_PLUGIN_ROOT/last-focus" switch-pane']
+command = ["sh", "-c", '"$HERDR_PLUGIN_ROOT/last-focus" switch-tab']
