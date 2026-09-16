@@ -14,6 +14,12 @@ onboarding = false
 split_vertical = "prefix+%"
 split_horizontal = 'prefix+"'
 
+# tmux's prefix+x kill scale, one level up: x closes the pane (herdr's default, unchanged) and X
+# closes the whole workspace. That evicts close_tab, which is left unbound on purpose, since
+# closing panes is enough; `herdr tab close <tab_id>` remains if a tab ever needs to go.
+close_workspace = "prefix+shift+x"
+close_tab = ""
+
 # tmux reloads on prefix+r (tmux.common.conf); resize mode takes the key reload vacates.
 reload_config = "prefix+r"
 resize_mode = "prefix+shift+r"
