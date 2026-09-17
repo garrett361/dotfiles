@@ -4,14 +4,28 @@
 # then focus the herdr workspace rooted there, creating it if there is none.
 #
 # Usage:
-#   herdr-sessionizer           # Interactive: select directory with fzf
-#   herdr-sessionizer /path     # Direct: use specified directory
+#   herdr-sessionizer              # Interactive: select directory with fzf
+#   herdr-sessionizer /path        # Direct: use specified directory
+#   herdr-sessionizer --no-attach  # Resolve only, never attach (used by the bootstrap below)
 #
 # Bound to prefix+g as a `popup` custom command in ~/.config/herdr/config.toml. herdr runs custom
 # commands through /bin/sh with no login profile, so nothing here may assume the interactive PATH
 # that .commonrc sets up; every dependency is resolved explicitly below.
+#
+# From an ordinary shell it also attaches, the way tmux-sessionizer always leaves you inside tmux.
+# With no server running the selection has to be applied from a background job, because herdr's
+# CLI talks to a running server and cannot start one headlessly, so attaching is what starts one.
+# The client's own restore can then focus its saved workspace after that job does; the picked
+# workspace still exists, and prefix+g reaches it.
+
+no_attach=0
+if [[ "$1" == "--no-attach" ]]; then
+    no_attach=1
+    shift
+fi
 
 script_dir=$(cd -- "$(dirname -- "$0")" && pwd -P)
+self="$script_dir/herdr-sessionizer"
 
 # fzf lives under ~/.fzf-$(uname -m)/bin and herdr is usually a homebrew binary. Only .commonrc
 # puts either on PATH, and it is interactive-only. Same approach as tmux-slurm-shell.
@@ -35,6 +49,31 @@ herdr_bin="${HERDR_BIN_PATH:-$(command -v herdr)}"
 command -v jq > /dev/null 2>&1 || die "jq not found on PATH"
 [[ -x "$script_dir/project-dir-picker" ]] || die "project-dir-picker not found next to this script"
 
+# herdr injects HERDR_ENV=1 into managed panes and HERDR_BIN_PATH into custom commands; the popup
+# gets the latter but not the former, so both are checked. Either way a client is already showing
+# this server, and focusing is all that is wanted.
+inside_herdr=0
+[[ -n "$HERDR_ENV" || -n "$HERDR_BIN_PATH" ]] && inside_herdr=1
+
+server_up() {
+    "$herdr_bin" workspace list > /dev/null 2>&1
+}
+
+# Bounded, so a herdr that never comes up leaves no poller behind. The settle after the socket
+# answers is for the server's own session restore, which focuses the workspace it saved and would
+# otherwise land after this one.
+wait_for_server() {
+    local i
+    for ((i = 0; i < 100; i++)); do
+        if server_up; then
+            sleep 0.5
+            return 0
+        fi
+        sleep 0.1
+    done
+    return 1
+}
+
 if [[ $# -eq 1 ]]; then
     selected=$1
 else
@@ -48,6 +87,15 @@ fi
 # a different directory and create a duplicate workspace.
 resolved=$(cd -- "$selected" 2> /dev/null && pwd -P) || die "not a directory: $selected"
 selected=$resolved
+
+# No server, and nothing below can talk to one. Hand the terminal to the client, which starts it,
+# and re-enter with the selection once the socket answers. Recursing rather than calling
+# `workspace create` reuses the resolution below, so a workspace that restore brings back is
+# focused instead of duplicated.
+if ((inside_herdr == 0 && no_attach == 0)) && ! server_up; then
+    (wait_for_server && "$self" --no-attach "$selected") < /dev/null > /dev/null 2>&1 &
+    exec "$herdr_bin"
+fi
 
 # Resolve directory to workspace. `workspace list` reports a path only for workspaces in a worktree
 # group (worktree.checkout_path), so it cannot answer this in general. `worktree list --cwd` can: it
@@ -99,4 +147,9 @@ else
     # way shows in the sidebar. --focus is required; the API default is false.
     "$herdr_bin" workspace create --cwd "$selected" --focus > /dev/null \
         || die "failed to create a workspace at $selected"
+fi
+
+# Outside herdr nothing is displaying this server yet, so the focus above would go unseen.
+if ((inside_herdr == 0 && no_attach == 0)); then
+    exec "$herdr_bin"
 fi
