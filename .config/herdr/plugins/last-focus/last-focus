@@ -7,13 +7,18 @@
 #   last-focus switch-workspace   # plugin action, tmux's prefix+L
 #   last-focus switch-tab         # plugin action, tmux's prefix+l
 #
-# Each state file is two lines, current then previous. Switching fires another focus event, so the
-# matching record hook runs again and swaps the pair, which is what makes these toggles.
+# Each state file is a most-recent-first list, the current place on line 1. Switching fires another
+# focus event, so the matching record hook prepends and the top pair swaps, which is what makes
+# these toggles. The entries below that pair are what lets a switch still land somewhere when the
+# place we came from has since been closed.
 #
 # Tabs are tracked per workspace, one file each. herdr's built-in last_pane is a single global slot
 # at pane granularity, which is neither per workspace nor per tab.
 
 state_dir="${HERDR_PLUGIN_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/herdr-last-focus}"
+
+# Enough history that closing a few tabs in a row still leaves somewhere to go back to.
+max_history=8
 
 # Pull a field out of the event payload. The payload names the subject of the event, whereas the
 # HERDR_* variables describe the invocation context; they agree today but the payload is the one
@@ -51,8 +56,34 @@ record() {
     # Re-entering a workspace refocuses its current tab; that must not clobber the way back.
     if [ "$new" != "$cur" ]; then
         tmp="$file.$$"
-        printf '%s\n%s\n' "$new" "$cur" > "$tmp" && mv "$tmp" "$file"
+        # Dropping any earlier copy of the new id keeps the list from growing on a back-and-forth.
+        {
+            printf '%s\n' "$new"
+            grep -vxF -- "$new" "$file" 2> /dev/null | sed '/^$/d'
+        } | head -n "$max_history" > "$tmp" && mv "$tmp" "$file"
     fi
+}
+
+# Focus the most recent remembered place that still exists, using the focus call itself as the
+# liveness test. The old state file held only the current place and the previous one, so closing
+# the place we came from left a dead id with nothing behind it, and since a record hook rewrote
+# both lines from scratch, the toggle did nothing at all until some unrelated focus change
+# happened to displace that id. Walking further down the list is what gives it somewhere to land.
+#
+# This never writes. A focus call fails the same way whether the target is gone or the server is
+# unreachable, so pruning on failure would throw the whole history away on one keypress during an
+# outage. Dead ids are displaced by record() prepending and evicted by max_history instead.
+switch() {
+    file="$1" kind="$2"
+    line=2
+    while :; do
+        prev=$(read_line "$line" "$file")
+        [ -n "$prev" ] || break
+        if "$herdr_bin" "$kind" focus "$prev" > /dev/null 2>&1; then
+            return 0
+        fi
+        line=$((line + 1))
+    done
 }
 
 herdr_bin="${HERDR_BIN_PATH:-herdr}"
@@ -70,18 +101,13 @@ case "$1" in
         record "${tab:-$HERDR_TAB_ID}" "$state_dir/tabs/$ws"
         ;;
     switch-workspace)
-        prev=$(read_line 2 "$state_dir/workspace")
-        [ -n "$prev" ] || exit 0
-        # A closed workspace makes this fail; leave state alone so the next switch repairs it.
-        "$herdr_bin" workspace focus "$prev" > /dev/null 2>&1 || exit 0
+        switch "$state_dir/workspace" workspace
         ;;
     switch-tab)
         # The action context names the workspace the key was pressed in.
         ws="${HERDR_WORKSPACE_ID:-$(from_json workspace_id "${HERDR_PLUGIN_CONTEXT_JSON:-}")}"
         [ -n "$ws" ] || exit 0
-        prev=$(read_line 2 "$state_dir/tabs/$ws")
-        [ -n "$prev" ] || exit 0
-        "$herdr_bin" tab focus "$prev" > /dev/null 2>&1 || exit 0
+        switch "$state_dir/tabs/$ws" tab
         ;;
     *)
         echo "usage: last-focus record-workspace|record-tab|switch-workspace|switch-tab" >&2
