@@ -54,14 +54,19 @@ done
 mkdir -p "${HOME}/.config/herdr"
 link_entry "$(readlink -f .config/herdr)/config.toml" "${HOME}/.config/herdr/config.toml"
 
-# herdr plugins stay in the repo: `plugin link` registers a directory in place and runs no build,
-# so there is nothing to symlink. Re-linking an already-linked plugin is a no-op. Needs a running
-# server, so a failure is a warning rather than a bootstrap error.
-if command -v herdr &>/dev/null; then
+# herdr plugins stay in the repo: `plugin link` registers a directory in place and runs no build, so
+# there is nothing to symlink. It needs no running server, and re-linking is a no-op that also
+# repoints a registration left behind at an old path, so every run is safe. Absolute path like nvim
+# below: a fresh bootstrap has not sourced the profiles that put the arch bin dir on PATH, and the
+# bare `command -v` this replaces skipped the whole block in silence.
+herdr_bin="$HOME/.local/bin/$(uname -m)/herdr"
+[ -x "$herdr_bin" ] || herdr_bin=$(command -v herdr)
+if [ -n "$herdr_bin" ]; then
 	for plugin in "$(readlink -f .config/herdr/plugins)"/*/; do
 		[ -f "$plugin/herdr-plugin.toml" ] || continue
-		herdr plugin link "$plugin" >/dev/null 2>&1 \
-			|| echo "herdr plugin link failed for $plugin (is the herdr server running?)" >&2
+		# Keep stderr and drop stdout: herdr's own message is the only diagnostic there is.
+		err=$("$herdr_bin" plugin link "$plugin" 2>&1 >/dev/null) \
+			|| echo "herdr plugin link failed for $plugin: $err" >&2
 	done
 fi
 
