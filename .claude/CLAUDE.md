@@ -47,6 +47,15 @@ offers a shell on the tmux host or inside a running slurm allocation. Nothing el
 intercepted, and `default-command` is deliberately left unset, since it would apply to every pane
 created without an explicit command and close them all if the script were ever missing.
 
+`gc` and the clone helpers live in `.git_fns.sh`, sourced from `$DOTFILES` rather than a `$HOME`
+symlink like `.slurm_fns.sh`, and so not linked by `install.sh`: `~/.commonrc` is itself a symlink,
+so a `git pull` would otherwise drop `gc` from every shell until `install.sh` reran.
+
+`clone_pi_repos.sh` and `clone_forked_repos.sh` at the repo root consume it, are run by full path,
+and grow by adding a name to their `REPOS` array. The first gives each PrimeIntellect-ai repo a
+detached clone plus a `<repo>-main` worktree holding `main`, the `git tree` stack root; a root
+needs no registration, only a worktree and `branch.main.remote`.
+
 ## Conventions
 
 - Lua: `stylua`, 100 col, tabs (stylua's default; `.stylua.toml` sets only width). Use `prequire()`

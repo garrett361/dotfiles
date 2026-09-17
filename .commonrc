@@ -192,62 +192,6 @@ function dotfiles_rebase()
     cddot && g f origin main && g r origin/main && cd -
 }
 
-function _clone_from_host()
-{
-    local host="$1"
-    local repo_name="$2"
-    local org
-    org=$(basename "$(pwd)")
-
-    if [[ -z "$repo_name" ]]; then
-        echo "Usage: gc <repo_name>" >&2
-        return 1
-    fi
-
-    git clone "git@${host}:${org}/${repo_name}" && cd "$repo_name"
-}
-
-function _add_upstream_if_fork()
-{
-    local host="$1"
-    local q url_expr out ret name url
-
-    if ! command -v gh >/dev/null 2>&1; then
-        echo "upstream: gh not found; skipping fork check" >&2
-        return 0
-    fi
-
-    url_expr='"git@'"$host"':\(.parent.owner.login)/\(.parent.name).git"'
-    q="[.nameWithOwner, (if .isFork then $url_expr else \"\" end)] | @tsv"
-    # gh's errors go to the terminal; capturing them would let a stray line into the remote URL.
-    out=$(gh repo view --json isFork,parent,nameWithOwner -q "$q")
-    ret=$?
-    if [ "$ret" -ne 0 ]; then
-        echo "upstream: gh repo view failed; no upstream added" >&2
-        return 0
-    fi
-
-    name=${out%%$'\t'*}
-    url=${out#*$'\t'}
-    if [ -z "$url" ]; then
-        echo "upstream: $name is not a fork"
-        return 0
-    fi
-
-    if git remote add upstream "$url"; then
-        echo "upstream: added $url"
-    else
-        echo "upstream: git remote add failed for $url" >&2
-    fi
-    return 0
-}
-
-function gc()
-{
-    _clone_from_host "github.com" "$1" \
-        && _add_upstream_if_fork "github.com"
-}
-
 
 ################################   OTHER  ################################
 
@@ -276,3 +220,7 @@ export RUSTUP_HOME="$HOME/.rustup-$(uname -m)"
 # aliases at the bottom of each file to machines where they resolve.
 command -v squeue >/dev/null 2>&1 && [ -f "$HOME/.slurm_fns.sh" ] && source "$HOME/.slurm_fns.sh"
 command -v bjobs  >/dev/null 2>&1 && [ -f "$HOME/.lsf_fns.sh" ]   && source "$HOME/.lsf_fns.sh"
+
+# Clone helpers, kept in the repo rather than a $HOME symlink so a git pull does not drop gc from
+# every shell until install.sh reruns. Unconditional: git is always present.
+[ -f "$DOTFILES/.git_fns.sh" ] && source "$DOTFILES/.git_fns.sh"
