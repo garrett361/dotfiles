@@ -9,6 +9,9 @@ onboarding = false
 # Prefix stays at herdr's ctrl+b default. Local tmux uses C-f, so the two do not fight when tmux
 # runs inside a herdr pane. tmux over SSH keeps C-b and does collide; that is the rarer case.
 
+# tmux's detach key. herdr's default is prefix+q.
+detach = "prefix+d"
+
 # tmux's split keys. herdr's split_vertical is a right split and split_horizontal a down split,
 # which is the opposite of tmux's -h/-v naming for those same two layouts.
 split_vertical = "prefix+%"
