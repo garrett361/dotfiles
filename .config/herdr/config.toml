@@ -91,3 +91,7 @@ description = "switch to the last tab in this workspace"
 status_indicators = "symbols"
 
 prompt_new_tab_name = false
+
+# tmux's status line sits at the bottom. Prefix, navigate, copy and resize mode bars replace this
+# row while they are active, so the tab numbers are hidden while the prefix is held.
+tab_bar_position = "bottom"
