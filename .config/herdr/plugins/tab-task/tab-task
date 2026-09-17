@@ -1,0 +1,98 @@
+#!/bin/sh
+#
+# tab-task: label every tab with its position and what the program inside it is doing.
+#
+#   tab-task refresh   # herdr's pane and tab event hooks, and its startup hook
+#
+# One pass relabels every tab in the session, because herdr's tab row draws only the label, so a
+# tab's position has to be written into its label, and any tab appearing, closing or moving shifts
+# the positions of the others. Renames that would not change anything are skipped, so the steady
+# state is a single API call and no writes.
+#
+# A tab is relabelled only when its current label is one herdr generated (the bare position number)
+# or one this plugin wrote (that number, then ": ", then the description). Anything else is a name
+# chosen by hand and is left alone. A hand-chosen name that happens to take either shape cannot be
+# told apart and will be overwritten.
+#
+# Labels persist in herdr's session.json, so removing this plugin leaves the last labels frozen in
+# place. Renaming a tab to a bare number hands it back.
+
+# The hook PATH promises nothing, so a bare `command -v` is not enough; get_deps.sh pins jq and
+# installs it per architecture. Without jq this plugin does nothing at all, by choice.
+jq_bin=$(command -v jq) || jq_bin="$HOME/.local/bin/$(uname -m)/jq"
+[ -x "$jq_bin" ] || exit 0
+
+# herdr injects HERDR_BIN_PATH into hooks, which also pins the CLI to the server that fired them.
+herdr_bin="${HERDR_BIN_PATH:-herdr}"
+
+max_desc=24
+
+# One snapshot carries workspaces, tabs and panes together, which `tab list` and `pane list` cannot
+# do in one call: pane list takes only --workspace, so there is no way to ask for a single tab's
+# panes.
+#
+# A tab's description is the first of: the metadata title any tool can push with
+# `pane report-metadata --title`, the terminal title a program sets for itself, each preferring the
+# tab's focused pane and falling back to its lowest-numbered one. Panes are ordered numerically, so
+# p2 sorts before p10. Control characters become spaces before runs are collapsed, so a title
+# carrying a newline does not lose a word boundary. The control characters are matched by name on purpose: Oniguruma does not know a
+# backslash-u escape, so spelling that range out numerically silently eats most of printable
+# ASCII instead.
+describe_tabs() {
+    "$herdr_bin" api snapshot 2> /dev/null | "$jq_bin" -r --argjson max "$max_desc" '
+        .result.snapshot as $s
+        | ($s.panes // []) as $panes
+        | ($s.tabs // [])
+        | group_by(.workspace_id)
+        | map(to_entries | map(.value + { pos: (.key + 1) }))
+        | add // []
+        | map(
+            . as $tab
+            | ($panes | map(select(.tab_id == $tab.tab_id)) | sort_by(.pane_id | sub(".*:p"; "") | tonumber)) as $own
+            | (
+                ($own | map(select(.focused and (.title // "") != "")) | .[0].title)
+                // ($own | map(select((.title // "") != "")) | .[0].title)
+                // ($own | map(select(.focused and (.terminal_title_stripped // "") != "")) | .[0].terminal_title_stripped)
+                // ($own | map(select((.terminal_title_stripped // "") != "")) | .[0].terminal_title_stripped)
+                // ""
+              ) as $raw
+            | ($raw
+                | gsub("[[:cntrl:]]"; " ")
+                | gsub("\\s+"; " ")
+                | ltrimstr(" ")
+                | rtrimstr(" ")) as $clean
+            | (if ($clean | length) > $max
+                then ($clean[0:$max - 1] + "~")
+                else $clean end) as $desc
+            | (if $desc == "" then ($tab.pos | tostring) else "\($tab.pos): \($desc)" end) as $want
+            | { tab_id: $tab.tab_id, label: ($tab.label // ""), want: $want }
+          )
+        | map(select(.label != .want))
+        # Only a label herdr generated (a bare number, or empty) or one this plugin wrote is ours to
+        # overwrite. Anything else is a name chosen by hand. A hand-chosen name taking either shape
+        # cannot be told apart and will be overwritten.
+        | map(select((.label | test("^[0-9]*$")) or (.label | test("^[0-9]+: "))))
+        # join, not @tsv: @tsv escapes a backslash in the value, and the escaped form never compares
+        # equal to what the next pass computes, so the tab would be renamed on every event forever.
+        # The gsub above already guarantees no tab or newline is left in the description.
+        | .[] | [.tab_id, .want] | join("\t")
+    '
+}
+
+case "$1" in
+    refresh)
+        # Both fields are always non-empty, which is what makes this split safe: a tab belongs to
+        # IFS's blank class, so an empty field would collapse and shift `want` out of place.
+        field_sep=$(printf '\t')
+        describe_tabs | while IFS="$field_sep" read -r tab_id want; do
+            [ -n "$tab_id" ] || continue
+            # A tab closed between the snapshot and here is not worth reporting: a hook that
+            # exits non-zero shows up as a failure in `herdr plugin log list`.
+            "$herdr_bin" tab rename "$tab_id" "$want" > /dev/null 2>&1 || :
+        done
+        ;;
+    *)
+        echo "usage: tab-task refresh" >&2
+        exit 2
+        ;;
+esac

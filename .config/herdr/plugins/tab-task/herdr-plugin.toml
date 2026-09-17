@@ -1,0 +1,57 @@
+# Tabs show herdr's bare position number, which says nothing about what the tab is doing. Any
+# program in a pane names itself through its terminal title, which herdr captures as
+# terminal_title_stripped with the spinner glyph already removed, and agents put a task summary
+# there; this plugin copies that onto the tab label. herdr 0.9.0 has no tab label format option, so
+# renaming the tab is the only lever, and its tab row draws only the label and not the number
+# beside it, so the label has to carry the position too.
+id = "garrett361.tab-task"
+name = "Tab task labels"
+version = "0.1.0"
+min_herdr_version = "0.9.0"
+description = "Label each tab with its position and what the program inside it is doing"
+platforms = ["linux", "macos"]
+
+# herdr 0.9.0 has no plugin event for a terminal title change: pane.updated, pane.title_changed
+# and pane.renamed are all rejected at link time, even though events.subscribe accepts the first.
+# An agent's status moves as its task moves, so this is the closest thing to a title trigger.
+[[events]]
+on = "pane.agent_status_changed"
+command = ["sh", "-c", '"$HERDR_PLUGIN_ROOT/tab-task" refresh']
+
+# The moment a pane starts naming itself, and the moment it stops.
+[[events]]
+on = "pane.agent_detected"
+command = ["sh", "-c", '"$HERDR_PLUGIN_ROOT/tab-task" refresh']
+
+[[events]]
+on = "pane.exited"
+command = ["sh", "-c", '"$HERDR_PLUGIN_ROOT/tab-task" refresh']
+
+[[events]]
+on = "pane.closed"
+command = ["sh", "-c", '"$HERDR_PLUGIN_ROOT/tab-task" refresh']
+
+# A catch-all for the title changes the events above miss: looking at a tab refreshes it.
+[[events]]
+on = "pane.focused"
+command = ["sh", "-c", '"$HERDR_PLUGIN_ROOT/tab-task" refresh']
+
+# Positions shift when the tab set changes, and herdr stops maintaining the position of any tab
+# that has a custom label, which is every tab this plugin has touched. So these three keep the
+# numbers honest rather than being a nicety.
+[[events]]
+on = "tab.created"
+command = ["sh", "-c", '"$HERDR_PLUGIN_ROOT/tab-task" refresh']
+
+[[events]]
+on = "tab.closed"
+command = ["sh", "-c", '"$HERDR_PLUGIN_ROOT/tab-task" refresh']
+
+[[events]]
+on = "tab.moved"
+command = ["sh", "-c", '"$HERDR_PLUGIN_ROOT/tab-task" refresh']
+
+# Restored tabs keep the label they were persisted with, and the programs that justified those
+# labels are gone.
+[[startup]]
+command = ["sh", "-c", '"$HERDR_PLUGIN_ROOT/tab-task" refresh']
