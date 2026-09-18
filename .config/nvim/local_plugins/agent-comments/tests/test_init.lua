@@ -82,17 +82,6 @@ T.test("init: edit_comment updates text and refreshes its callout", function()
 	T.ok(callout_text and callout_text:find("new text", 1, true), "callout shows edited text")
 end)
 
-T.test("init: git context returns nil when git cannot spawn", function()
-	local original = vim.system
-	vim.system = function()
-		error("ENOENT: git")
-	end
-	local ok, context = pcall(hn._git_context)
-	vim.system = original
-	T.ok(ok)
-	T.eq(context, nil)
-end)
-
 T.test("init: send_all formats, dispatches, clears", function()
 	comments.clear()
 	local b = vim.api.nvim_create_buf(false, true)
@@ -378,47 +367,6 @@ T.test("init: send_all reports a transport error and keeps the comment", functio
 	T.eq(#comments.list(), 1, "comments must survive a transport error")
 end)
 
-T.test("init: send_all labels each comment with its own directory's git context", function()
-	comments.clear()
-	local function named_buf(name)
-		local b = vim.api.nvim_create_buf(false, true)
-		vim.api.nvim_buf_set_lines(b, 0, -1, false, { "alpha" })
-		vim.api.nvim_buf_set_name(b, name)
-		return b
-	end
-	comments.add(named_buf("/tmp/hn-ctx-a/one.lua"), 1, 1, "first")
-	comments.add(named_buf("/tmp/hn-ctx-a/two.lua"), 1, 1, "second")
-	comments.add(named_buf("/tmp/hn-ctx-b/three.lua"), 1, 1, "third")
-
-	local ui = require("agent-comments.ui")
-	local dispatch = require("agent-comments.dispatch")
-	local agents = require("agent-comments.agents")
-	local sent, calls = {}, {}
-	local o1, o2, o3, og = ui.pick_agent, dispatch.send, agents.list, hn._git_context
-	ui.pick_agent = function()
-		error("picker must not open for a lone agent")
-	end
-	dispatch.send = function(_, text)
-		sent = text
-		return true
-	end
-	agents.list = function()
-		return { { pane_id = "wZ:p9", title = "pi", status = "idle" } }
-	end
-	hn._git_context = function(dir)
-		calls[dir] = (calls[dir] or 0) + 1
-		return "ctx " .. vim.fn.fnamemodify(dir, ":t")
-	end
-
-	hn.send_all({ submit = false })
-	ui.pick_agent, dispatch.send, agents.list, hn._git_context = o1, o2, o3, og
-
-	T.ok(sent:find("1. /tmp/hn-ctx-a/one.lua:1-1 (ctx hn-ctx-a)", 1, true))
-	T.ok(sent:find("2. /tmp/hn-ctx-a/two.lua:1-1 (ctx hn-ctx-a)", 1, true))
-	T.ok(sent:find("3. /tmp/hn-ctx-b/three.lua:1-1 (ctx hn-ctx-b)", 1, true))
-	T.eq(calls, { ["/tmp/hn-ctx-a"] = 1, ["/tmp/hn-ctx-b"] = 1 }, "one git call per directory")
-end)
-
 T.test("init: send_all marks a comment whose buffer has unwritten changes", function()
 	comments.clear()
 	local b = vim.api.nvim_create_buf(true, false)
@@ -430,7 +378,7 @@ T.test("init: send_all marks a comment whose buffer has unwritten changes", func
 	local dispatch = require("agent-comments.dispatch")
 	local agents = require("agent-comments.agents")
 	local sent = {}
-	local o1, o2, o3, og = ui.pick_agent, dispatch.send, agents.list, hn._git_context
+	local o1, o2, o3 = ui.pick_agent, dispatch.send, agents.list
 	ui.pick_agent = function()
 		error("picker must not open for a lone agent")
 	end
@@ -441,13 +389,10 @@ T.test("init: send_all marks a comment whose buffer has unwritten changes", func
 	agents.list = function()
 		return { { pane_id = "wZ:p9", title = "pi", status = "idle" } }
 	end
-	hn._git_context = function()
-		return nil
-	end
 
 	T.ok(vim.bo[b].modified, "a listed buffer is modified once lines are set")
 	hn.send_all({ submit = false })
-	ui.pick_agent, dispatch.send, agents.list, hn._git_context = o1, o2, o3, og
+	ui.pick_agent, dispatch.send, agents.list = o1, o2, o3
 
 	T.ok(sent:find("1. " .. vim.api.nvim_buf_get_name(b) .. ":1-1 [unsaved]", 1, true))
 	T.ok(sent:find("Items marked [unsaved] quote my editor buffer", 1, true))

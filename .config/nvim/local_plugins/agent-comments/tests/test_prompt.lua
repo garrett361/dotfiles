@@ -1,6 +1,6 @@
 local prompt = require("agent-comments.prompt")
 
-T.test("prompt: single comment, no context", function()
+T.test("prompt: single comment renders as path, range, quoted line, comment", function()
 	local s = prompt.format({
 		{
 			comment = {
@@ -46,12 +46,11 @@ T.test("prompt: the header counts the items and pluralises", function()
 	T.ok(two:find("2 comments:", 1, true) == 1)
 end)
 
-T.test("prompt: multiple comments numbered, whole snippet quoted, per-item context", function()
+T.test("prompt: multiple comments numbered, whole snippet quoted", function()
 	local s = prompt.format({
 		{
 			comment = { file = "a.rs", start_line = 1, end_line = 5, text = "c1" },
 			snippet = { "l1", "l2", "l3", "l4", "l5" },
-			context = "repo: demo, branch: main",
 		},
 		{
 			comment = { file = "b.rs", start_line = 2, end_line = 3, text = "c2" },
@@ -59,11 +58,11 @@ T.test("prompt: multiple comments numbered, whole snippet quoted, per-item conte
 		},
 	})
 	T.ok(s:find("2 comments:", 1, true) == 1)
-	T.ok(s:find("1. a.rs:1-5 (repo: demo, branch: main)", 1, true))
+	T.ok(s:find("\n1. a.rs:1-5\n", 1, true), "the header ends at the range, with no parenthetical")
 	T.ok(s:find("\n   3 | l3\n", 1, true))
 	T.ok(s:find("\n   5 | l5\n", 1, true), "the whole snippet must be quoted, not capped at 3")
 	T.ok(not s:find("omitted", 1, true), "an uncapped snippet must not claim omissions")
-	T.ok(s:find("2. b.rs:2-3", 1, true))
+	T.ok(s:find("\n2. b.rs:2-3\n", 1, true), "the header ends at the range, with no parenthetical")
 	T.ok(s:find("   Comment: c2", 1, true))
 end)
 
@@ -131,23 +130,4 @@ T.test("prompt: unsaved items are marked and explained, saved-only items are not
 	})
 	T.ok(not saved:find("[unsaved]", 1, true), "an unmodified comment is not marked")
 	T.ok(not saved:find("not yet written to disk", 1, true), "no preamble without unsaved items")
-end)
-
-T.test("prompt: each item carries its own context and no other item's", function()
-	local s = prompt.format({
-		{
-			comment = { file = "a.lua", start_line = 1, end_line = 1, text = "c1" },
-			snippet = { "a" },
-			context = "repo: one, branch: main",
-		},
-		{
-			comment = { file = "b.lua", start_line = 1, end_line = 1, text = "c2" },
-			snippet = { "b" },
-			context = "repo: two, branch: dev",
-		},
-	})
-	T.ok(s:find("\n1. a.lua:1-1 (repo: one, branch: main)\n", 1, true))
-	T.ok(s:find("\n2. b.lua:1-1 (repo: two, branch: dev)\n", 1, true))
-	T.eq(select(2, s:gsub("repo: one", "")), 1, "the first context appears only on its own item")
-	T.eq(select(2, s:gsub("repo: two", "")), 1, "the second context appears only on its own item")
 end)

@@ -1,7 +1,7 @@
 # agent-comments
 
-Comment on code in Neovim like a code review, then send the comments, with file:line and git
-context, to an agent running under herdr or tmux.
+Comment on code in Neovim like a code review, then send the comments, with file:line context, to
+an agent running under herdr or tmux.
 
 ## Provenance
 
@@ -45,6 +45,9 @@ This list is the record of modification, and gets appended to as the fork diverg
   the current window, and delivers through `set-buffer` plus `paste-buffer` so a multi-line prompt
   arrives as one paste instead of one submitted line per newline. `ui.pick_agent`'s empty-list
   message no longer names herdr, since either transport can produce it.
+- The per-comment git context added earlier was removed, along with the `git` spawn and the
+  per-directory cache behind it. The absolute path in each item header already identifies the repo,
+  and the branch is one `git rev-parse` away in a tree the agent is already sitting in.
 
 ## Tests
 

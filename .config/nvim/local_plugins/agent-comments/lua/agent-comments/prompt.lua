@@ -31,9 +31,6 @@ function M.format(items, opts)
 		table.insert(lines, "")
 		local c = item.comment
 		local head = string.format("%d. %s:%d-%d", i, c.file, c.start_line, c.end_line)
-		if item.context then
-			head = head .. " (" .. item.context .. ")"
-		end
 		if c.modified then
 			head = head .. " [unsaved]"
 		end

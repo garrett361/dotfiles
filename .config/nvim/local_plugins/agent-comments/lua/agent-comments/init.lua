@@ -78,52 +78,17 @@ function M.list_comments()
 	})
 end
 
-function M._git_context(cwd)
-	local ok, r = pcall(function()
-		return vim.system(
-			{ "git", "rev-parse", "--show-toplevel", "--abbrev-ref", "HEAD" },
-			{ text = true, cwd = cwd, timeout = 2000 }
-		):wait()
-	end)
-	if not ok or r.code ~= 0 then
-		return nil
-	end
-	local root, branch = r.stdout:match("([^\n]*)\n([^\n]*)")
-	if not root then
-		return nil
-	end
-	return string.format(
-		"repo: %s, branch: %s",
-		vim.fn.fnamemodify(vim.trim(root), ":t"),
-		vim.trim(branch)
-	)
-end
-
--- One git spawn per distinct directory, not per comment: the previous first-comment-wins header
--- silently mislabelled every comment after the first when they spanned two repos.
-local function context_for(file, cache)
-	if file == "" then
-		return nil
-	end
-	local dir = vim.fn.fnamemodify(file, ":h")
-	if cache[dir] == nil then
-		cache[dir] = M._git_context(dir) or false
-	end
-	return cache[dir] or nil
-end
-
 function M.send_all(opts)
 	local list = comments.list()
 	if #list == 0 then
 		vim.notify("agent-comments: no comments to send", vim.log.levels.INFO)
 		return
 	end
-	local items, cache = {}, {}
+	local items = {}
 	for _, c in ipairs(list) do
 		table.insert(items, {
 			comment = c,
 			snippet = comments.snippet(c.id),
-			context = context_for(c.file, cache),
 		})
 	end
 	local text = prompt.format(items)
