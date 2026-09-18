@@ -5,6 +5,14 @@
 # live here or a fresh link resets herdr's onboarding state.
 onboarding = false
 
+[theme]
+# Follow ghostty's palette; the default catppuccin ignores the host terminal and reads duller.
+name = "terminal"
+
+[theme.custom]
+# `terminal` puts the focused tab's ANSI 8 label on an ANSI 4 fill, which is unreadable here.
+accent = "cyan"
+
 [keys]
 
 # tmux's detach key. herdr's default is prefix+q.
