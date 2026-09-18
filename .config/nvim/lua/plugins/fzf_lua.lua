@@ -80,6 +80,31 @@ local function get_mark_name_line_col_text(mark)
 	return { mark_name, line, col, text }
 end
 
+local FILES_CMD =
+	"rg --files --hidden --ignore --glob='!.git' --glob '!*.pyc' --glob '!*.venv/' --glob '!*.ruff_cache/' --glob '!*.mypy_cache/' --glob '!*__pycache__/' --glob '!*.git/'"
+
+local MTIME_SORT_FILE_LIMIT = 16000
+
+local mtime_sort_by_cwd = {}
+
+---`--sortr=modified` makes ripgrep single-threaded and non-streaming, which stalls the
+---picker for seconds on huge trees, so only ask for it when the tree is small enough.
+---@return string
+local function files_cmd()
+	local cwd = vim.uv.cwd() or ""
+	local sort_by_mtime = mtime_sort_by_cwd[cwd]
+	if sort_by_mtime == nil then
+		local probe = FILES_CMD .. " 2>/dev/null | head -n " .. (MTIME_SORT_FILE_LIMIT + 1) .. " | wc -l"
+		local count = tonumber(vim.fn.system(probe))
+		sort_by_mtime = count ~= nil and count <= MTIME_SORT_FILE_LIMIT
+		mtime_sort_by_cwd[cwd] = sort_by_mtime
+	end
+	if sort_by_mtime then
+		return FILES_CMD .. " --sortr=modified"
+	end
+	return FILES_CMD
+end
+
 return {
 
 	"ibhagwan/fzf-lua",
@@ -194,7 +219,7 @@ return {
 				-- https://www.reddit.com/r/neovim/comments/1mg3ygb/fzflua_better_file_picker_sorting_small_solution/
 				prequire("fzf-lua").files({
 					-- cmd = "fd -IH --exclude *.pyc --exclude *.venv/ --exclude *.ruff_cache/ --exclude *.mypy_cache/ --exclude *__pycache__/ --exclude *.git/",
-					cmd = "rg --files --hidden --ignore --glob='!.git' --glob '!*.pyc' --glob '!*.venv/' --glob '!*.ruff_cache/' --glob '!*.mypy_cache/' --glob '!*__pycache__/' --glob '!*.git/' --sortr=modified",
+					cmd = files_cmd(),
 					fzf_opts = { ["--scheme"] = "path", ["--tiebreak"] = "index" },
 					winopts = { preview = { delay = 0 } },
 				})
