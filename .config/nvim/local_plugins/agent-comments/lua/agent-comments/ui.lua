@@ -2,6 +2,10 @@ local M = {}
 local comments = require("agent-comments.comments")
 local agents = require("agent-comments.agents")
 
+-- Separate from comments.ns so a query means one thing: comments.ns holds exactly
+-- one range-tracking extmark per comment, this one holds only drawing.
+M.ns = vim.api.nvim_create_namespace("agent-comments-decorations")
+
 -- An annotated block is drawn as three cooperating layers:
 --   * a solid amber rail in the SIGN COLUMN, one cell per line of the block
 --   * a subtle full-width background tint over those same lines
@@ -14,14 +18,28 @@ local agents = require("agent-comments.agents")
 -- The colour is a dedicated amber, NOT a link to DiagnosticWarn. Borrowing the
 -- diagnostic colour makes comments compete with real warnings for the same
 -- visual meaning. Override any of these highlights to retheme.
-vim.api.nvim_set_hl(0, "AgentCommentsSign", { default = true, fg = "#d7a65f", bold = true })
-vim.api.nvim_set_hl(0, "AgentCommentsText", { default = true, fg = "#d7a65f" })
--- Tint stays deliberately quiet -- the rail carries the colour. Linked to
--- CursorLine so it tracks whatever the active colourscheme uses for "this
--- region is active", on light and dark themes alike.
-vim.api.nvim_set_hl(0, "AgentCommentsLine", { default = true, link = "CursorLine" })
+local function set_highlights()
+	vim.api.nvim_set_hl(0, "AgentCommentsSign", { default = true, fg = "#d7a65f", bold = true })
+	vim.api.nvim_set_hl(0, "AgentCommentsText", { default = true, fg = "#d7a65f" })
+	-- Tint stays deliberately quiet -- the rail carries the colour. Linked to
+	-- CursorLine so it tracks whatever the active colourscheme uses for "this
+	-- region is active", on light and dark themes alike.
+	vim.api.nvim_set_hl(0, "AgentCommentsLine", { default = true, link = "CursorLine" })
+end
+
+set_highlights()
+
+-- A :colorscheme clears every highlight, so these have to be laid down again after one.
+vim.api.nvim_create_autocmd("ColorScheme", {
+	group = vim.api.nvim_create_augroup("AgentCommentsHighlights", { clear = true }),
+	callback = set_highlights,
+})
 
 local decorations = {} -- comment id -> { hl, callout, bufnr }
+
+-- There is only ever one comment list, tracked here so code outside comment_list()
+-- (a send, say) can refresh or close it.
+local open_list = nil
 
 function M.visual_range()
 	local s = vim.api.nvim_buf_get_mark(0, "<")[1]
@@ -52,7 +70,7 @@ function M.decorate(id)
 	if not c then
 		return
 	end
-	local ns = comments.ns
+	local ns = M.ns
 	-- 1. Rail + tint on every line of the block. ▌ (half block) fills the sign
 	--    cell solidly, so the rail reads as one continuous stripe down the block
 	--    instead of a dotted column of glyphs.
@@ -78,9 +96,9 @@ function M.undecorate(id)
 	local marks = decorations[id]
 	if marks and vim.api.nvim_buf_is_valid(marks.bufnr) then
 		for _, bar in ipairs(marks.bars) do
-			vim.api.nvim_buf_del_extmark(marks.bufnr, comments.ns, bar)
+			vim.api.nvim_buf_del_extmark(marks.bufnr, M.ns, bar)
 		end
-		vim.api.nvim_buf_del_extmark(marks.bufnr, comments.ns, marks.callout)
+		vim.api.nvim_buf_del_extmark(marks.bufnr, M.ns, marks.callout)
 	end
 	decorations[id] = nil
 end
@@ -97,10 +115,21 @@ end
 
 -- Interactive comment list: a rounded floating box (with a shortcut-hint footer)
 -- listing one row per comment. Moving the cursor auto-previews (jumps the code
--- window to that comment); <CR> edits, `d` deletes, `q`/<Esc> closes.
+-- window to that comment); <CR> jumps, `e` edits, `dd` deletes, `q`/<Esc> cancels.
 -- `handlers.edit(c, refresh)` and `handlers.delete(c)` do the actual work.
 function M.comment_list(handlers)
+	-- Ahead of the no-comments early return below, so a list left behind by any path that forgot
+	-- to close it can never strand a float the user cannot reopen and dismiss.
+	if open_list then
+		open_list.dismiss()
+	end
 	local code_win = vim.api.nvim_get_current_win()
+	-- Browsing the list previews by moving the code window. Save where it was so cancelling puts
+	-- it back; only <CR> is allowed to leave the window somewhere new.
+	local origin = {
+		buf = vim.api.nvim_win_get_buf(code_win),
+		view = vim.api.nvim_win_call(code_win, vim.fn.winsaveview),
+	}
 	local rows = comments.list()
 	if #rows == 0 then
 		vim.notify("agent-comments: no comments", vim.log.levels.INFO)
@@ -128,7 +157,12 @@ function M.comment_list(handlers)
 			border = "rounded",
 			title = { { " 💬 Comments ", "AgentCommentsText" } },
 			title_pos = "center",
-			footer = { { " ↑↓ jump  ·  ⏎ edit  ·  d delete  ·  q close ", "Comment" } },
+			footer = {
+				{
+					" ↑↓ preview  ·  ⏎ jump  ·  e edit  ·  dd delete  ·  q cancel ",
+					"Comment",
+				},
+			},
 			footer_pos = "center",
 		}
 	end
@@ -137,12 +171,48 @@ function M.comment_list(handlers)
 	vim.wo[win].cursorline = true
 	vim.wo[win].wrap = false
 
+	local grp = vim.api.nvim_create_augroup("AgentCommentsList" .. buf, { clear = true })
+
+	local function restore()
+		if not vim.api.nvim_win_is_valid(code_win) or not vim.api.nvim_buf_is_valid(origin.buf) then
+			return
+		end
+		if vim.api.nvim_win_get_buf(code_win) ~= origin.buf then
+			-- Same E37 guard as preview(): a modified buffer with 'hidden' off refuses to swap out.
+			if not pcall(vim.api.nvim_win_set_buf, code_win, origin.buf) then
+				return
+			end
+		end
+		vim.api.nvim_win_call(code_win, function()
+			vim.fn.winrestview(origin.view)
+		end)
+	end
+
+	-- Set by every deliberate takedown, so the WinLeave handler below stays out of the way. Every
+	-- exit path funnels through dismiss(), <CR> included, and closing the float fires WinLeave.
+	local closing = false
+
+	local function dismiss()
+		closing = true
+		if vim.api.nvim_win_is_valid(win) then
+			vim.api.nvim_win_close(win, true)
+		end
+		pcall(vim.api.nvim_del_augroup_by_id, grp)
+		-- Guarded so a dismiss arriving late cannot drop a list opened since.
+		if open_list and open_list.win == win then
+			open_list = nil
+		end
+	end
+
+	local function close()
+		restore()
+		dismiss()
+	end
+
 	local function render()
 		rows = comments.list()
 		if #rows == 0 then
-			if vim.api.nvim_win_is_valid(win) then
-				vim.api.nvim_win_close(win, true)
-			end
+			close()
 			return false
 		end
 		local lines = {}
@@ -187,24 +257,37 @@ function M.comment_list(handlers)
 		end)
 	end
 
+	open_list = { win = win, buf = buf, render = render, dismiss = dismiss }
+
 	render()
 	preview()
 
-	local grp = vim.api.nvim_create_augroup("AgentCommentsList" .. buf, { clear = true })
 	vim.api.nvim_create_autocmd("CursorMoved", { group = grp, buffer = buf, callback = preview })
 
-	local function close()
-		if vim.api.nvim_win_is_valid(win) then
-			vim.api.nvim_win_close(win, true)
-		end
-	end
+	vim.api.nvim_create_autocmd("WinLeave", {
+		group = grp,
+		buffer = buf,
+		callback = function()
+			-- Navigating away without <CR> is a cancel. Deferred because a WinLeave callback is
+			-- not allowed to close a window; skipped while the list is coming down on purpose,
+			-- since restoring then would undo the jump <CR> just made.
+			vim.schedule(function()
+				if not closing then
+					close()
+				end
+			end)
+		end,
+	})
+
 	local function map(lhs, fn)
 		vim.keymap.set("n", lhs, fn, { buffer = buf, nowait = true, silent = true })
 	end
 
 	map("q", close)
 	map("<Esc>", close)
-	map("<CR>", function()
+	-- <CR> is the jump: the preview already put the code window where the user wants it.
+	map("<CR>", dismiss)
+	map("e", function()
 		local c = current()
 		if c then
 			handlers.edit(c, function()
@@ -214,7 +297,9 @@ function M.comment_list(handlers)
 			end)
 		end
 	end)
-	local function del()
+	-- No `nowait` here: `dd` needs the timeout to collect its second key, and binding the whole
+	-- gesture keeps a stray `d` (the start of `dd`, `dw`, `diw`) from destroying a comment.
+	vim.keymap.set("n", "dd", function()
 		local c = current()
 		if c then
 			handlers.delete(c)
@@ -222,8 +307,21 @@ function M.comment_list(handlers)
 				preview()
 			end
 		end
+	end, { buffer = buf, silent = true })
+end
+
+-- Redraw an open list from the live comment store. render() closes the window when nothing is
+-- left, so clearing every comment both drops the list and puts the code window back.
+function M.refresh_list()
+	local list = open_list
+	if not list then
+		return
 	end
-	map("d", del)
+	if not vim.api.nvim_win_is_valid(list.win) or not vim.api.nvim_buf_is_valid(list.buf) then
+		open_list = nil
+		return
+	end
+	list.render()
 end
 
 function M.pick_agent(agent_list, on_choice)

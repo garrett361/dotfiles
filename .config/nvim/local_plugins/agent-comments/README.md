@@ -17,6 +17,23 @@ This list is the record of modification, and gets appended to as the fork diverg
 - Renamed throughout: module `herdr-nvim` to `agent-comments`, command `:Herdr` to `:AgentComment`,
   highlight groups `HerdrNvimComment{Sign,Text,Line}` to `AgentComments{Sign,Text,Line}`.
 - Reformatted with this repo's stylua config, tabs at 100 columns.
+- The plugin no longer defines keymaps. `M.config.prefix`, `M.config.keymaps` and the guard that
+  skipped already-mapped keys are gone, and the maps are declared in the user's lazy spec instead.
+  `M.statusline()` removed as unused.
+- `agents.available()` added, and `agents.list()` gated on it: a missing `HERDR_WORKSPACE_ID` is now
+  an error rather than a candidate list widened to every agent in every workspace. An agent's
+  `status` is optional, since a multiplexer without an agent supervisor reports none, and
+  `agents.display()` omits that segment when it is absent.
+- Decorations moved to their own extmark namespace, separate from the one that tracks comment
+  ranges, so a query of either namespace means exactly one thing.
+- Prompt format rewritten: full snippets up to a 200-line cap with an explicit marker for what was
+  omitted, a line number on every line, an `[unsaved]` marker for modified buffers, git context per
+  comment instead of one first-comment-wins header, and a neutral terminator in place of the
+  imperative footer.
+- The comment list restores the code window's buffer and view on cancel; `<CR>` jumps, `e` edits,
+  `dd` deletes.
+- Highlights are re-applied on `ColorScheme`, which previously wiped them, and
+  `:checkhealth agent-comments` was added.
 
 ## Tests
 
@@ -27,7 +44,7 @@ cd .config/nvim/local_plugins/agent-comments
 nvim --headless --noplugin -u NONE -l tests/run.lua
 ```
 
-It currently reports `54/54 passed`.
+It currently reports `72/72 passed`.
 
 ## Loading
 

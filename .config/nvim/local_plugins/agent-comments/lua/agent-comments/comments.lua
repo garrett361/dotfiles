@@ -1,4 +1,6 @@
 local M = {}
+-- Range tracking only: one extmark per comment, so a query here counts comments.
+-- Decorations live in their own namespace (see ui.ns).
 M.ns = vim.api.nvim_create_namespace("agent-comments")
 local store = {} -- id -> { bufnr, extmark, text, created_at }
 local next_id = 1
@@ -39,6 +41,7 @@ local function resolve(id)
 		start_line = start_line,
 		end_line = end_line,
 		text = e.text,
+		modified = vim.bo[e.bufnr].modified,
 		created_at = e.created_at,
 	}
 end

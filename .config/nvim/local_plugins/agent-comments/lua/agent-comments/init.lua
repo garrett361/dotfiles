@@ -5,40 +5,12 @@ local agents = require("agent-comments.agents")
 local dispatch = require("agent-comments.dispatch")
 local ui = require("agent-comments.ui")
 
-M.config = { prefix = "<leader>a", keymaps = true, clear_after_send = true }
-
-local function map(mode, lhs, rhs, desc)
-	if vim.fn.maparg(vim.api.nvim_replace_termcodes(lhs, true, true, true), mode) ~= "" then
-		vim.notify("agent-comments: not overriding existing map " .. lhs, vim.log.levels.WARN)
-		return
-	end
-	vim.keymap.set(mode, lhs, rhs, { desc = desc })
-end
+M.config = { clear_after_send = true }
 
 function M.setup(config)
 	M.config = vim.tbl_deep_extend("force", M.config, config or {})
 	-- Ensure :AgentComment is registered (also done from plugin/agent-comments.lua).
 	require("agent-comments.commands").register()
-	-- Keymaps are opt-out (keymaps = true), as upstream had them. Prefer the :AgentComment
-	-- command or the Lua API and set keymaps = false to bind your own.
-	if M.config.keymaps then
-		local p = M.config.prefix
-		map("x", p .. "c", function()
-			M.comment_selection()
-		end, "agent-comments: comment selection")
-		map("n", p .. "c", function()
-			M.comment_line()
-		end, "agent-comments: comment line")
-		map("n", p .. "l", function()
-			M.list_comments()
-		end, "agent-comments: list comments")
-		map("n", p .. "s", function()
-			M.send_all({ submit = false })
-		end, "agent-comments: paste comments to agent")
-		map("n", p .. "S", function()
-			M.send_all({ submit = true })
-		end, "agent-comments: send comments to agent")
-	end
 end
 
 -- Range primitive behind comment_line(), comment_selection(), and :AgentComment comment.
@@ -98,7 +70,7 @@ function M._git_context(cwd)
 	local ok, r = pcall(function()
 		return vim.system(
 			{ "git", "rev-parse", "--show-toplevel", "--abbrev-ref", "HEAD" },
-			{ text = true, cwd = cwd }
+			{ text = true, cwd = cwd, timeout = 2000 }
 		):wait()
 	end)
 	if not ok or r.code ~= 0 then
@@ -115,19 +87,34 @@ function M._git_context(cwd)
 	)
 end
 
+-- One git spawn per distinct directory, not per comment: the previous first-comment-wins header
+-- silently mislabelled every comment after the first when they spanned two repos.
+local function context_for(file, cache)
+	if file == "" then
+		return nil
+	end
+	local dir = vim.fn.fnamemodify(file, ":h")
+	if cache[dir] == nil then
+		cache[dir] = M._git_context(dir) or false
+	end
+	return cache[dir] or nil
+end
+
 function M.send_all(opts)
 	local list = comments.list()
 	if #list == 0 then
 		vim.notify("agent-comments: no comments to send", vim.log.levels.INFO)
 		return
 	end
-	local items = {}
+	local items, cache = {}, {}
 	for _, c in ipairs(list) do
-		table.insert(items, { comment = c, snippet = comments.snippet(c.id) })
+		table.insert(items, {
+			comment = c,
+			snippet = comments.snippet(c.id),
+			context = context_for(c.file, cache),
+		})
 	end
-	local first_file = list[1].file
-	local cwd = first_file ~= "" and vim.fn.fnamemodify(first_file, ":h") or nil
-	local text = prompt.format(items, { header_context = M._git_context(cwd) })
+	local text = prompt.format(items)
 	local agent_list, err = agents.list()
 	if not agent_list then
 		vim.notify("agent-comments: " .. err, vim.log.levels.ERROR)
@@ -138,7 +125,7 @@ function M.send_all(opts)
 	local function deliver(agent)
 		if agent.status == "working" then
 			vim.notify(
-				"agent-comments: " .. agents.display(agent) .. " is working — sending anyway",
+				"agent-comments: " .. agents.display(agent) .. " is working, sending anyway",
 				vim.log.levels.WARN
 			)
 		end
@@ -152,6 +139,9 @@ function M.send_all(opts)
 				M.delete_comment(c)
 			end
 		end
+		-- A send can be fired from inside the comment list, which would otherwise go on showing
+		-- comments the store no longer holds.
+		ui.refresh_list()
 		vim.notify(string.format("agent-comments: sent %d comment(s) to %s", #list, agent.title))
 	end
 	-- Skip the picker when the target is unambiguous (the common one-agent case);
@@ -162,11 +152,6 @@ function M.send_all(opts)
 	else
 		ui.pick_agent(agent_list, deliver)
 	end
-end
-
-function M.statusline()
-	local n = #comments.list()
-	return n == 0 and "" or ("● " .. n)
 end
 
 return M

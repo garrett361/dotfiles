@@ -6,12 +6,7 @@ local prequire = require("nvim_utils").prequire
 local dir = vim.fn.stdpath("config") .. "/local_plugins/agent-comments"
 
 local function config()
-	-- Outside a herdr pane there is no HERDR_WORKSPACE_ID, and agents.lua then treats every agent in
-	-- every workspace as a candidate, so a send would go to an unrelated agent. No keymaps there.
-	prequire("agent-comments").setup({
-		prefix = "<leader>z",
-		keymaps = vim.env.HERDR_TAB_ID ~= nil,
-	})
+	prequire("agent-comments").setup({ clear_after_send = true })
 end
 
 return {
@@ -19,6 +14,42 @@ return {
 	-- lazy derives both of these anyway; spelled out so a directory rename is a visible change and
 	-- so the local-plugin nature is obvious at a glance.
 	name = "agent-comments",
+	-- :checkhealth resolves a health module by runtimepath, and lazy only adds a plugin's directory
+	-- to the runtimepath once that plugin loads, so lazy-loading would hide this healthcheck until
+	-- something else pulled the plugin in.
 	lazy = false,
 	config = config,
+	keys = {
+		{
+			"<leader>zc",
+			function()
+				prequire("agent-comments").comment_line()
+			end,
+		},
+		{
+			"<leader>zc",
+			function()
+				prequire("agent-comments").comment_selection()
+			end,
+			mode = "x",
+		},
+		{
+			"<leader>zl",
+			function()
+				prequire("agent-comments").list_comments()
+			end,
+		},
+		{
+			"<leader>zS",
+			function()
+				prequire("agent-comments").send_all({ submit = false })
+			end,
+		},
+		{
+			"<leader>zs",
+			function()
+				prequire("agent-comments").send_all({ submit = true })
+			end,
+		},
+	},
 }
