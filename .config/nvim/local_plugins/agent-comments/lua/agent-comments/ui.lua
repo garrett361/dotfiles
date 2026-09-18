@@ -1,0 +1,247 @@
+local M = {}
+local comments = require("agent-comments.comments")
+local agents = require("agent-comments.agents")
+
+-- An annotated block is drawn as three cooperating layers:
+--   * a solid amber rail in the SIGN COLUMN, one cell per line of the block
+--   * a subtle full-width background tint over those same lines
+--   * a callout above the first line naming the comment
+--
+-- The rail lives in the sign column rather than as inline virt_text on purpose:
+-- inline text shifts the annotated code sideways, so a block visibly jumps out
+-- of alignment with the rest of the file the moment you comment on it.
+--
+-- The colour is a dedicated amber, NOT a link to DiagnosticWarn. Borrowing the
+-- diagnostic colour makes comments compete with real warnings for the same
+-- visual meaning. Override any of these highlights to retheme.
+vim.api.nvim_set_hl(0, "AgentCommentsSign", { default = true, fg = "#d7a65f", bold = true })
+vim.api.nvim_set_hl(0, "AgentCommentsText", { default = true, fg = "#d7a65f" })
+-- Tint stays deliberately quiet -- the rail carries the colour. Linked to
+-- CursorLine so it tracks whatever the active colourscheme uses for "this
+-- region is active", on light and dark themes alike.
+vim.api.nvim_set_hl(0, "AgentCommentsLine", { default = true, link = "CursorLine" })
+
+local decorations = {} -- comment id -> { hl, callout, bufnr }
+
+function M.visual_range()
+	local s = vim.api.nvim_buf_get_mark(0, "<")[1]
+	local e = vim.api.nvim_buf_get_mark(0, ">")[1]
+	if s > e then
+		s, e = e, s
+	end
+	return s, e
+end
+
+function M.input_comment(on_done)
+	vim.ui.input({ prompt = "Comment: " }, function(text)
+		if text and text ~= "" then
+			on_done(text)
+		end
+	end)
+end
+
+-- The callout rendered ABOVE the first annotated line. Above, not below: a note
+-- sitting under its block reads as a label for whatever code follows it.
+-- The corner opens downward (╭─) into the rail beneath it.
+function M._callout(text)
+	return { { { "╭─ ", "AgentCommentsSign" }, { "💬 " .. text, "AgentCommentsText" } } }
+end
+
+function M.decorate(id)
+	local c = comments.get(id)
+	if not c then
+		return
+	end
+	local ns = comments.ns
+	-- 1. Rail + tint on every line of the block. ▌ (half block) fills the sign
+	--    cell solidly, so the rail reads as one continuous stripe down the block
+	--    instead of a dotted column of glyphs.
+	local bars = {}
+	for line = c.start_line, c.end_line do
+		bars[#bars + 1] = vim.api.nvim_buf_set_extmark(c.bufnr, ns, line - 1, 0, {
+			sign_text = "▌",
+			sign_hl_group = "AgentCommentsSign",
+			line_hl_group = "AgentCommentsLine",
+			right_gravity = false,
+		})
+	end
+
+	-- 2. Callout above the first line, opening into the rail below it.
+	local callout = vim.api.nvim_buf_set_extmark(c.bufnr, ns, c.start_line - 1, 0, {
+		virt_lines = M._callout(c.text),
+		virt_lines_above = true,
+	})
+	decorations[id] = { bars = bars, callout = callout, bufnr = c.bufnr }
+end
+
+function M.undecorate(id)
+	local marks = decorations[id]
+	if marks and vim.api.nvim_buf_is_valid(marks.bufnr) then
+		for _, bar in ipairs(marks.bars) do
+			vim.api.nvim_buf_del_extmark(marks.bufnr, comments.ns, bar)
+		end
+		vim.api.nvim_buf_del_extmark(marks.bufnr, comments.ns, marks.callout)
+	end
+	decorations[id] = nil
+end
+
+function M.comment_row(c)
+	return string.format(
+		"%s:%d-%d  %s",
+		vim.fn.fnamemodify(c.file, ":t"),
+		c.start_line,
+		c.end_line,
+		c.text
+	)
+end
+
+-- Interactive comment list: a rounded floating box (with a shortcut-hint footer)
+-- listing one row per comment. Moving the cursor auto-previews (jumps the code
+-- window to that comment); <CR> edits, `d` deletes, `q`/<Esc> closes.
+-- `handlers.edit(c, refresh)` and `handlers.delete(c)` do the actual work.
+function M.comment_list(handlers)
+	local code_win = vim.api.nvim_get_current_win()
+	local rows = comments.list()
+	if #rows == 0 then
+		vim.notify("agent-comments: no comments", vim.log.levels.INFO)
+		return
+	end
+
+	local buf = vim.api.nvim_create_buf(false, true)
+	vim.bo[buf].bufhidden = "wipe"
+	vim.bo[buf].filetype = "agent-comments"
+
+	local function win_config()
+		local width = 46
+		for _, c in ipairs(rows) do
+			width = math.max(width, vim.fn.strdisplaywidth(M.comment_row(c)) + 2)
+		end
+		width = math.min(width, math.max(46, vim.o.columns - 6))
+		local height = math.max(1, math.min(#rows, 12))
+		return {
+			relative = "editor",
+			width = width,
+			height = height,
+			row = math.max(0, vim.o.lines - height - 4),
+			col = math.max(0, math.floor((vim.o.columns - width) / 2)),
+			style = "minimal",
+			border = "rounded",
+			title = { { " 💬 Comments ", "AgentCommentsText" } },
+			title_pos = "center",
+			footer = { { " ↑↓ jump  ·  ⏎ edit  ·  d delete  ·  q close ", "Comment" } },
+			footer_pos = "center",
+		}
+	end
+
+	local win = vim.api.nvim_open_win(buf, true, win_config())
+	vim.wo[win].cursorline = true
+	vim.wo[win].wrap = false
+
+	local function render()
+		rows = comments.list()
+		if #rows == 0 then
+			if vim.api.nvim_win_is_valid(win) then
+				vim.api.nvim_win_close(win, true)
+			end
+			return false
+		end
+		local lines = {}
+		for _, c in ipairs(rows) do
+			lines[#lines + 1] = M.comment_row(c)
+		end
+		vim.bo[buf].modifiable = true
+		vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+		vim.bo[buf].modifiable = false
+		if vim.api.nvim_win_is_valid(win) then
+			vim.api.nvim_win_set_config(win, win_config())
+		end
+		return true
+	end
+
+	local function current()
+		if not vim.api.nvim_win_is_valid(win) then
+			return nil
+		end
+		return rows[vim.api.nvim_win_get_cursor(win)[1]]
+	end
+
+	local function preview()
+		local c = current()
+		if
+			not c
+			or not vim.api.nvim_win_is_valid(code_win)
+			or not vim.api.nvim_buf_is_valid(c.bufnr)
+		then
+			return
+		end
+		-- Guarded: switching the code window to another buffer can fail (E37) when
+		-- its current buffer is modified and 'hidden' is off. Skip the preview
+		-- rather than throw; the list stays usable.
+		if not pcall(vim.api.nvim_win_set_buf, code_win, c.bufnr) then
+			return
+		end
+		local line = math.min(c.start_line, math.max(1, vim.api.nvim_buf_line_count(c.bufnr)))
+		vim.api.nvim_win_set_cursor(code_win, { line, 0 })
+		vim.api.nvim_win_call(code_win, function()
+			vim.cmd("normal! zz")
+		end)
+	end
+
+	render()
+	preview()
+
+	local grp = vim.api.nvim_create_augroup("AgentCommentsList" .. buf, { clear = true })
+	vim.api.nvim_create_autocmd("CursorMoved", { group = grp, buffer = buf, callback = preview })
+
+	local function close()
+		if vim.api.nvim_win_is_valid(win) then
+			vim.api.nvim_win_close(win, true)
+		end
+	end
+	local function map(lhs, fn)
+		vim.keymap.set("n", lhs, fn, { buffer = buf, nowait = true, silent = true })
+	end
+
+	map("q", close)
+	map("<Esc>", close)
+	map("<CR>", function()
+		local c = current()
+		if c then
+			handlers.edit(c, function()
+				if render() then
+					preview()
+				end
+			end)
+		end
+	end)
+	local function del()
+		local c = current()
+		if c then
+			handlers.delete(c)
+			if render() then
+				preview()
+			end
+		end
+	end
+	map("d", del)
+end
+
+function M.pick_agent(agent_list, on_choice)
+	if #agent_list == 0 then
+		vim.notify("agent-comments: no herdr agents found", vim.log.levels.WARN)
+		return
+	end
+	-- Pure selection: send-time policy (e.g. the "working" warning) lives in the
+	-- caller's on_choice, so both the picker and the auto-resolve path share it.
+	vim.ui.select(
+		agent_list,
+		{ prompt = "Send to agent", format_item = agents.display },
+		function(a)
+			if a then
+				on_choice(a)
+			end
+		end
+	)
+end
+
+return M

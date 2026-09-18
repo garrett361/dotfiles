@@ -25,6 +25,10 @@ Set `export NVIM_APPNAME=nvim_min` to use the minimal nvim config.
 <https://github.com/garrett361/git_tree>. `get_deps.sh` clones it as a sibling of this repo and
 `install.sh` installs it as an editable `uv` tool (auto-discovered by git as `git tree`).
 
+`.config/nvim/local_plugins/agent-comments` is a vendored, modified fork of the Lua half of
+herdr-nvim, <https://github.com/ChmaraX/herdr-nvim>, MIT, (c) 2026 Adam Chmara. See that
+directory's `LICENSE` and `README.md`.
+
 ## SSH key via 1Password
 
 1Password holds the ssh key and answers authentication requests over a socket. The private half
