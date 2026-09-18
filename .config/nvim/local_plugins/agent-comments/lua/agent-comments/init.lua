@@ -5,10 +5,22 @@ local agents = require("agent-comments.agents")
 local dispatch = require("agent-comments.dispatch")
 local ui = require("agent-comments.ui")
 
-M.config = { clear_after_send = true }
+M.config = {
+	clear_after_send = true,
+	agents = {
+		{ kind = "claude", title = "^✳", command = "^%d+%.%d+%.%d+$" },
+	},
+}
 
 function M.setup(config)
-	M.config = vim.tbl_deep_extend("force", M.config, config or {})
+	config = config or {}
+	-- vim.tbl_deep_extend merges lists by index, so a caller supplying one rule would
+	-- silently keep the defaults sitting behind it. The rule list is replaced wholesale.
+	local agent_rules = config.agents
+	M.config = vim.tbl_deep_extend("force", M.config, config)
+	if agent_rules then
+		M.config.agents = agent_rules
+	end
 	-- Ensure :AgentComment is registered (also done from plugin/agent-comments.lua).
 	require("agent-comments.commands").register()
 end

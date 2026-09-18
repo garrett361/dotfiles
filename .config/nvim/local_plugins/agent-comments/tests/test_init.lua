@@ -256,7 +256,7 @@ T.test("init: send_all shows the picker when agents are ambiguous", function()
 	local previous = vim.env.HERDR_TAB_ID
 	vim.env.HERDR_TAB_ID = nil
 	local picked, sent = false, {}
-	local o1, o2, o3 = ui.pick_agent, dispatch.send, agents.list
+	local o1, o2, o3, o4 = ui.pick_agent, dispatch.send, agents.list, agents.resolve
 	ui.pick_agent = function(l, cb)
 		picked = true
 		cb(l[1])
@@ -271,9 +271,13 @@ T.test("init: send_all shows the picker when agents are ambiguous", function()
 			{ pane_id = "wB:p2", tab_id = "wB:t1", title = "claude", status = "idle" },
 		}
 	end
+	-- Stubbed so an ambiguous list cannot reach a backend and query the real multiplexer.
+	agents.resolve = function()
+		return nil
+	end
 
 	hn.send_all({ submit = false })
-	ui.pick_agent, dispatch.send, agents.list = o1, o2, o3
+	ui.pick_agent, dispatch.send, agents.list, agents.resolve = o1, o2, o3, o4
 	vim.env.HERDR_TAB_ID = previous
 
 	T.ok(picked, "picker must open when the target is ambiguous")

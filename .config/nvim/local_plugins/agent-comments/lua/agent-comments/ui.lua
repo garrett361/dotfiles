@@ -326,7 +326,7 @@ end
 
 function M.pick_agent(agent_list, on_choice)
 	if #agent_list == 0 then
-		vim.notify("agent-comments: no herdr agents found", vim.log.levels.WARN)
+		vim.notify("agent-comments: no agents found", vim.log.levels.WARN)
 		return
 	end
 	-- Pure selection: send-time policy (e.g. the "working" warning) lives in the

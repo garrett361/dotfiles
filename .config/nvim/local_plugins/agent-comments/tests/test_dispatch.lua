@@ -1,4 +1,4 @@
-local dispatch = require("agent-comments.dispatch")
+local dispatch = require("agent-comments.backends.herdr")
 
 local function recorder(fail_on)
 	local calls = {}

@@ -1,7 +1,7 @@
 # agent-comments
 
 Comment on code in Neovim like a code review, then send the comments, with file:line and git
-context, to a herdr agent.
+context, to an agent running under herdr or tmux.
 
 ## Provenance
 
@@ -38,6 +38,13 @@ This list is the record of modification, and gets appended to as the fork diverg
   `dd` deletes.
 - Highlights are re-applied on `ColorScheme`, which previously wiped them, and
   `:checkhealth agent-comments` was added.
+- The transport is split into `backends/herdr.lua` and `backends/tmux.lua` behind a selector that
+  takes the first multiplexer whose session is live, herdr before tmux; `agents` and `dispatch`
+  forward through it. The tmux backend lists the panes of the current session, keeps the ones whose
+  title or current command matches a configured agent rule, resolves to the single candidate sharing
+  the current window, and delivers through `set-buffer` plus `paste-buffer` so a multi-line prompt
+  arrives as one paste instead of one submitted line per newline. `ui.pick_agent`'s empty-list
+  message no longer names herdr, since either transport can produce it.
 
 ## Tests
 

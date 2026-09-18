@@ -1,4 +1,4 @@
-local agents = require("agent-comments.agents")
+local agents = require("agent-comments.backends.herdr")
 
 local fixture = vim.json.encode({
 	id = "cli:agent:list",
