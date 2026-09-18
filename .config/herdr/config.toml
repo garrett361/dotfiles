@@ -42,13 +42,15 @@ goto = "prefix+shift+f"
 # tmux-sessionizer for herdr: fuzzy-pick a project directory, then focus the workspace rooted there
 # or create it. Absolute path on purpose, since custom commands run through /bin/sh with no login
 # profile and ~/.local/scripts is only on PATH for interactive shells.
+# Every picker below is sized 100%/100%: a popup percentage is a share of the terminal area and
+# includes the popup border, so this is the full-screen end of that range.
 [[keys.command]]
 key = "prefix+g"
 type = "popup"
 command = "$HOME/.local/scripts/herdr-sessionizer"
 description = "sessionizer: focus or create a workspace by directory"
-width = "90%"
-height = "85%"
+width = "100%"
+height = "100%"
 
 # tmux-list-sessionizer for herdr, on the same key tmux uses. herdr's own workspace_picker
 # (prefix+w, left at its default) is a sidebar surface navigated with the arrow keys rather than a
@@ -58,8 +60,8 @@ key = "prefix+f"
 type = "popup"
 command = "$HOME/.local/scripts/herdr-list-sessionizer"
 description = "sessionizer: focus or close an open workspace"
-width = "90%"
-height = "85%"
+width = "100%"
+height = "100%"
 
 # Fuzzy-pick among agents rather than workspaces, with a live preview of each one's terminal
 # output. herdr's own agent panel is prefix+j/k stepping through a sidebar list: no search, no
@@ -70,8 +72,8 @@ key = "prefix+a"
 type = "popup"
 command = "$HOME/.local/scripts/herdr-agent-picker"
 description = "agents: focus an agent, filtered by status"
-width = "90%"
-height = "85%"
+width = "100%"
+height = "100%"
 
 # tmux's prefix+L and prefix+l. herdr has neither a last_workspace nor a last_tab action.
 [[keys.command]]
