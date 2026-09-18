@@ -111,7 +111,7 @@ GIT_LFS_VERSION="3.7.1"
 JQ_VERSION="1.8.2"
 # herdr self-updates with `herdr update`, but the next run of this script puts the pin back, so
 # bump this instead. Upstream's installer has no version knob, hence the release asset directly.
-HERDR_VERSION="0.9.0"
+HERDR_VERSION="0.9.1"
 
 pinned_ok=1
 case "$os-$arch" in
