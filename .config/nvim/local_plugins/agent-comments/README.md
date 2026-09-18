@@ -30,6 +30,10 @@ This list is the record of modification, and gets appended to as the fork diverg
   omitted, a line number on every line, an `[unsaved]` marker for modified buffers, git context per
   comment instead of one first-comment-wins header, and a neutral terminator in place of the
   imperative footer.
+- Prompt header and footer replaced by a single `N comment(s):` count line. The old header asserted
+  a review intent the individual comments contradict, and its format note explained a convention
+  `git blame` and `bat` already share. The count moved to the front because a truncated paste loses
+  the end of the message, which is exactly where the old footer put it.
 - The comment list restores the code window's buffer and view on cancel; `<CR>` jumps, `e` edits,
   `dd` deletes.
 - Highlights are re-applied on `ColorScheme`, which previously wiped them, and
@@ -43,8 +47,6 @@ There is no plugin manager, no plenary and no busted: every external call is inj
 cd .config/nvim/local_plugins/agent-comments
 nvim --headless --noplugin -u NONE -l tests/run.lua
 ```
-
-It currently reports `72/72 passed`.
 
 ## Loading
 

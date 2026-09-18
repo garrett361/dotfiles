@@ -18,7 +18,7 @@ function M.format(items, opts)
 	end
 
 	local lines = {
-		"Code review comments from my editor. Quoted lines carry their line number in the file.",
+		string.format("%d comment%s:", #items, #items == 1 and "" or "s"),
 	}
 	if any_unsaved then
 		table.insert(
@@ -26,9 +26,9 @@ function M.format(items, opts)
 			"Items marked [unsaved] quote my editor buffer, which holds changes not yet written to disk."
 		)
 	end
-	table.insert(lines, "")
 
 	for i, item in ipairs(items) do
+		table.insert(lines, "")
 		local c = item.comment
 		local head = string.format("%d. %s:%d-%d", i, c.file, c.start_line, c.end_line)
 		if item.context then
@@ -63,10 +63,8 @@ function M.format(items, opts)
 			)
 		end
 		table.insert(lines, "   Comment: " .. c.text)
-		table.insert(lines, "")
 	end
 
-	table.insert(lines, opts.footer or string.format("End of comments (%d).", #items))
 	return table.concat(lines, "\n")
 end
 

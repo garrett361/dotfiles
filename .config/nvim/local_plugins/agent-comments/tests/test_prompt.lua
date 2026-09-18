@@ -13,15 +13,37 @@ T.test("prompt: single comment, no context", function()
 		},
 	}, {})
 	local expected = table.concat({
-		"Code review comments from my editor. Quoted lines carry their line number in the file.",
+		"1 comment:",
 		"",
 		"1. /tmp/x.py:5-5",
 		"   5 | def f(x): return x*2",
 		"   Comment: rename to double",
-		"",
-		"End of comments (1).",
 	}, "\n")
 	T.eq(s, expected)
+	T.ok(not s:find("End of comments", 1, true), "no footer terminates the message")
+	T.ok(s:sub(-1) ~= "\n", "the message ends with the last Comment line, not a blank line")
+end)
+
+T.test("prompt: the header counts the items and pluralises", function()
+	local one = prompt.format({
+		{
+			comment = { file = "a.lua", start_line = 1, end_line = 1, text = "c1" },
+			snippet = { "a" },
+		},
+	})
+	T.ok(one:find("1 comment:", 1, true) == 1)
+
+	local two = prompt.format({
+		{
+			comment = { file = "a.lua", start_line = 1, end_line = 1, text = "c1" },
+			snippet = { "a" },
+		},
+		{
+			comment = { file = "b.lua", start_line = 1, end_line = 1, text = "c2" },
+			snippet = { "b" },
+		},
+	})
+	T.ok(two:find("2 comments:", 1, true) == 1)
 end)
 
 T.test("prompt: multiple comments numbered, whole snippet quoted, per-item context", function()
@@ -36,7 +58,7 @@ T.test("prompt: multiple comments numbered, whole snippet quoted, per-item conte
 			snippet = { "x", "y" },
 		},
 	})
-	T.ok(s:find("Code review comments from my editor.", 1, true) == 1)
+	T.ok(s:find("2 comments:", 1, true) == 1)
 	T.ok(s:find("1. a.rs:1-5 (repo: demo, branch: main)", 1, true))
 	T.ok(s:find("\n   3 | l3\n", 1, true))
 	T.ok(s:find("\n   5 | l5\n", 1, true), "the whole snippet must be quoted, not capped at 3")
