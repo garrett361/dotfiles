@@ -224,3 +224,7 @@ command -v bjobs  >/dev/null 2>&1 && [ -f "$HOME/.lsf_fns.sh" ]   && source "$HO
 # Clone helpers, kept in the repo rather than a $HOME symlink so a git pull does not drop gc from
 # every shell until install.sh reruns. Unconditional: git is always present.
 [ -f "$DOTFILES/.git_fns.sh" ] && source "$DOTFILES/.git_fns.sh"
+
+# Set in .commonprofile too, since neither alone reaches every shell type: zsh reads .zprofile only
+# when login and .zshrc only when interactive.
+[ -f "$HOME/.localrc" ] && . "$HOME/.localrc"
