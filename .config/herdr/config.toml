@@ -97,3 +97,8 @@ prompt_new_tab_name = false
 # tmux's status line sits at the bottom. Prefix, navigate, copy and resize mode bars replace this
 # row while they are active, so the tab numbers are hidden while the prefix is held.
 tab_bar_position = "bottom"
+
+# What workspace this is, for when prefix+b hides the sidebar that otherwise says so.
+tab_bar_right = [
+  { type = "command", command = 'toplevel=$(git rev-parse --show-toplevel 2>/dev/null); printf "%s\n" "${toplevel##*/}"' },
+]
