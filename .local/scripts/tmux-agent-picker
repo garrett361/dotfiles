@@ -14,9 +14,15 @@
 # herdr-agent-picker for the herdr-side original this is ported from. The two are deliberately
 # disjoint: nothing here calls herdr or reads a herdr environment variable.
 #
-# State comes from Claude Code's own registry rather than from scraping the screen. herdr infers
-# working/blocked/idle by matching regexes against the rendered terminal; the registry is the state
-# machine those pixels are drawn from, so reading it is both simpler and more accurate.
+# Three harnesses, three sources, and none of them is the rendered screen. Claude publishes a
+# registry of its own state, which is the state machine herdr infers by matching regexes against
+# the terminal, so reading it is both simpler and more accurate. codex publishes nothing but
+# encodes its run state in the terminal title, which tmux hands over as a format variable. prime
+# agent publishes nothing and titles nothing useful, but its daemon answers a CLI query.
+#
+# None of the three needed a hook or an extension installed, which was the constraint: the harness
+# configuration directories stay untouched. See the readers at the seam for why that matters in
+# each case, the codex one especially.
 #
 # The modes without an explicit STATUS read it back out of $FZF_PROMPT, which fzf exports to the
 # child processes of its reload, transform and preview actions. That is the whole filter-state
@@ -150,11 +156,105 @@ claude_records() {
 }
 
 # THE SEAM. Everything below consumes the uniform record and knows nothing about where it came
-# from. Adding codex or prime-agent means adding one reader here and concatenating its output;
-# each source normalizes its own status vocabulary, because nothing downstream should have to.
-# Claude needs no writer because its registry already conforms after the rename above.
+# from. Each reader normalizes its own status vocabulary, because nothing downstream should have
+# to, and each takes the pane table so the three of them cost one tmux call between them.
+#
+# The three sources are deliberately unalike. Claude publishes a registry and needs no writer here.
+# codex publishes nothing but encodes its state in the terminal title, which tmux hands us as a
+# format variable. prime-agent publishes nothing and has no useful title, but its daemon answers a
+# CLI query. None of the three required installing a hook or an extension, which is the constraint
+# this design was built to.
+#
+# A reader that produces nothing contributes an empty file here and drops out of the slurp, so a
+# missing harness costs a row, never the menu.
 agent_records() {
-    claude_records
+    jq -s -c 'add // []' \
+        <(claude_records) <(codex_records "$1") <(prime_agent_records "$1") 2> /dev/null
+}
+
+# codex writes its run state into the terminal title with a plain OSC 0, and tmux tracks that as
+# pane_title, so all three states are readable without a hook and without scraping the screen. The
+# rules are herdr distribution/agent-detection/codex.toml, where the title rules outrank the
+# screen-scraping ones (priority 1100 and 1050 against 500 to 900) for the same reason.
+#
+# The hook route was rejected rather than unexplored. get_deps.sh:410 has herdr own
+# ~/.codex/hooks.json outright and overwrite it, so a second hook there would not survive the next
+# run; hooks sit behind a feature flag and are SHA-256 trust-pinned, so editing one silently stops
+# it until it is re-approved in the TUI; and there is no event when a permission request is
+# answered, so a hook-authored blocked state can stick after a denial.
+#
+# No updatedAt: nothing here records when the state changed, so these rows show no age.
+codex_records() {
+    printf '%s' "$1" | jq -R -s -c '
+        def title_of: .[4] // "";
+        [ split("\n")[] | select(length > 0) | split("\t")
+          | select(.[2] == "codex")
+          | title_of as $t
+          | { pid: "",
+              agent: "codex",
+              cwd: (.[3] // ""),
+              tmux_pane: .[0],
+              status: (if ($t | test("Action Required")) then "blocked"
+                       elif ($t | test("(?:^| )[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏](?: |$)")) then "working"
+                       else "idle" end),
+              waitingFor: (if ($t | test("Action Required")) then "action required" else "" end),
+              # The run-state item leads the title and is state, not content, so it is stripped
+              # the same way Claude sigil is, along with the separator codex puts after it. Both
+              # spellings of the blocked marker animate. A title that is only run state strips to
+              # empty and the fallback chain reaches the cwd basename, which says more than Ready.
+              name: ($t | sub("^(\\s*(\\[\\s*[!.]\\s*\\]|[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]|Action Required|Ready)\\s*(-\\s*)?)+"; "")),
+              updatedAt: 0 }
+          # A title that was only run state strips to empty, and the shared fallback would then
+          # recover the same words from the raw pane title and restate the status column. The
+          # directory is the useful thing to show instead.
+          | if .name == "" then .name = (.cwd | split("/") | last) else . end ]' 2> /dev/null
+}
+
+# prime-agent runs its sessions in detached daemon workers with the TUI as a client, so there is no
+# pid or pane anywhere in its data: the worker outlives the pane and the one recorded in its
+# environment goes stale. The join is therefore cwd against panes whose foreground command is
+# prime-agent, which is also why sessions with no attached client are skipped, they have no pane to
+# jump to and there are usually many of them.
+#
+# Reading the pane out of the worker environment with ps would be the obvious alternative and is
+# deliberately not done: that environment carries API keys, which is why the Claude reader stopped
+# doing it too.
+#
+# Only working and idle. prime-agent cannot report blocked: the event its own herdr reporter
+# listens for has no emitter anywhere in the product, its activity field has a waiting value that
+# means waiting on the model rather than on the user, and herdr pi manifest has no blocked rule
+# either. That is a property of prime-agent, not a gap in this reader.
+prime_agent_records() {
+    command -v prime-agent > /dev/null 2>&1 || return 0
+    # The join below needs a pane whose foreground command is prime-agent, so with none on the
+    # server the query cannot produce a row however it answers. Checking the table we already have
+    # costs nothing and keeps a machine that never runs prime-agent from paying for the subprocess
+    # on every tick.
+    printf '%s' "$1" | cut -f3 | grep -qx 'prime-agent' || return 0
+    local out
+    out=$(prime-agent list --all --json 2> /dev/null) || return 0
+    [[ -n "$out" ]] || return 0
+    printf '%s' "$out" | jq -c --arg panes "$1" '
+        ([$panes | split("\n")[] | select(length > 0) | split("\t")
+          | select(.[2] == "prime-agent")
+          | {key: (.[3] // ""), value: .[0]}] | from_entries) as $byCwd
+        | [ .sessions[]?
+            | select((.attachedClients // 0) > 0)
+            | select($byCwd[.cwd // ""] != null)
+            | { pid: "",
+                agent: "prime-agent",
+                cwd: (.cwd // ""),
+                tmux_pane: $byCwd[.cwd],
+                status: (if (.activity == "working" or .activity == "executing")
+                         then "working" else "idle" end),
+                waitingFor: "",
+                # summary is written by the model and reads like a task title, which is exactly
+                # what this column wants; firstMessage is the fallback for a session too young to
+                # have one.
+                name: (.summary // .firstMessage // ""),
+                updatedAt: (try ((.lastActivityAt // "")
+                                 | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601 * 1000)
+                            catch 0) } ]' 2> /dev/null
 }
 
 # The pid comes from the .pid field, not the filename: not every file in that directory is named
@@ -166,13 +266,18 @@ live_pids() {
     done
 }
 
-# One call for every pane on the server rather than a display-message per row: --list runs every
-# two seconds under every(2), and a per-row call would be a process per agent per tick. pane_title
-# is last because it is the only field that could contain a tab, so a pathological title loses its
-# own tail instead of the whole row. The window id is not collected because the jump targets the
-# pane id alone.
+# One call for every pane on the server rather than a display-message per row: --list runs on a
+# timer under every(N), and a per-row call would be a process per agent per tick. pane_title is
+# last because it is the only field that could contain a tab, so a pathological title loses its own
+# tail instead of the whole row. The window id is not collected because the jump targets the pane
+# id alone.
+#
+# current_command and current_path are here for the codex and prime-agent readers rather than for
+# the renderer: those two harnesses publish no registry, so their rows are built out of this table.
 pane_table() {
-    tmux list-panes -a -F $'#{pane_id}\t#{session_name}\t#{pane_title}' 2> /dev/null
+    tmux list-panes -a \
+        -F $'#{pane_id}\t#{session_name}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_title}' \
+        2> /dev/null
 }
 
 SNAPSHOT_JQ='
@@ -184,14 +289,17 @@ def clean: gsub("[[:cntrl:]]"; "");
 def striproot: if $root != "" and startswith($root) then .[($root | length):] else . end;
 
 ([$panes | split("\n")[] | select(length > 0) | split("\t")
-  | {key: .[0], value: {ws: (.[1] // ""), title: (.[2] // "")}}] | from_entries) as $P
+  | {key: .[0], value: {ws: (.[1] // ""), title: (.[4] // "")}}] | from_entries) as $P
 | ([$live | split("\n")[] | select(length > 0)]) as $L
 
 | [ .[]
     # Bound before the pipe into $L: inside that pipe `.` is the pid array, so a bare .pid there
     # would try to index an array with a string.
     | . as $r
-    | select($L | index($r.pid))
+    # An empty pid means the source has no process to check and its liveness is the existence of
+    # the pane, which the next select enforces for every row anyway. Only the Claude registry
+    # carries a pid; codex and prime-agent rows are built from the pane table itself.
+    | select($r.pid == "" or ($L | index($r.pid)))
     # Set membership is the only valid liveness test for a pane: tmux display-message on a pane
     # that no longer exists prints ":. cmd= title=" and exits 0. A session with no live pane is
     # dropped rather than shown, because on this machine those are herdr-hosted agents and this
@@ -219,9 +327,9 @@ def striproot: if $root != "" and startswith($root) then .[($root | length):] el
 | ($P[$self].ws // "" | striproot) as $selfws
 | sort_by( (if .ws == $selfws then 0 else 1 end),
            (if .status == "blocked" then 0 elif .status == "working" then 1 else 2 end),
-           .ws, .name, (.pid | tonumber) )
+           .ws, .name, .agent, .pid )
 | .[]
-| [ (.agent + ":" + .pid),
+| [ (.agent + ":" + (if .pid != "" then .pid else .tmux_pane end)),
     .tmux_pane,
     (.agent | clean),
     (.cwd | clean),
@@ -233,7 +341,10 @@ def striproot: if $root != "" and startswith($root) then .[($root | length):] el
     # content, so it is stripped here with a literal sub rather than by length arithmetic: awk
     # counts bytes and the sigil is a three-byte character.
     ([.name, (.ptitle | sub("^[^\\p{L}\\p{N}/~]+\\s*"; "")), (.cwd | split("/") | last)]
-     | map(select(. != null and . != "")) | first // "" | clean),
+     | map(select(. != null and . != "")) | first // "" | clean
+     # Capped because a registry name is whatever the harness put there, and one of them is the
+     # entire first user message. Uncapped it pushes the age off the right edge of the screen.
+     | if (. | length) > 56 then (.[:55] + "~") else . end),
     (if .tmux_pane == $self then "*" else " " end) ]
 # @tsv escapes tabs and newlines but not ESC, which would reach fzf under --ansi and throw the
 # column widths out, hence clean on every displayed field above.
@@ -254,10 +365,11 @@ snapshot() {
 # backed the rows and the counts; here the counting has to happen after the pane join, or Tab could
 # park the user on a bucket whose only members are sessions this picker does not show.
 build_snapshot() {
-    local records
-    records=$(agent_records)
+    local records panes
+    panes=$(pane_table)
+    records=$(agent_records "$panes")
     [[ -n "$records" ]] || return 1
-    snapshot "$records" "$(pane_table)" "$(live_pids "$records")" "$origin_pane"
+    snapshot "$records" "$panes" "$(live_pids "$records")" "$origin_pane"
 }
 
 # Emits "<status>\t<count>" in ORDER order, so the banner reads left to right in the order Tab
@@ -323,7 +435,7 @@ render() {
             # Comfortably past every session name this machine currently produces once the
             # projects root is stripped, so the column normally does not truncate at all. It is a
             # cap and not a width: the column is still only as wide as the widest row in view.
-            cap = 64; kindcap = 10
+            cap = 64; kindcap = 11
             nb = split(order, ob, " ")
         }
         $0 != "" {
@@ -522,9 +634,9 @@ fzf_supports() {
 # change-footer issued from a transform, which is why the banner rides in the reload's own output
 # instead of being pushed as a separate action.
 tick_bind=()
-if fzf_supports --track --id-nth 1 --bind 'every(2):reload-sync(true)+refresh-preview'; then
+if fzf_supports --track --id-nth 1 --bind 'every(5):reload-sync(true)+refresh-preview'; then
     tick_bind=(--track --id-nth=1
-        --bind='start,every(2):reload-sync("$TMUX_AGENT_PICKER_SELF" --list)+refresh-preview')
+        --bind='start,every(5):reload-sync("$TMUX_AGENT_PICKER_SELF" --list)+refresh-preview')
 else
     KEYS="$KEYS (auto-refresh needs a newer fzf)"
 fi
@@ -588,7 +700,7 @@ target_id=$(printf '%s' "$line" | cut -f1)
 target_pane=$(printf '%s' "$line" | cut -f2)
 [[ -n "$target_pane" ]] || exit 0
 
-# The row is up to two seconds old, and display-message is not a validity test here: it prints
+# The row is up to one tick old, and display-message is not a validity test here: it prints
 # ":. cmd= title=" and exits 0 for a pane that no longer exists. Ask for the membership again.
 tmux list-panes -a -F '#{pane_id}' 2> /dev/null | grep -qx -- "$target_pane" \
     || die "$target_id has closed since the list was drawn"
