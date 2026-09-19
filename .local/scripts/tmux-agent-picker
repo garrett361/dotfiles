@@ -1,0 +1,611 @@
+#!/usr/bin/env bash
+#
+# tmux-agent-picker: fuzzy-pick among running coding agents with a live preview of what each one is
+# doing, then jump the attached client to its pane. tmux itself has no view of "which of my agents
+# is blocked": choose-tree lists windows, not agent state.
+#
+# Usage:
+#   tmux-agent-picker                    # Interactive: pick an agent with fzf
+#   tmux-agent-picker --list [STATUS]    # Rows fzf consumes; lines 1-2 are the --header-lines block
+#   tmux-agent-picker --cycle next|prev  # Print the fzf actions that advance the status filter
+#   tmux-agent-picker --preview ID PANE KIND CWD STATUS WHY SINCE   # Preview body for one agent
+#
+# Bound to prefix+a in tmux.common.conf. See tmux-list-sessionizer for the session-level twin, and
+# herdr-agent-picker for the herdr-side original this is ported from. The two are deliberately
+# disjoint: nothing here calls herdr or reads a herdr environment variable.
+#
+# State comes from Claude Code's own registry rather than from scraping the screen. herdr infers
+# working/blocked/idle by matching regexes against the rendered terminal; the registry is the state
+# machine those pixels are drawn from, so reading it is both simpler and more accurate.
+#
+# The modes without an explicit STATUS read it back out of $FZF_PROMPT, which fzf exports to the
+# child processes of its reload, transform and preview actions. That is the whole filter-state
+# design: fzf keeps no user state across reloads, so the prompt is the state and every child
+# re-derives it. It also keeps the --bind strings static, so they need no interpolation and can
+# stay in single quotes.
+
+script_dir=$(cd -- "$(dirname -- "$0")" && pwd -P)
+self="$script_dir/tmux-agent-picker"
+
+# A tmux window inherits the tmux server's environment, which is whatever the shell that first
+# started the server had. .commonrc (which puts ~/.local/scripts and the fzf clone on PATH) is
+# interactive-only, so a server started outside a login shell has neither. Same approach as
+# tmux-slurm-shell.
+PATH="$script_dir:$HOME/.fzf-$(uname -m)/bin:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+export PATH
+
+# Exported rather than spliced into the --bind strings: fzf runs action commands through $SHELL -c,
+# which inherits this, so every bind below stays single-quoted with no nested escaping and keeps
+# working if the path ever gains a space.
+export TMUX_AGENT_PICKER_SELF="$self"
+
+# `all` must come first: Tab skips empty statuses, and an unconditional stop at index 0 is what
+# guarantees the walk terminates in both directions even when every bucket is empty. The rest is
+# attention order, since blocked is the state that wants the user.
+ORDER="all blocked working idle"
+
+KEYS="Tab/S-Tab: status | Enter: jump | C-r: refresh | C-o: preview layout"
+
+# get_deps.sh already drives Claude with CLAUDE_CONFIG_DIR, so it is a real knob on this machine.
+SESSIONS_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions"
+
+# tmux neww closes the window the instant this process exits, so a bare error message would never
+# be read.
+die() {
+    printf 'tmux-agent-picker: %s\n' "$1" >&2
+    if [[ -t 0 ]]; then
+        printf 'press enter to close... ' >&2
+        read -r _
+    fi
+    exit 1
+}
+
+command -v jq > /dev/null 2>&1 || die "jq not found on PATH"
+command -v tmux > /dev/null 2>&1 || die "tmux not found on PATH"
+[[ -d "$SESSIONS_DIR" ]] || die "no agent registry at $SESSIONS_DIR"
+
+# FZF_PROMPT carries the filter, so parse it defensively: anything unrecognized becomes `all`
+# rather than an empty list the user cannot explain.
+parse_filter() {
+    local name=${1%%>*}
+    name=${name//[![:lower:]]/}
+    case " $ORDER " in
+        *" $name "*) printf '%s' "$name" ;;
+        *) printf 'all' ;;
+    esac
+}
+
+# One place where prompt text becomes a status name, for every mode reachable from a bind.
+filter_arg() {
+    if [[ -n "$1" ]]; then
+        parse_filter "$1"
+    else
+        parse_filter "$FZF_PROMPT"
+    fi
+}
+
+# Normalizes one registry file into the uniform record the rest of the script consumes. Claude's
+# own UI collapses busy and shell into "working" and waiting into "blocked", so this is its
+# vocabulary, not an interpretation of it.
+#
+# The tmux field is written once at session start and can be stale or the literal ":.". Scanning
+# for the last %N rather than splitting on "." because a tmux session name may legally contain a
+# dot. ":." yields "" and is dropped at the join: it must never reach a tmux command, where it
+# resolves to the *current* pane and would preview or jump to the wrong place.
+#
+# statusUpdatedAt moves on transition only, which makes it useless as an idleness proxy but exactly
+# right as "when this state began".
+CLAUDE_MAP='
+[ .[]
+  | select(type == "object" and .pid != null)
+  | { pid: (.pid | tostring),
+      agent: "claude",
+      cwd: (.cwd // ""),
+      tmux_pane: ((.tmux // "") | [scan("%[0-9]+")] | last // ""),
+      status: (if (.status == "busy" or .status == "shell") then "working"
+               elif .status == "waiting" then "blocked"
+               else "idle" end),
+      waitingFor: (.waitingFor // ""),
+      name: (.name // ""),
+      updatedAt: (.statusUpdatedAt // .updatedAt // 0) } ]'
+
+# *.json and never *: this directory also holds <pid>.<sha256>.key files, mode 0600, whose contents
+# are {"peerToken":...}. They are valid JSON objects, so a bare glob would slurp them alongside the
+# sessions and select(.pid != null) would drop them silently, putting peer tokens through this
+# script's variables with nothing to show for it. Nothing here ever prints a file's contents on
+# error, only its path.
+claude_records() {
+    local files=() f out sep
+    for f in "$SESSIONS_DIR"/*.json; do
+        [[ -f "$f" ]] && files+=("$f")
+    done
+
+    # jq with no file arguments reads stdin, which would hang the whole picker inside an fzf
+    # reload. An empty registry is the ordinary case on a fresh boot, so it has to be an early
+    # return rather than a guard that happens to work.
+    if [[ ${#files[@]} -eq 0 ]]; then
+        printf '[]'
+        return 0
+    fi
+
+    if out=$(jq -s -c "$CLAUDE_MAP" "${files[@]}" 2> /dev/null) && [[ -n "$out" ]]; then
+        printf '%s' "$out"
+        return 0
+    fi
+
+    # A session file is rewritten on every status change, so a read can catch one mid-write, and
+    # jq -s aborts the whole slurp on the first parse error: one torn file would blank the menu.
+    # The retry pays for one jq per file only in that rare case, and a file that still fails is
+    # simply absent from the output.
+    #
+    # The array is assembled by a second jq rather than by printing brackets and commas here. jq
+    # runs its program once per input value, so a file that has gained a whole extra top-level
+    # object (an append rather than a short write) makes the inner jq emit two records, and hand
+    # assembly would splice them in with one comma between the pair and none inside it. That is
+    # invalid JSON, which the caller's jq then rejects, losing every healthy record to one odd
+    # file: precisely the failure this retry exists to prevent. Slurping sidesteps the whole class.
+    for f in "${files[@]}"; do
+        jq -c "[.] | $CLAUDE_MAP | .[]" "$f" 2> /dev/null
+    done | jq -s -c '.' 2> /dev/null
+}
+
+# THE SEAM. Everything below consumes the uniform record and knows nothing about where it came
+# from. Adding codex or prime-agent means adding one reader here and concatenating its output;
+# each source normalizes its own status vocabulary, because nothing downstream should have to.
+# Claude needs no writer because its registry already conforms after the rename above.
+agent_records() {
+    claude_records
+}
+
+# The pid comes from the .pid field, not the filename: not every file in that directory is named
+# after a pid. kill is a builtin, so this costs no processes. The registry is self-reaping, so this
+# only catches the window between a SIGKILL and nothing running to clean up.
+live_pids() {
+    printf '%s' "$1" | jq -r '.[].pid' 2> /dev/null | while read -r pid; do
+        kill -0 "$pid" 2> /dev/null && printf '%s\n' "$pid"
+    done
+}
+
+# One call for every pane on the server rather than a display-message per row: --list runs every
+# two seconds under every(2), and a per-row call would be a process per agent per tick. pane_title
+# is last because it is the only field that could contain a tab, so a pathological title loses its
+# own tail instead of the whole row. The window id is not collected because the jump targets the
+# pane id alone.
+pane_table() {
+    tmux list-panes -a -F $'#{pane_id}\t#{session_name}\t#{pane_title}' 2> /dev/null
+}
+
+SNAPSHOT_JQ='
+def clean: gsub("[[:cntrl:]]"; "");
+# tmux-sessionizer names a session after its whole path with the separators replaced, so every
+# session under the projects root shares a long meaningless prefix. Dropping it is most of the
+# width the workspace column needs, and $root is derived from $GITHUB rather than hardcoded, so a
+# session named anything else keeps its full name.
+def striproot: if $root != "" and startswith($root) then .[($root | length):] else . end;
+
+([$panes | split("\n")[] | select(length > 0) | split("\t")
+  | {key: .[0], value: {ws: (.[1] // ""), title: (.[2] // "")}}] | from_entries) as $P
+| ([$live | split("\n")[] | select(length > 0)]) as $L
+
+| [ .[]
+    # Bound before the pipe into $L: inside that pipe `.` is the pid array, so a bare .pid there
+    # would try to index an array with a string.
+    | . as $r
+    | select($L | index($r.pid))
+    # Set membership is the only valid liveness test for a pane: tmux display-message on a pane
+    # that no longer exists prints ":. cmd= title=" and exits 0. A session with no live pane is
+    # dropped rather than shown, because on this machine those are herdr-hosted agents and this
+    # picker is the tmux one.
+    | select(.tmux_pane != "" and $P[.tmux_pane] != null)
+    # Stripped before the sort as well as the display, so the grouping matches what is on screen.
+    | . + {ws: ($P[.tmux_pane].ws | striproot), ptitle: $P[.tmux_pane].title} ]
+
+# Unreachable while the registry is the only source, but a wrong jump is the worst failure this
+# script can produce, so two records can never both claim one pane. The newest transition wins,
+# being the claim most recently proven alive in that pane.
+| (group_by(.tmux_pane) | map(if length == 1 then .[0] else (sort_by(.updatedAt) | last) end))
+
+# The current tmux session first, then attention order within each group. The default fzf layout
+# grows the list upward from the prompt, so position 1 renders nearest the cursor: the agents in
+# the session the user is already sitting in are the ones under the hand, and everything else is
+# further up the screen in the order that says which of them wants attention.
+#
+# Swapping the first two lines gives plain attention order across every session, ignoring which
+# one the picker was opened from. Nothing else needs to change.
+#
+# Sorting on state at all means a row moves when an agent flips working to idle, which the herdr
+# original avoided by sorting on workspace alone. --track keeps the cursor on the same agent
+# through it, so the cost is visual only.
+| ($P[$self].ws // "" | striproot) as $selfws
+| sort_by( (if .ws == $selfws then 0 else 1 end),
+           (if .status == "blocked" then 0 elif .status == "working" then 1 else 2 end),
+           .ws, .name, (.pid | tonumber) )
+| .[]
+| [ (.agent + ":" + .pid),
+    .tmux_pane,
+    (.agent | clean),
+    (.cwd | clean),
+    .status,
+    (if .waitingFor == "" then "-" else (.waitingFor | clean) end),
+    (.updatedAt | tostring),
+    (.ws | clean),
+    # Claude publishes an OSC title of the form "<sigil> summary". The sigil is spinner state, not
+    # content, so it is stripped here with a literal sub rather than by length arithmetic: awk
+    # counts bytes and the sigil is a three-byte character.
+    ([.name, (.ptitle | sub("^[^\\p{L}\\p{N}/~]+\\s*"; "")), (.cwd | split("/") | last)]
+     | map(select(. != null and . != "")) | first // "" | clean),
+    (if .tmux_pane == $self then "*" else " " end) ]
+# @tsv escapes tabs and newlines but not ESC, which would reach fzf under --ansi and throw the
+# column widths out, hence clean on every displayed field above.
+| @tsv'
+
+# Ten fields: id pane agent cwd status why updatedAt workspace task mark
+snapshot() {
+    # The projects root as tmux-sessionizer would have spelled it in a session name: leading slash
+    # dropped, separators replaced, one trailing separator so only a whole leading component goes.
+    local root="${GITHUB:-$HOME/github}"
+    root="${root#/}"
+    root="${root//\//_}_"
+    printf '%s' "$1" | jq -r --arg panes "$2" --arg live "$3" --arg self "$4" --arg root "$root" \
+        "$SNAPSHOT_JQ" 2> /dev/null
+}
+
+# One pipeline behind both --list and --cycle. In the herdr original a single `agent list` payload
+# backed the rows and the counts; here the counting has to happen after the pane join, or Tab could
+# park the user on a bucket whose only members are sessions this picker does not show.
+build_snapshot() {
+    local records
+    records=$(agent_records)
+    [[ -n "$records" ]] || return 1
+    snapshot "$records" "$(pane_table)" "$(live_pids "$records")" "$origin_pane"
+}
+
+# Emits "<status>\t<count>" in ORDER order, so the banner reads left to right in the order Tab
+# walks. Every status appears even at zero, which is what lets --cycle tell whether a bucket is
+# empty without a second lookup.
+counts_of() {
+    printf '%s\n' "$1" | awk -F'\t' -v order="$ORDER" '
+        $0 != "" { c[$5]++; n++ }
+        END {
+            nb = split(order, ob, " ")
+            for (i = 1; i <= nb; i++)
+                printf "%s\t%d\n", ob[i], (ob[i] == "all" ? n : c[ob[i]] + 0)
+        }'
+}
+
+count_of() {
+    local name num
+    # No pipeline, so the loop runs in this shell and `return` returns from count_of.
+    while IFS=$'\t' read -r name num; do
+        if [[ "$name" == "$1" ]]; then
+            printf '%s' "$num"
+            return
+        fi
+    done <<< "$2"
+    printf '0'
+}
+
+# Rows are "<id>\t<pane>\t<kind>\t<cwd>\t<status>\t<why>\t<since>\t<aligned display>". fzf shows
+# only field 8 (--with-nth=8) and tracks field 1 (--id-nth=1), so the pane id and the rest stay
+# available for the preview and the jump without spending columns on them. Field 1 is the agent id
+# alone because a field that changed with agent state would break cursor tracking on every reload.
+#
+# Lines 1 and 2 are the banner and the column labels, consumed by --header-lines=2, and carry seven
+# leading tabs so their text lands in field 8 like every other visible cell. Emitting them from the
+# same awk pass as the rows is the point: the widths come from the data, and with a reload every
+# two seconds a separately generated header would drift out of alignment between ticks.
+#
+# The status colour is applied here rather than in jq so the padding is measured on the bare word.
+# fzf strips ANSI before matching under --ansi, so colouring does not affect what the user can type
+# to narrow the list.
+render() {
+    printf '%s\n' "$2" | awk -F'\t' -v filter="$1" -v order="$ORDER" -v note="$3" \
+        -v now="$(date +%s)" '
+        function hue(s) {
+            if (s == "blocked") return "\033[31m"
+            if (s == "working") return "\033[36m"
+            if (s == "idle") return "\033[2m"
+            return "\033[35m"
+        }
+        # systime() is gawk only and macOS ships one-true-awk, so the clock arrives as -v now.
+        # Milliseconds since the epoch exceed 2^31, which is fine: awk numbers are doubles.
+        function age(ms,   d) {
+            if (ms + 0 <= 0) return ""
+            d = now - int(ms / 1000)
+            if (d < 0) d = 0
+            if (d < 60) return d "s"
+            if (d < 3600) return int(d / 60) "m"
+            if (d < 86400) return int(d / 3600) "h"
+            return int(d / 86400) "d"
+        }
+        BEGIN {
+            w1 = length("workspace"); w2 = length("status"); w3 = length("harness")
+            # Comfortably past every session name this machine currently produces once the
+            # projects root is stripped, so the column normally does not truncate at all. It is a
+            # cap and not a width: the column is still only as wide as the widest row in view.
+            cap = 64; kindcap = 10
+            nb = split(order, ob, " ")
+        }
+        $0 != "" {
+            total++; cnt[$5]++
+            if (filter != "all" && $5 != filter) next
+            n++
+            id[n]=$1; pane[n]=$2; kind[n]=$3; dir[n]=$4; st[n]=$5
+            why[n]=$6; upd[n]=$7; ws[n]=$8; task[n]=$9; mark[n]=$10
+            if (length($8) > w1) w1 = length($8)
+            if (length($5) > w2) w2 = length($5)
+            if (length($3) > w3) w3 = length($3)
+        }
+        END {
+            # Capped so one long label cannot shove the task column off the right edge.
+            if (w1 > cap) w1 = cap
+            if (w3 > kindcap) w3 = kindcap
+            if (note != "") banner = note
+            else {
+                # Reverse video rather than another line of chrome: the active bucket has to be
+                # readable without spending a row on it.
+                for (i = 1; i <= nb; i++) {
+                    c = (ob[i] == "all") ? total + 0 : cnt[ob[i]] + 0
+                    seg = ob[i] " " c
+                    if (ob[i] == filter) seg = "\033[7m " seg " \033[0m"
+                    banner = banner (i > 1 ? " · " : "") seg
+                }
+            }
+            printf "\t\t\t\t\t\t\t%s\n", banner
+            printf "\t\t\t\t\t\t\t  %-*s  %-*s  %-*s  %s\n", \
+                w1, "workspace", w3, "harness", w2, "status", "task"
+            for (i = 1; i <= n; i++) {
+                label = ws[i]
+                # Left truncation, unlike the herdr original: tmux-sessionizer names sessions after
+                # the whole path, so the distinguishing part is the tail. Cutting the head keeps
+                # prime-rl-feat-quant-act-ckpt-proto legible where cutting the tail does not. Only
+                # the ASCII-by-construction columns are measured or cut, since awk counts bytes.
+                if (length(label) > w1) label = "~" substr(label, length(label) - w1 + 2)
+                who = kind[i]
+                if (length(who) > w3) who = substr(who, 1, w3 - 1) "~"
+                # statusUpdatedAt marks the transition into the current state, so the age is how
+                # long it has been blocked, how long it has been working, and on an idle agent how
+                # long ago it finished.
+                trail = age(upd[i])
+                if (st[i] == "blocked")
+                    trail = (why[i] == "-" ? "needs input" : why[i]) (trail == "" ? "" : " " trail)
+                if (trail != "") trail = "  \033[2m" trail "\033[0m"
+                printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s %-*s  %-*s  %s%-*s\033[0m  %s%s\n",
+                    id[i], pane[i], kind[i], dir[i], st[i], why[i], upd[i],
+                    mark[i], w1, label, w3, who, hue(st[i]), w2, st[i], task[i], trail
+            }
+        }'
+}
+
+# The one place that cares whether the pane is on the alternate screen. Claude's REPL is not (every
+# Claude pane reports alternate_on 0 and a populated history), so the normal path reads real
+# scrollback. The check is per call rather than once at startup because a pane momentarily inside a
+# pager or an editor does have an alternate screen, and there the scrollback a -S capture would
+# reach belongs to the normal screen underneath it: it would splice two unrelated buffers together.
+#
+# The branch on failure is capture-pane's exit status, not display-message's: display-message
+# prints nothing and exits 0 for a pane that has closed, so a dead pane falls through the alt check
+# with an empty value and is caught here instead.
+#
+# No -J: it preserves trailing spaces, which pads nearly every captured line out to the source pane
+# width. That is invisible in a full-width pane and ruinous in a preview. The preview window uses
+# no `wrap` for the same reason: a TUI capture is already laid out for a fixed width, so truncating
+# on the right reads better than rewrapping it.
+preview_body() {
+    local pane=$1 lines=$2 alt out rc
+    alt=$(tmux display-message -p -t "$pane" '#{alternate_on}' 2> /dev/null)
+    if [[ "$alt" == "1" ]]; then
+        out=$(tmux capture-pane -p -e -t "$pane" 2> /dev/null)
+        rc=$?
+    else
+        out=$(tmux capture-pane -p -e -S "-$lines" -t "$pane" 2> /dev/null)
+        rc=$?
+    fi
+    if [[ $rc -ne 0 ]]; then
+        printf 'could not read %s (the pane may have closed)\n' "$pane"
+        return 0
+    fi
+    # follow scrolls the preview to the bottom, so trailing blank rows would push the live output
+    # off the top. A blank row still carries the pane's colour escapes, hence the strip before the
+    # emptiness test. The escape pattern is built from a variable because one-true-awk does not
+    # accept \033 inside a regex literal.
+    printf '%s\n' "$out" | awk -v esc=$'\033' '
+        {
+            buf[NR] = $0
+            probe = $0
+            gsub(esc "\\[[0-9;?]*[a-zA-Z]", "", probe)
+            if (probe ~ /[^ \t]/) last = NR
+        }
+        END { for (i = 1; i <= last; i++) print buf[i] }'
+}
+
+# tmux neww gives this script its own pane, so $TMUX_PANE is the picker's own and marks nothing.
+# The binding passes the pane the picker was opened from. {last} has to go through display-message:
+# it is a window token, and it is not a %N, so it could never be compared against a row either way.
+# Cosmetic only, so every step degrades to no marker rather than to a wrong one.
+origin_pane="$TMUX_AGENT_PICKER_FROM"
+[[ "$origin_pane" =~ ^%[0-9]+$ ]] \
+    || origin_pane=$(tmux display-message -p -t '{last}' '#{pane_id}' 2> /dev/null)
+[[ "$origin_pane" =~ ^%[0-9]+$ ]] || origin_pane=""
+# Exported so --list sees the same value on every reload tick, where it runs as a child of fzf.
+export TMUX_AGENT_PICKER_FROM="$origin_pane"
+
+case "$1" in
+    --list)
+        list_filter=$(filter_arg "$2")
+        if ! snap=$(build_snapshot); then
+            # Reached from inside a live fzf reload, where dying would just blank the list with no
+            # explanation. Two header lines and no rows leaves Enter and the preview as no-ops.
+            render "$list_filter" "" "could not read the agent registry at $SESSIONS_DIR"
+            exit 0
+        fi
+        render "$list_filter" "$snap" ""
+        exit 0
+        ;;
+
+    --cycle)
+        cur=$(parse_filter "$FZF_PROMPT")
+        counts=$(counts_of "$(build_snapshot)")
+
+        order=($ORDER)
+        n=${#order[@]}
+        idx=0
+        for ((i = 0; i < n; i++)); do
+            [[ "${order[$i]}" == "$cur" ]] && idx=$i
+        done
+        if [[ "$2" == "prev" ]]; then step=-1; else step=1; fi
+
+        next=all
+        for ((i = 0; i < n; i++)); do
+            idx=$(((idx + step + n) % n))
+            cand=${order[$idx]}
+            # `all` is an unconditional stop, so the walk terminates even with no agents at all;
+            # every other bucket must be non-empty, so Tab never parks the user on an empty list.
+            if [[ "$cand" == "all" ]] || [[ "$(count_of "$cand" "$counts")" -gt 0 ]]; then
+                next=$cand
+                break
+            fi
+        done
+
+        # No banner action here: the reload regenerates the banner as line 1 of its own output, so
+        # the counts and the rows can never disagree. A change-footer in this chain would be
+        # silently dropped anyway, since --track suppresses it.
+        #
+        # $TMUX_AGENT_PICKER_SELF is emitted unexpanded on purpose: fzf hands the command to a
+        # fresh shell, so a path containing parens could never confuse fzf's own action parser. The
+        # next status is passed explicitly rather than read back from the prompt, which would
+        # depend on change-prompt having already run.
+        printf '%s' "change-prompt($next> )"
+        printf '%s' '+reload("$TMUX_AGENT_PICKER_SELF" --list '"$next"')'
+        printf '%s' '+refresh-preview'
+        printf '\n'
+        exit 0
+        ;;
+
+    --preview)
+        id=$2 pane=$3 kind=$4 dir=$5 status=$6 why=$7 since=$8
+        if [[ -z "$id" ]]; then
+            printf 'no agent selected\n'
+            exit 0
+        fi
+        # Dimmed, and pinned by the ~1 flag on --preview-window so it survives the follow scroll.
+        if [[ "$status" == "blocked" && "$why" != "-" && -n "$why" ]]; then
+            printf '\033[2m%s  %s  %s (%s)  %s\033[0m\n' "$id" "$kind" "$status" "$why" "$dir"
+        else
+            printf '\033[2m%s  %s  %s  %s\033[0m\n' "$id" "$kind" "$status" "$dir"
+        fi
+
+        # FZF_PREVIEW_LINES is the exact window height, so one less than that is never short and
+        # never wasteful.
+        lines=$((${FZF_PREVIEW_LINES:-40} - 1))
+        [[ $lines -lt 5 ]] && lines=5
+
+        # capture-pane is non-mutating, which keeps the herdr original's invariant that previewing
+        # an agent never changes anything about it.
+        preview_body "$pane" "$lines"
+        exit 0
+        ;;
+esac
+
+# fzf is not version pinned here (get_deps.sh clones master), so the newer bindings are probed
+# rather than assumed. --filter parses every option and exits without needing a tty, returning 2 on
+# an unknown option or action and 0 on a match.
+fzf_supports() {
+    printf 'x\n' | fzf "$@" --filter x > /dev/null 2>&1
+}
+
+# One probe for the whole live-refresh surface, since these features arrived together and are only
+# used together. Tab needs only `transform` and an fzf that exports FZF_PROMPT, both of which long
+# predate the probed features, so it keeps working when the probe fails.
+#
+# --track keeps the cursor on the same agent across a reload, but it also makes fzf drop a
+# change-footer issued from a transform, which is why the banner rides in the reload's own output
+# instead of being pushed as a separate action.
+tick_bind=()
+if fzf_supports --track --id-nth 1 --bind 'every(2):reload-sync(true)+refresh-preview'; then
+    tick_bind=(--track --id-nth=1
+        --bind='start,every(2):reload-sync("$TMUX_AGENT_PICKER_SELF" --list)+refresh-preview')
+else
+    KEYS="$KEYS (auto-refresh needs a newer fzf)"
+fi
+
+# The client that pressed the key, carried through the binding. Resolving it here instead would ask
+# tmux to work out "the client currently in use" from this pane, which is per session: with two
+# clients attached to one session that can name the wrong one, and the whole point of the jump is
+# that it moves the terminal the user is looking at.
+client="$TMUX_AGENT_PICKER_CLIENT"
+[[ -n "$client" && "$client" != *'#{'* ]] || client=$(tmux display-message -p '#{client_tty}' 2> /dev/null)
+
+# A registry that cannot be read makes the whole window useless, so fail loudly here rather than
+# leaving the user to read it off a pseudo-row.
+[[ -n "$(build_snapshot)" ]] || die "no agents found in $SESSIONS_DIR"
+
+# A size threshold in --preview-window (the "<140(down,50%)" form) silently disables
+# change-preview-window, so the orientation is chosen once here instead. tput reads stdout, which
+# is the pipe of the command substitution below and would report a default 80, so ask the terminal
+# itself.
+#
+# Full-width horizontal split by default, inverting the herdr original: `agent read` returned
+# reflowed text that suited a tall narrow window, where a tmux capture is a rectangle as wide as
+# the source pane. The preview takes the top and the list sits underneath it, next to the prompt
+# fzf already draws at the bottom, so the eye does not have to cross the preview to get to it.
+cols=$({ stty size < /dev/tty | cut -d' ' -f2; } 2> /dev/null)
+[[ "$cols" =~ ^[0-9]+$ ]] || cols=140
+if [[ "$cols" -lt 100 ]]; then
+    preview_window='up,70%,follow,~1'
+    preview_alt='right,60%,follow,~1'
+else
+    preview_window='up,60%,follow,~1'
+    preview_alt='right,60%,follow,~1'
+fi
+
+# No `set -u` anywhere in this family of scripts: macOS ships bash 3.2, where "${arr[@]}" on an
+# empty array is an unbound-variable error, and tick_bind is empty on older fzf.
+selected=$("$self" --list all | fzf \
+    --delimiter=$'\t' --with-nth=8 --header-lines=2 --ansi \
+    --header="$KEYS" --prompt='all> ' \
+    --preview-window="$preview_window" \
+    --preview='"$TMUX_AGENT_PICKER_SELF" --preview {1} {2} {3} {4} {5} {6} {7}' \
+    --bind='enter:accept-non-empty' \
+    --bind='tab:transform:"$TMUX_AGENT_PICKER_SELF" --cycle next' \
+    --bind='btab:transform:"$TMUX_AGENT_PICKER_SELF" --cycle prev' \
+    --bind='ctrl-r:reload("$TMUX_AGENT_PICKER_SELF" --list)+refresh-preview' \
+    --bind="ctrl-o:change-preview-window($preview_alt|hidden|)" \
+    "${tick_bind[@]}")
+status=$?
+case $status in
+    0) ;;
+    # 130 is a normal abort; 1 is Enter on an empty list, which a status filter makes routine.
+    1 | 130) exit 0 ;;
+    *) die "fzf exited $status" ;;
+esac
+
+[[ -z "$selected" ]] && exit 0
+
+# head -n1 because fzf still binds double-click:accept, which returns every selected line.
+line=$(printf '%s\n' "$selected" | head -n 1)
+target_id=$(printf '%s' "$line" | cut -f1)
+target_pane=$(printf '%s' "$line" | cut -f2)
+[[ -n "$target_pane" ]] || exit 0
+
+# The row is up to two seconds old, and display-message is not a validity test here: it prints
+# ":. cmd= title=" and exits 0 for a pane that no longer exists. Ask for the membership again.
+tmux list-panes -a -F '#{pane_id}' 2> /dev/null | grep -qx -- "$target_pane" \
+    || die "$target_id has closed since the list was drawn"
+
+clients=$(tmux list-clients 2> /dev/null)
+if [[ -z "$TMUX" ]] || [[ -z "$clients" ]]; then
+    # Same fork as tmux-sessionizer and tmux-list-sessionizer: run from a plain shell there is no
+    # client to switch, so attach instead. attach-session takes only a target-session and does not
+    # get switch-client's pane special case, hence the explicit chain.
+    target_sess=$(tmux display-message -p -t "$target_pane" '#{session_name}' 2> /dev/null)
+    tmux select-pane -t "$target_pane" 2> /dev/null
+    tmux attach-session -t "$target_sess"
+else
+    # One call for all three levels. From tmux(1): "As a special case, -t may refer to a pane (a
+    # target that contains ':', '.' or '%'), to change session, window and pane." The pane id alone
+    # is a complete server-global target and is stable for the life of the pane, where a window id
+    # is not: join-pane moves a pane between windows.
+    tmux switch-client ${client:+-c "$client"} -t "$target_pane" \
+        || die "could not switch to $target_pane"
+fi
