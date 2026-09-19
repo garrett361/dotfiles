@@ -28,10 +28,28 @@ end
 -- Range primitive behind comment_line(), comment_selection(), and :AgentComment comment.
 function M.comment_range(start_line, end_line)
 	local bufnr = vim.api.nvim_get_current_buf()
+	-- Anchored before the editor opens rather than after it closes: the editor can be left for the
+	-- code window and the buffer edited underneath it, and only an extmark keeps the range on the
+	-- lines the comment was aimed at.
+	local id = comments.add(bufnr, start_line, end_line, nil)
+	ui.decorate(id)
+	-- The annotation is typed into the rendered item itself, so it can sit between two quoted code
+	-- lines. Seeding from prompt.item is what makes an untouched buffer send as the item it was
+	-- seeded from.
+	local seed = prompt.item(comments.get(id), comments.snippet(id))
+	-- One past prompt.item's own trailing blank, so the cursor starts below that separator and
+	-- the first thing typed does not land flush against the last quoted line.
+	seed[#seed + 1] = ""
 	ui.input_comment(function(text)
-		local id = comments.add(bufnr, start_line, end_line, text)
+		-- input_comment reports every exit, cancel included.
+		ui.undecorate(id)
+		if not text or text:match("^%s*$") then
+			comments.delete(id)
+			return
+		end
+		comments.edit(id, text)
 		ui.decorate(id)
-	end)
+	end, { lines = seed })
 end
 
 function M.comment_selection()
@@ -48,7 +66,7 @@ end
 -- Edit a comment's text in place (undecorate → edit → re-decorate so the callout
 -- reflects the new text). `on_done` (optional) fires after the input closes.
 function M.edit_comment(c, on_done)
-	vim.ui.input({ prompt = "Edit comment: ", default = c.text }, function(t)
+	ui.input_comment(function(t)
 		if t and t ~= "" and t ~= c.text then
 			ui.undecorate(c.id)
 			comments.edit(c.id, t)
@@ -57,7 +75,7 @@ function M.edit_comment(c, on_done)
 		if on_done then
 			on_done()
 		end
-	end)
+	end, { lines = vim.split(c.text, "\n", { plain = true }) })
 end
 
 function M.delete_comment(c)
@@ -86,10 +104,7 @@ function M.send_all(opts)
 	end
 	local items = {}
 	for _, c in ipairs(list) do
-		table.insert(items, {
-			comment = c,
-			snippet = comments.snippet(c.id),
-		})
+		table.insert(items, { comment = c })
 	end
 	local text = prompt.format(items)
 	local agent_list, err = agents.list()

@@ -34,6 +34,16 @@ local function resolve(id)
 	if end_line < start_line then
 		end_line = start_line
 	end
+	-- A draft has no text yet, and the live buffer is what its seed's [unsaved] marker will be
+	-- derived from. A committed comment is a snapshot, and the prompt's preamble promises to
+	-- explain the markers the message actually shows, so its [unsaved] state is read back out of
+	-- the text it froze rather than from a buffer that has since been written.
+	local modified
+	if e.text == nil then
+		modified = vim.bo[e.bufnr].modified
+	else
+		modified = e.text:find("[unsaved]", 1, true) ~= nil
+	end
 	return {
 		id = id,
 		bufnr = e.bufnr,
@@ -41,7 +51,7 @@ local function resolve(id)
 		start_line = start_line,
 		end_line = end_line,
 		text = e.text,
-		modified = vim.bo[e.bufnr].modified,
+		modified = modified,
 		created_at = e.created_at,
 	}
 end
@@ -52,8 +62,10 @@ end
 
 function M.list()
 	local out = {}
-	for id in pairs(store) do
-		local c = resolve(id)
+	for id, e in pairs(store) do
+		-- A draft (anchored at editor-open time, text not written yet) is not a comment: it must
+		-- reach neither the prompt nor the comment list.
+		local c = e.text ~= nil and resolve(id) or nil
 		if c then
 			table.insert(out, c)
 		end

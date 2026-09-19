@@ -50,12 +50,118 @@ function M.visual_range()
 	return s, e
 end
 
-function M.input_comment(on_done)
-	vim.ui.input({ prompt = "Comment: " }, function(text)
-		if text and text ~= "" then
-			on_done(text)
+-- Names an editor buffer. 'acwrite' and a buffer name are both load-bearing: on a 'nofile'
+-- buffer :w fails with E382 and BufWriteCmd never fires, an unnamed one fails the same way with
+-- E32, and a name reused while the old buffer lives fails with E95.
+local editor_seq = 0
+
+-- Nonzero while a comment editor is open. comment_list() cancels itself on WinLeave, so opening
+-- an editor from its `e` key would tear the list down underneath it. A count rather than a flag,
+-- because a second editor can be opened on top of the first.
+local open_editors = 0
+
+-- Comment text is written in a scratch float and committed with :w, so it can run to several
+-- paragraphs. `on_done(text)` fires on EVERY exit path, with the buffer joined by "\n" on a
+-- commit and nil on a cancel, raw: callers that resend a comment need it byte for byte.
+-- `opts` is { lines = string[]|nil }.
+function M.input_comment(on_done, opts)
+	opts = opts or {}
+	local seeded = opts.lines ~= nil and #opts.lines > 0
+	local lines = seeded and opts.lines or { "" }
+	local origin_win = vim.api.nvim_get_current_win()
+
+	editor_seq = editor_seq + 1
+	local buf = vim.api.nvim_create_buf(false, true)
+	vim.api.nvim_buf_set_name(buf, "agent-comment://" .. editor_seq)
+	vim.bo[buf].buftype = "acwrite"
+	vim.bo[buf].bufhidden = "wipe"
+	-- Deliberately not the list's "agent-comments": an editor float must not read as a list.
+	vim.bo[buf].filetype = "agent-comment-edit"
+	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+	vim.bo[buf].modified = false
+
+	local width = vim.o.columns - 2
+	local height = math.max(5, math.min(#lines + 2, 16))
+	open_editors = open_editors + 1
+	local win = vim.api.nvim_open_win(buf, true, {
+		relative = "editor",
+		width = width,
+		height = height,
+		row = math.max(0, math.floor((vim.o.lines - height) / 2) - 1),
+		col = 0,
+		style = "minimal",
+		border = "rounded",
+		title = { { " 💬 Comment ", "AgentCommentsText" } },
+		title_pos = "center",
+		footer = { { " :w send  ·  <C-c> cancel ", "Comment" } },
+		footer_pos = "center",
+	})
+	-- A wrapped continuation line would otherwise start at column zero, and column zero is where
+	-- a new item begins in the rendered message, so the marker is what keeps the two apart.
+	vim.wo[win].wrap = true
+	vim.wo[win].linebreak = true
+	vim.wo[win].showbreak = "↪ "
+	vim.api.nvim_win_set_cursor(win, { #lines, 0 })
+	if not seeded then
+		vim.cmd("startinsert")
+	end
+
+	local committed = nil
+	local grp = vim.api.nvim_create_augroup("AgentCommentsEditor" .. buf, { clear = true })
+
+	vim.api.nvim_create_autocmd("BufWriteCmd", {
+		group = grp,
+		buffer = buf,
+		callback = function(ev)
+			committed = table.concat(vim.api.nvim_buf_get_lines(ev.buf, 0, -1, false), "\n")
+			-- BufWriteCmd does not clear 'modified' itself, and :wq would then hit E37.
+			vim.bo[ev.buf].modified = false
+			-- Deferred: closing the window here makes the :q half of :wq land on a second,
+			-- innocent window. By the time this runs that :q has closed the editor itself.
+			vim.schedule(function()
+				if vim.api.nvim_win_is_valid(win) then
+					vim.api.nvim_win_close(win, true)
+				end
+			end)
+		end,
+	})
+
+	-- :q on a modified editor is E37; clearing 'modified' turns it into a plain cancel.
+	vim.api.nvim_create_autocmd("QuitPre", {
+		group = grp,
+		buffer = buf,
+		callback = function(ev)
+			vim.bo[ev.buf].modified = false
+		end,
+	})
+
+	-- The single teardown funnel. 'bufhidden' is "wipe", so :w, :wq, ZZ, :q, :q!, <C-c> and :bd
+	-- all arrive here and on_done fires exactly once.
+	vim.api.nvim_create_autocmd("BufWipeout", {
+		group = grp,
+		buffer = buf,
+		callback = function()
+			open_editors = open_editors - 1
+			vim.schedule(function()
+				if vim.api.nvim_win_is_valid(origin_win) then
+					vim.api.nvim_set_current_win(origin_win)
+				end
+				on_done(committed)
+			end)
+		end,
+	})
+
+	local function cancel()
+		if vim.api.nvim_win_is_valid(win) then
+			vim.api.nvim_win_close(win, true)
 		end
-	end)
+	end
+
+	-- No `q` and no <Esc>: `q` is a reflex and nothing recovers the paragraphs it would discard,
+	-- and <Esc> is the insert-to-normal key.
+	for _, mode in ipairs({ "n", "i" }) do
+		vim.keymap.set(mode, "<C-c>", cancel, { buffer = buf, nowait = true, silent = true })
+	end
 end
 
 -- The callout rendered ABOVE the first annotated line. Above, not below: a note
@@ -84,11 +190,16 @@ function M.decorate(id)
 		})
 	end
 
-	-- 2. Callout above the first line, opening into the rail below it.
-	local callout = vim.api.nvim_buf_set_extmark(c.bufnr, ns, c.start_line - 1, 0, {
-		virt_lines = M._callout(c.text),
-		virt_lines_above = true,
-	})
+	-- 2. Callout above the first line, opening into the rail below it. A draft has no text to
+	--    summarise and gets the rail alone: an empty bubble would push the code down a line to
+	--    say nothing, while the rail is the part that answers "which lines am I commenting on".
+	local callout
+	if c.text then
+		callout = vim.api.nvim_buf_set_extmark(c.bufnr, ns, c.start_line - 1, 0, {
+			virt_lines = M._callout(M.summary(c)),
+			virt_lines_above = true,
+		})
+	end
 	decorations[id] = { bars = bars, callout = callout, bufnr = c.bufnr }
 end
 
@@ -98,9 +209,22 @@ function M.undecorate(id)
 		for _, bar in ipairs(marks.bars) do
 			vim.api.nvim_buf_del_extmark(marks.bufnr, M.ns, bar)
 		end
-		vim.api.nvim_buf_del_extmark(marks.bufnr, M.ns, marks.callout)
+		if marks.callout then
+			vim.api.nvim_buf_del_extmark(marks.bufnr, M.ns, marks.callout)
+		end
 	end
 	decorations[id] = nil
+end
+
+-- One line of display text for a comment, whose own text is a rendered block running to several
+-- lines. A line count rather than a guess at which of them carries the annotation: the block is
+-- freely editable, so any such heuristic eventually points at the wrong line and reads as a bug.
+function M.summary(c)
+	if not c.text or c.text == "" then
+		return ""
+	end
+	local n = #vim.split(c.text, "\n", { plain = true })
+	return string.format("%d line%s", n, n == 1 and "" or "s")
 end
 
 function M.comment_row(c)
@@ -109,7 +233,7 @@ function M.comment_row(c)
 		vim.fn.fnamemodify(c.file, ":t"),
 		c.start_line,
 		c.end_line,
-		c.text
+		M.summary(c)
 	)
 end
 
@@ -270,9 +394,10 @@ function M.comment_list(handlers)
 		callback = function()
 			-- Navigating away without <CR> is a cancel. Deferred because a WinLeave callback is
 			-- not allowed to close a window; skipped while the list is coming down on purpose,
-			-- since restoring then would undo the jump <CR> just made.
+			-- since restoring then would undo the jump <CR> just made, and skipped while a
+			-- comment editor is open, since `e` opens one and entering it fires this.
 			vim.schedule(function()
-				if not closing then
+				if not closing and open_editors == 0 then
 					close()
 				end
 			end)

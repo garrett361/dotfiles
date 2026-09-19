@@ -64,14 +64,14 @@ T.test("init: edit_comment updates text and refreshes its callout", function()
 	ui.decorate(id)
 	local c = comments.get(id)
 
-	local original_input = vim.ui.input
-	vim.ui.input = function(_, cb)
-		cb("new text")
+	local orig = ui.input_comment
+	ui.input_comment = function(cb)
+		cb("new text\nand more")
 	end
 	hn.edit_comment(c)
-	vim.ui.input = original_input
+	ui.input_comment = orig
 
-	T.eq(comments.get(id).text, "new text")
+	T.eq(comments.get(id).text, "new text\nand more")
 	local marks = vim.api.nvim_buf_get_extmarks(b, ui.ns, 0, -1, { details = true })
 	local callout_text
 	for _, mark in ipairs(marks) do
@@ -79,7 +79,7 @@ T.test("init: edit_comment updates text and refreshes its callout", function()
 			callout_text = mark[4].virt_lines[1][2][1]
 		end
 	end
-	T.ok(callout_text and callout_text:find("new text", 1, true), "callout shows edited text")
+	T.ok(callout_text and callout_text:find("2 lines", 1, true), "callout counts the edited text")
 end)
 
 T.test("init: send_all formats, dispatches, clears", function()
@@ -87,7 +87,7 @@ T.test("init: send_all formats, dispatches, clears", function()
 	local b = vim.api.nvim_create_buf(false, true)
 	vim.api.nvim_buf_set_lines(b, 0, -1, false, { "alpha" })
 	vim.api.nvim_buf_set_name(b, "/tmp/hn-send.lua")
-	comments.add(b, 1, 1, "check this")
+	vim.api.nvim_set_current_buf(b)
 
 	local ui = require("agent-comments.ui")
 	local dispatch = require("agent-comments.dispatch")
@@ -105,11 +105,18 @@ T.test("init: send_all formats, dispatches, clears", function()
 		return { { pane_id = "wZ:p9", title = "π", status = "idle" } }
 	end
 
+	local o4 = ui.input_comment
+	ui.input_comment = function(cb, opts)
+		cb(table.concat(opts.lines, "\n") .. "check this")
+	end
+	hn.comment_range(1, 1)
+	ui.input_comment = o4
+
 	hn.send_all({ submit = false })
 	ui.pick_agent, dispatch.send, agents.list = o1, o2, o3
 
 	T.eq(sent[1], "wZ:p9")
-	T.ok(sent[2]:find("1. " .. vim.api.nvim_buf_get_name(b) .. ":1-1", 1, true))
+	T.ok(sent[2]:find("\n" .. vim.api.nvim_buf_get_name(b) .. ":1-1", 1, true))
 	T.ok(sent[2]:find("   1 | alpha", 1, true))
 	T.eq(sent[3].submit, false)
 	T.eq(comments.list(), {}, "clear_after_send default clears comments")
@@ -372,7 +379,7 @@ T.test("init: send_all marks a comment whose buffer has unwritten changes", func
 	local b = vim.api.nvim_create_buf(true, false)
 	vim.api.nvim_buf_set_lines(b, 0, -1, false, { "alpha" })
 	vim.api.nvim_buf_set_name(b, "/tmp/hn-send-unsaved.lua")
-	comments.add(b, 1, 1, "check this")
+	vim.api.nvim_set_current_buf(b)
 
 	local ui = require("agent-comments.ui")
 	local dispatch = require("agent-comments.dispatch")
@@ -391,9 +398,230 @@ T.test("init: send_all marks a comment whose buffer has unwritten changes", func
 	end
 
 	T.ok(vim.bo[b].modified, "a listed buffer is modified once lines are set")
+	local o4 = ui.input_comment
+	ui.input_comment = function(cb, opts)
+		cb(table.concat(opts.lines, "\n") .. "check this")
+	end
+	hn.comment_range(1, 1)
+	ui.input_comment = o4
+
 	hn.send_all({ submit = false })
 	ui.pick_agent, dispatch.send, agents.list = o1, o2, o3
 
-	T.ok(sent:find("1. " .. vim.api.nvim_buf_get_name(b) .. ":1-1 [unsaved]", 1, true))
+	T.ok(sent:find("\n" .. vim.api.nvim_buf_get_name(b) .. ":1-1 [unsaved]", 1, true))
 	T.ok(sent:find("Items marked [unsaved] quote my editor buffer", 1, true))
+end)
+
+T.test("init: comment_range anchors when the editor opens, not when it is written", function()
+	comments.clear()
+	local ui = require("agent-comments.ui")
+	local b = vim.api.nvim_create_buf(false, true)
+	vim.api.nvim_buf_set_lines(b, 0, -1, false, { "one", "two", "three" })
+	vim.api.nvim_set_current_buf(b)
+
+	local orig = ui.input_comment
+	ui.input_comment = function(cb)
+		vim.api.nvim_buf_set_lines(b, 0, 0, false, { "inserted0", "inserted1" })
+		cb("late")
+	end
+	hn.comment_range(2, 2)
+	ui.input_comment = orig
+
+	local l = comments.list()
+	T.eq(#l, 1)
+	T.eq({ l[1].start_line, l[1].end_line, l[1].text }, { 4, 4, "late" })
+	T.eq(comments.snippet(l[1].id), { "two" }, "the comment quotes the line it was aimed at")
+end)
+
+T.test("init: cancelling the editor leaves no comment and no tracking extmark", function()
+	comments.clear()
+	local ui = require("agent-comments.ui")
+	local b = vim.api.nvim_create_buf(false, true)
+	vim.api.nvim_buf_set_lines(b, 0, -1, false, { "one", "two" })
+	vim.api.nvim_set_current_buf(b)
+
+	local orig = ui.input_comment
+	ui.input_comment = function(cb)
+		cb(nil)
+	end
+	hn.comment_range(1, 2)
+	ui.input_comment = orig
+
+	T.eq(comments.list(), {}, "a cancelled draft is not a comment")
+	T.eq(vim.api.nvim_buf_get_extmarks(b, comments.ns, 0, -1, {}), {}, "no range mark is left")
+	T.eq(vim.api.nvim_buf_get_extmarks(b, ui.ns, 0, -1, {}), {}, "no rail is left on screen")
+end)
+
+T.test("init: a whitespace-only comment is a cancel", function()
+	comments.clear()
+	local ui = require("agent-comments.ui")
+	local b = vim.api.nvim_create_buf(false, true)
+	vim.api.nvim_buf_set_lines(b, 0, -1, false, { "one", "two" })
+	vim.api.nvim_set_current_buf(b)
+
+	local orig = ui.input_comment
+	ui.input_comment = function(cb)
+		cb("  \n\t ")
+	end
+	hn.comment_range(1, 1)
+	ui.input_comment = orig
+
+	T.eq(comments.list(), {}, "whitespace is not a comment")
+	T.eq(vim.api.nvim_buf_get_extmarks(b, comments.ns, 0, -1, {}), {}, "no range mark is left")
+	T.eq(vim.api.nvim_buf_get_extmarks(b, ui.ns, 0, -1, {}), {}, "no rail is left on screen")
+end)
+
+T.test("init: a comment stores the rendered item it was seeded with", function()
+	comments.clear()
+	local ui = require("agent-comments.ui")
+	local b = vim.api.nvim_create_buf(false, true)
+	vim.api.nvim_buf_set_lines(b, 0, -1, false, { "alpha", "beta" })
+	vim.api.nvim_buf_set_name(b, "/tmp/hn-seeded-store.lua")
+	vim.api.nvim_set_current_buf(b)
+	vim.api.nvim_win_set_cursor(0, { 1, 0 })
+
+	local seen
+	local orig = ui.input_comment
+	ui.input_comment = function(cb, opts)
+		seen = opts
+		cb(table.concat(opts.lines, "\n") .. "   my note")
+	end
+	hn.comment_line()
+	ui.input_comment = orig
+
+	T.eq(seen.lines[1], vim.api.nvim_buf_get_name(b) .. ":1-1", "the seed opens with the header")
+	T.eq(seen.lines[2], "   1 | alpha")
+	T.eq(
+		comments.list()[1].text,
+		vim.api.nvim_buf_get_name(b) .. ":1-1\n   1 | alpha\n\n   my note",
+		"the block and the annotation typed into it are stored as one text"
+	)
+end)
+
+T.test("init: a send quotes what was frozen, not what the buffer now holds", function()
+	comments.clear()
+	local ui = require("agent-comments.ui")
+	local frozen = vim.api.nvim_create_buf(false, true)
+	vim.api.nvim_buf_set_lines(frozen, 0, -1, false, { "alpha" })
+	vim.api.nvim_buf_set_name(frozen, "/tmp/hn-frozen-send.lua")
+
+	local orig = ui.input_comment
+	ui.input_comment = function(cb, opts)
+		cb(table.concat(opts.lines, "\n") .. "   frozen note")
+	end
+	vim.api.nvim_set_current_buf(frozen)
+	hn.comment_range(1, 1)
+	ui.input_comment = orig
+
+	vim.api.nvim_buf_set_lines(frozen, 0, 1, false, { "MUTATED" })
+
+	local dispatch = require("agent-comments.dispatch")
+	local agents = require("agent-comments.agents")
+	local sent
+	local o1, o2 = dispatch.send, agents.list
+	dispatch.send = function(_, text)
+		sent = text
+		return true
+	end
+	agents.list = function()
+		return { { pane_id = "wZ:p9", title = "pi", status = "idle" } }
+	end
+	hn.send_all({ submit = false })
+	dispatch.send, agents.list = o1, o2
+
+	local item = vim.api.nvim_buf_get_name(frozen) .. ":1-1\n   1 | "
+	T.ok(sent:find(item .. "alpha", 1, true), "the frozen item quotes the line as it was")
+	T.ok(not sent:find("MUTATED", 1, true), "an edit made under it cannot reach the message")
+	T.ok(sent:find("   frozen note", 1, true), "the annotation typed into the block is sent")
+end)
+
+T.test("init: editing a comment reopens the block it stored", function()
+	comments.clear()
+	local ui = require("agent-comments.ui")
+	local b = vim.api.nvim_create_buf(false, true)
+	vim.api.nvim_buf_set_lines(b, 0, -1, false, { "alpha" })
+	vim.api.nvim_buf_set_name(b, "/tmp/hn-block-edit.lua")
+	local id = comments.add(b, 1, 1, nil)
+	local block = "/tmp/hn-block-edit.lua:1-1\n   1 | alpha\n\n   note"
+	comments.edit(id, block)
+
+	local seen
+	local orig = ui.input_comment
+	ui.input_comment = function(cb, opts)
+		seen = opts
+		cb(table.concat(opts.lines, "\n") .. " two")
+	end
+	hn.edit_comment(comments.get(id))
+	ui.input_comment = orig
+
+	T.eq(seen.lines, { "/tmp/hn-block-edit.lua:1-1", "   1 | alpha", "", "   note" })
+	T.eq(comments.get(id).text, block .. " two")
+end)
+
+T.test("init: the seed is the rendered item plus the blank line the cursor starts on", function()
+	comments.clear()
+	local prompt = require("agent-comments.prompt")
+	local b = vim.api.nvim_create_buf(false, true)
+	vim.api.nvim_buf_set_lines(b, 0, -1, false, { "alpha", "beta" })
+	vim.api.nvim_buf_set_name(b, "/tmp/hn-seed.lua")
+	vim.api.nvim_set_current_buf(b)
+
+	-- A stand-in over the same buffer and range: comment_range's own record is a draft, which
+	-- comments.list() deliberately withholds while its editor is open.
+	local ref = comments.add(b, 1, 2, "")
+	local expected = prompt.item(comments.get(ref), comments.snippet(ref))
+	expected[#expected + 1] = ""
+	comments.delete(ref)
+
+	hn.comment_range(1, 2)
+	local ewin, ebuf = vim.api.nvim_get_current_win(), vim.api.nvim_get_current_buf()
+
+	T.eq(vim.api.nvim_buf_get_lines(ebuf, 0, -1, false), expected)
+	T.eq(vim.api.nvim_win_get_cursor(ewin)[1], #expected, "the cursor starts on the extra line")
+	T.eq(expected[#expected - 1], "", "the item's own blank line sits above the cursor")
+
+	vim.api.nvim_win_close(ewin, true)
+	vim.wait(2000, function()
+		return #comments.list() == 0
+	end)
+	T.eq(#comments.list(), 0, "leaving the seed untouched cancels the draft")
+end)
+
+T.test("init: an annotation typed into a fresh seed is sent below a blank line", function()
+	comments.clear()
+	local ui = require("agent-comments.ui")
+	local b = vim.api.nvim_create_buf(false, true)
+	vim.api.nvim_buf_set_lines(b, 0, -1, false, { "alpha" })
+	vim.api.nvim_buf_set_name(b, "/tmp/hn-seed-typed.lua")
+	vim.api.nvim_set_current_buf(b)
+	vim.api.nvim_win_set_cursor(0, { 1, 0 })
+
+	local orig = ui.input_comment
+	ui.input_comment = function(cb, opts)
+		-- What typing on the cursor line does: it replaces the last seeded line.
+		local typed = vim.list_extend({}, opts.lines)
+		typed[#typed] = "hoist the multiplier into a parameter"
+		cb(table.concat(typed, "\n"))
+	end
+	hn.comment_line()
+	ui.input_comment = orig
+
+	local dispatch = require("agent-comments.dispatch")
+	local agents = require("agent-comments.agents")
+	local sent
+	local o1, o2 = dispatch.send, agents.list
+	dispatch.send = function(_, text)
+		sent = text
+		return true
+	end
+	agents.list = function()
+		return { { pane_id = "wZ:p3", title = "pi", status = "idle" } }
+	end
+	hn.send_all({ submit = false })
+	dispatch.send, agents.list = o1, o2
+
+	T.ok(
+		sent:find("   1 | alpha\n\nhoist the multiplier into a parameter", 1, true) ~= nil,
+		"a blank line separates the quoted code from the annotation"
+	)
 end)

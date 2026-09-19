@@ -48,6 +48,59 @@ This list is the record of modification, and gets appended to as the fork diverg
 - The per-comment git context added earlier was removed, along with the `git` spawn and the
   per-directory cache behind it. The absolute path in each item header already identifies the repo,
   and the branch is one `git rev-parse` away in a tree the agent is already sitting in.
+- Items are no longer numbered and the comment carries no `Comment:` label: an item is a
+  column-zero `path:range` header, the quoted code, a blank line, then the comment text
+  indented to the quoted-line column. Comments may span lines, and free-form ones often hold
+  their own numbered lists, so column zero is reserved for the start of an item. `prompt.item`
+  renders one item and `prompt.format` emits a `verbatim` item's text unchanged, so a
+  pre-rendered item round-trips byte for byte.
+- The comment list and the callout show `ui.summary(c)`, one line per comment: the first line plus
+  a `(+N)` count of the lines it hides, or `❄ N lines verbatim` for a verbatim comment. Raw text
+  cannot be used there at all, since `nvim_buf_set_lines` rejects an embedded newline and
+  `virt_lines` silently renders one as garbage.
+- Comment text is typed into a scratch float and committed with `:w`, in place of the single-line
+  `vim.ui.input`, so a comment can run to several paragraphs and be edited before it is sent.
+  `ui.input_comment(on_done, opts)` keeps `on_done` first (callers stub it by position) and now
+  calls it on every exit path: the buffer joined by `\n` on a commit, `nil` on a cancel, raw, so
+  `init.comment_range` drops a nil or whitespace-only result itself. The buffer is `acwrite` with
+  a counter-based name, since `:w` on a `nofile` or unnamed buffer fails before `BufWriteCmd`
+  fires; `bufhidden` is `wipe` and `BufWipeout` is the one teardown funnel. `q` and `<Esc>` are
+  deliberately unbound and `<C-c>` cancels. `init.edit_comment` seeds the buffer with the
+  comment's existing lines.
+- `init.comment_range` anchors the comment when the editor opens, not when it is written:
+  `comments.add(bufnr, start, end, nil)` records a draft, the callback then either
+  `comments.edit`s the text in or `comments.delete`s the draft on a cancel. The editor can be left
+  with `<C-w>w` to go read the code, so the window between picking the lines and writing the text
+  is unbounded and editing in it is the point; plain line numbers held across it attach the
+  finished comment to whatever has since moved under them. `comments.list` skips a draft, so it
+  reaches neither the prompt nor the comment list, while `comments.get` and `comments.snippet`
+  still resolve one. A draft is decorated with the rail alone: it is what shows which lines are
+  being tracked while the user types, and `ui.summary` of an empty text is empty, so its callout
+  would be a bubble that pushes the code down a line to say nothing.
+- `<leader>zC` opens the same editor seeded with the fully rendered item (`prompt.item` of the
+  draft), so the annotation can be written between two quoted code lines; what the buffer holds is
+  stored and sent byte for byte. `comments.edit(id, text, { verbatim = true })` marks the entry and
+  `resolve` reports it, which also freezes its `modified`: a snapshot's `[unsaved]` state is read
+  back out of the stored text rather than from a buffer that may since have been written, because
+  the prompt's preamble explains the markers the message actually shows. Nothing else parses that
+  text. The list row, the preview jump and the sort order all keep coming from the live extmark, so
+  rewriting or deleting the header line inside the block costs nothing.
+- The comment text is no longer indented to the quoted-line column; it follows the blank line
+  exactly as it was typed. The indent existed so that column zero marked the start of an item and
+  a comment's own numbered list could not be read as one, and item numbering is gone, so an item
+  now starts with a `path:range` header instead. A verbatim item was already sent as typed, and
+  an ordinary one now is too.
+
+- There is one kind of comment. `<leader>zc` seeds the editor with the rendered item (`prompt.item`
+  of the draft, plus one empty line for the cursor to start on) whether it was started from the
+  cursor line or from a visual selection, what the buffer holds is stored, and `prompt.format`
+  emits it as typed: no `verbatim` flag, no `<leader>zC`, no second code path, and the editing
+  experience no longer depends on which key made the comment.
+  The cost is accepted knowingly: every comment is a snapshot, so one written before a large edit
+  quotes and cites the file as it was. `comments.resolve` reads a committed comment's `[unsaved]`
+  state back out of its stored text and a draft's from the live buffer, which is what its seed is
+  rendered from. `ui.summary` is the block's line count, since the block is freely editable and any
+  guess at which of its lines carries the annotation would eventually point at the wrong one.
 
 ## Tests
 
