@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+#
+# tmux-agent-counts [SESSION_NAME]: a status-bar segment counting agents by state, as
+# "<this session>:<all sessions>". Bound to a status-right #() in tmux.common.conf, where
+# SESSION_NAME arrives as #{session_name}. Glyphs are herdr's, records are tmux-agent-lib.sh's.
+#
+# Zeros still print, so the segment keeps a stable width and the status line does not jitter.
+
+# #() runs under the tmux server environment, where .commonrc has never run and jq is not on PATH.
+# Same approach as tmux-agent-picker and tmux-slurm-shell.
+PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+export PATH
+
+# Shared with tmux-agent-picker so the two cannot drift. Defines SESSIONS_DIR and pane_table too.
+script_dir=$(cd -- "$(dirname -- "$0")" && pwd -P)
+# shellcheck source=tmux-agent-lib.sh
+. "$script_dir/tmux-agent-lib.sh" 2> /dev/null || {
+    # Said in the segment because a status job has nowhere else to say it, and silent zeros would
+    # read as a quiet machine.
+    printf '#[fg=brightred]agent-lib missing#[fg=default]\n'
+    exit 0
+}
+
+# An unexpanded argument means tmux passed the format through literally. "-" says "no session
+# scope" rather than reporting zeros for a session that cannot exist.
+session="$1"
+[[ -n "$session" && "$session" != *'#{'* ]] || session=""
+
+working_here=0 working_all=0
+blocked_here=0 blocked_all=0
+idle_here=0 idle_all=0
+
+# #[...] as literal text, not ANSI: tmux parses it while drawing. The picker emits real ANSI for
+# the same colours because fzf renders that one, so do not copy escapes between them. One line
+# only: tmux keeps the last line of a #() and discards the rest.
+emit() {
+    local w=$working_here b=$blocked_here i=$idle_here
+    [[ -n "$session" ]] || w=- b=- i=-
+    # fg=default, not default: the latter resets the background too, flickering the cell.
+    printf '#[fg=green]◐ %s:%d#[fg=default]  #[fg=brightred]× %s:%d#[fg=default]  #[fg=brightyellow]○ %s:%d#[fg=default]\n' \
+        "$w" "$working_all" "$b" "$blocked_all" "$i" "$idle_all"
+}
+
+panes=$(pane_table)
+
+# Ten seconds of prime-agent staleness is invisible on a bar that redraws every fifteen.
+records=$(agent_records "$panes" 10)
+[[ -n "$records" ]] || { emit; exit 0; }
+
+# Both selects are the picker's. pid == "" marks a pane-derived record, where the pane join is the
+# liveness test and there is no process to signal.
+read -r working_here working_all blocked_here blocked_all idle_here idle_all <<< "$(
+    printf '%s' "$records" | jq -r \
+        --arg panes "$panes" --arg live "$(live_pids "$records")" --arg self "$session" \
+        "$JQ_PRELUDE"'
+        ([$panes | split("\n")[] | select(length > 0) | split("\t")
+          | {key: .[0], value: .[1]}] | from_entries) as $P
+        | ([$live | split("\n")[] | select(length > 0)]) as $L
+        | [ .[]
+            | . as $r
+            | select($r.pid == "" or ($L | index($r.pid)))
+            | select(.tmux_pane != "" and $P[.tmux_pane] != null) ]
+          | dedupe_by_pane
+          | map({st: .status, ws: $P[.tmux_pane]}) as $rows
+        | def n(f): [$rows[] | select(f)] | length;
+          [ n(.st == "working" and .ws == $self), n(.st == "working"),
+            n(.st == "blocked" and .ws == $self), n(.st == "blocked"),
+            n(.st == "idle"    and .ws == $self), n(.st == "idle") ]
+        | @tsv' 2> /dev/null)"
+
+# A failed jq leaves these empty, and printf %d on an empty string is an error.
+for v in working_here working_all blocked_here blocked_all idle_here idle_all; do
+    [[ -n "${!v}" ]] || printf -v "$v" '%d' 0
+done
+
+emit
