@@ -33,11 +33,7 @@ Personal dotfiles repo (macOS + Linux): Neovim (Lua), zsh/bash, CLI tools.
 - Formatting is conform.nvim via `<leader>cf`, and via `<leader>w`/`<leader>W` when `FORMAT_NVIM=1`.
   There is no `BufWritePre` hook, so plain `:w` never formats.
 - `.config/nvim/local_plugins/` holds vendored third-party plugins, loaded by a lazy `dir =` spec
-  instead of being fetched from GitHub. `agent-comments` there is a modified MIT fork of herdr-nvim's
-  Lua half. Every divergence from upstream is deliberate and listed in that directory's `README.md`,
-  so add to that list rather than making unrecorded edits, and diff against the reference clone at
-  `~/github/garrett361/herdr-nvim` before assuming something there is a mistake. Its tests run with
-  `nvim --headless --noplugin -u NONE -l tests/run.lua` from that directory.
+  instead of being fetched from GitHub.
 - `NVIM_APPNAME=nvim_min` uses `.config/nvim_min/`, which symlinks most of `.config/nvim/`.
 
 ## Shell
