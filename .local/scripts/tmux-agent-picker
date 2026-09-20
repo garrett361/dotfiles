@@ -52,8 +52,6 @@ ORDER="all blocked working idle"
 
 KEYS="Tab/S-Tab: status | Enter: jump | C-r: refresh | C-o: preview layout"
 
-# get_deps.sh already drives Claude with CLAUDE_CONFIG_DIR, so it is a real knob on this machine.
-SESSIONS_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions"
 
 # tmux neww closes the window the instant this process exits, so a bare error message would never
 # be read.
@@ -66,9 +64,14 @@ die() {
     exit 1
 }
 
+# Below die() so a missing library is reported the way every other fatal is: tmux neww closes the
+# window the instant this exits, and nothing above here needs the library.
+# shellcheck source=tmux-agent-lib.sh
+. "$script_dir/tmux-agent-lib.sh" 2> /dev/null \
+    || die "cannot source $script_dir/tmux-agent-lib.sh"
+
 command -v jq > /dev/null 2>&1 || die "jq not found on PATH"
 command -v tmux > /dev/null 2>&1 || die "tmux not found on PATH"
-[[ -d "$SESSIONS_DIR" ]] || die "no agent registry at $SESSIONS_DIR"
 
 # FZF_PROMPT carries the filter, so parse it defensively: anything unrecognized becomes `all`
 # rather than an empty list the user cannot explain.
@@ -90,195 +93,6 @@ filter_arg() {
     fi
 }
 
-# Normalizes one registry file into the uniform record the rest of the script consumes. Claude's
-# own UI collapses busy and shell into "working" and waiting into "blocked", so this is its
-# vocabulary, not an interpretation of it.
-#
-# The tmux field is written once at session start and can be stale or the literal ":.". Scanning
-# for the last %N rather than splitting on "." because a tmux session name may legally contain a
-# dot. ":." yields "" and is dropped at the join: it must never reach a tmux command, where it
-# resolves to the *current* pane and would preview or jump to the wrong place.
-#
-# statusUpdatedAt moves on transition only, which makes it useless as an idleness proxy but exactly
-# right as "when this state began".
-CLAUDE_MAP='
-[ .[]
-  | select(type == "object" and .pid != null)
-  | { pid: (.pid | tostring),
-      agent: "claude",
-      cwd: (.cwd // ""),
-      tmux_pane: ((.tmux // "") | [scan("%[0-9]+")] | last // ""),
-      status: (if (.status == "busy" or .status == "shell") then "working"
-               elif .status == "waiting" then "blocked"
-               else "idle" end),
-      waitingFor: (.waitingFor // ""),
-      name: (.name // ""),
-      updatedAt: (.statusUpdatedAt // .updatedAt // 0) } ]'
-
-# *.json and never *: this directory also holds <pid>.<sha256>.key files, mode 0600, whose contents
-# are {"peerToken":...}. They are valid JSON objects, so a bare glob would slurp them alongside the
-# sessions and select(.pid != null) would drop them silently, putting peer tokens through this
-# script's variables with nothing to show for it. Nothing here ever prints a file's contents on
-# error, only its path.
-claude_records() {
-    local files=() f out sep
-    for f in "$SESSIONS_DIR"/*.json; do
-        [[ -f "$f" ]] && files+=("$f")
-    done
-
-    # jq with no file arguments reads stdin, which would hang the whole picker inside an fzf
-    # reload. An empty registry is the ordinary case on a fresh boot, so it has to be an early
-    # return rather than a guard that happens to work.
-    if [[ ${#files[@]} -eq 0 ]]; then
-        printf '[]'
-        return 0
-    fi
-
-    if out=$(jq -s -c "$CLAUDE_MAP" "${files[@]}" 2> /dev/null) && [[ -n "$out" ]]; then
-        printf '%s' "$out"
-        return 0
-    fi
-
-    # A session file is rewritten on every status change, so a read can catch one mid-write, and
-    # jq -s aborts the whole slurp on the first parse error: one torn file would blank the menu.
-    # The retry pays for one jq per file only in that rare case, and a file that still fails is
-    # simply absent from the output.
-    #
-    # The array is assembled by a second jq rather than by printing brackets and commas here. jq
-    # runs its program once per input value, so a file that has gained a whole extra top-level
-    # object (an append rather than a short write) makes the inner jq emit two records, and hand
-    # assembly would splice them in with one comma between the pair and none inside it. That is
-    # invalid JSON, which the caller's jq then rejects, losing every healthy record to one odd
-    # file: precisely the failure this retry exists to prevent. Slurping sidesteps the whole class.
-    for f in "${files[@]}"; do
-        jq -c "[.] | $CLAUDE_MAP | .[]" "$f" 2> /dev/null
-    done | jq -s -c '.' 2> /dev/null
-}
-
-# THE SEAM. Everything below consumes the uniform record and knows nothing about where it came
-# from. Each reader normalizes its own status vocabulary, because nothing downstream should have
-# to, and each takes the pane table so the three of them cost one tmux call between them.
-#
-# The three sources are deliberately unalike. Claude publishes a registry and needs no writer here.
-# codex publishes nothing but encodes its state in the terminal title, which tmux hands us as a
-# format variable. prime-agent publishes nothing and has no useful title, but its daemon answers a
-# CLI query. None of the three required installing a hook or an extension, which is the constraint
-# this design was built to.
-#
-# A reader that produces nothing contributes an empty file here and drops out of the slurp, so a
-# missing harness costs a row, never the menu.
-agent_records() {
-    jq -s -c 'add // []' \
-        <(claude_records) <(codex_records "$1") <(prime_agent_records "$1") 2> /dev/null
-}
-
-# codex writes its run state into the terminal title with a plain OSC 0, and tmux tracks that as
-# pane_title, so all three states are readable without a hook and without scraping the screen. The
-# rules are herdr distribution/agent-detection/codex.toml, where the title rules outrank the
-# screen-scraping ones (priority 1100 and 1050 against 500 to 900) for the same reason.
-#
-# The hook route was rejected rather than unexplored. get_deps.sh:410 has herdr own
-# ~/.codex/hooks.json outright and overwrite it, so a second hook there would not survive the next
-# run; hooks sit behind a feature flag and are SHA-256 trust-pinned, so editing one silently stops
-# it until it is re-approved in the TUI; and there is no event when a permission request is
-# answered, so a hook-authored blocked state can stick after a denial.
-#
-# No updatedAt: nothing here records when the state changed, so these rows show no age.
-codex_records() {
-    printf '%s' "$1" | jq -R -s -c '
-        def title_of: .[4] // "";
-        [ split("\n")[] | select(length > 0) | split("\t")
-          | select(.[2] == "codex")
-          | title_of as $t
-          | { pid: "",
-              agent: "codex",
-              cwd: (.[3] // ""),
-              tmux_pane: .[0],
-              status: (if ($t | test("Action Required")) then "blocked"
-                       elif ($t | test("(?:^| )[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏](?: |$)")) then "working"
-                       else "idle" end),
-              waitingFor: (if ($t | test("Action Required")) then "action required" else "" end),
-              # The run-state item leads the title and is state, not content, so it is stripped
-              # the same way Claude sigil is, along with the separator codex puts after it. Both
-              # spellings of the blocked marker animate. A title that is only run state strips to
-              # empty and the fallback chain reaches the cwd basename, which says more than Ready.
-              name: ($t | sub("^(\\s*(\\[\\s*[!.]\\s*\\]|[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]|Action Required|Ready)\\s*(-\\s*)?)+"; "")),
-              updatedAt: 0 }
-          # A title that was only run state strips to empty, and the shared fallback would then
-          # recover the same words from the raw pane title and restate the status column. The
-          # directory is the useful thing to show instead.
-          | if .name == "" then .name = (.cwd | split("/") | last) else . end ]' 2> /dev/null
-}
-
-# prime-agent runs its sessions in detached daemon workers with the TUI as a client, so there is no
-# pid or pane anywhere in its data: the worker outlives the pane and the one recorded in its
-# environment goes stale. The join is therefore cwd against panes whose foreground command is
-# prime-agent, which is also why sessions with no attached client are skipped, they have no pane to
-# jump to and there are usually many of them.
-#
-# Reading the pane out of the worker environment with ps would be the obvious alternative and is
-# deliberately not done: that environment carries API keys, which is why the Claude reader stopped
-# doing it too.
-#
-# Only working and idle. prime-agent cannot report blocked: the event its own herdr reporter
-# listens for has no emitter anywhere in the product, its activity field has a waiting value that
-# means waiting on the model rather than on the user, and herdr pi manifest has no blocked rule
-# either. That is a property of prime-agent, not a gap in this reader.
-prime_agent_records() {
-    command -v prime-agent > /dev/null 2>&1 || return 0
-    # The join below needs a pane whose foreground command is prime-agent, so with none on the
-    # server the query cannot produce a row however it answers. Checking the table we already have
-    # costs nothing and keeps a machine that never runs prime-agent from paying for the subprocess
-    # on every tick.
-    printf '%s' "$1" | cut -f3 | grep -qx 'prime-agent' || return 0
-    local out
-    out=$(prime-agent list --all --json 2> /dev/null) || return 0
-    [[ -n "$out" ]] || return 0
-    printf '%s' "$out" | jq -c --arg panes "$1" '
-        ([$panes | split("\n")[] | select(length > 0) | split("\t")
-          | select(.[2] == "prime-agent")
-          | {key: (.[3] // ""), value: .[0]}] | from_entries) as $byCwd
-        | [ .sessions[]?
-            | select((.attachedClients // 0) > 0)
-            | select($byCwd[.cwd // ""] != null)
-            | { pid: "",
-                agent: "prime-agent",
-                cwd: (.cwd // ""),
-                tmux_pane: $byCwd[.cwd],
-                status: (if (.activity == "working" or .activity == "executing")
-                         then "working" else "idle" end),
-                waitingFor: "",
-                # summary is written by the model and reads like a task title, which is exactly
-                # what this column wants; firstMessage is the fallback for a session too young to
-                # have one.
-                name: (.summary // .firstMessage // ""),
-                updatedAt: (try ((.lastActivityAt // "")
-                                 | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601 * 1000)
-                            catch 0) } ]' 2> /dev/null
-}
-
-# The pid comes from the .pid field, not the filename: not every file in that directory is named
-# after a pid. kill is a builtin, so this costs no processes. The registry is self-reaping, so this
-# only catches the window between a SIGKILL and nothing running to clean up.
-live_pids() {
-    printf '%s' "$1" | jq -r '.[].pid' 2> /dev/null | while read -r pid; do
-        kill -0 "$pid" 2> /dev/null && printf '%s\n' "$pid"
-    done
-}
-
-# One call for every pane on the server rather than a display-message per row: --list runs on a
-# timer under every(N), and a per-row call would be a process per agent per tick. pane_title is
-# last because it is the only field that could contain a tab, so a pathological title loses its own
-# tail instead of the whole row. The window id is not collected because the jump targets the pane
-# id alone.
-#
-# current_command and current_path are here for the codex and prime-agent readers rather than for
-# the renderer: those two harnesses publish no registry, so their rows are built out of this table.
-pane_table() {
-    tmux list-panes -a \
-        -F $'#{pane_id}\t#{session_name}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_title}' \
-        2> /dev/null
-}
 
 SNAPSHOT_JQ='
 def clean: gsub("[[:cntrl:]]"; "");
@@ -311,7 +125,7 @@ def striproot: if $root != "" and startswith($root) then .[($root | length):] el
 # Unreachable while the registry is the only source, but a wrong jump is the worst failure this
 # script can produce, so two records can never both claim one pane. The newest transition wins,
 # being the claim most recently proven alive in that pane.
-| (group_by(.tmux_pane) | map(if length == 1 then .[0] else (sort_by(.updatedAt) | last) end))
+| dedupe_by_pane
 
 # The current tmux session first, then attention order within each group. The default fzf layout
 # grows the list upward from the prompt, so position 1 renders nearest the cursor: the agents in
@@ -358,7 +172,7 @@ snapshot() {
     root="${root#/}"
     root="${root//\//_}_"
     printf '%s' "$1" | jq -r --arg panes "$2" --arg live "$3" --arg self "$4" --arg root "$root" \
-        "$SNAPSHOT_JQ" 2> /dev/null
+        "$JQ_PRELUDE$SNAPSHOT_JQ" 2> /dev/null
 }
 
 # One pipeline behind both --list and --cycle. In the herdr original a single `agent list` payload
@@ -367,7 +181,7 @@ snapshot() {
 build_snapshot() {
     local records panes
     panes=$(pane_table)
-    records=$(agent_records "$panes")
+    records=$(agent_records "$panes" 2)
     [[ -n "$records" ]] || return 1
     snapshot "$records" "$panes" "$(live_pids "$records")" "$origin_pane"
 }
@@ -413,10 +227,12 @@ count_of() {
 render() {
     printf '%s\n' "$2" | awk -F'\t' -v filter="$1" -v order="$ORDER" -v note="$3" \
         -v now="$(date +%s)" '
+        # tmux-agent-counts uses the same mapping; the escapes differ because fzf renders ANSI
+        # and the bar renders tmux markup.
         function hue(s) {
-            if (s == "blocked") return "\033[31m"
-            if (s == "working") return "\033[36m"
-            if (s == "idle") return "\033[2m"
+            if (s == "blocked") return "\033[91m"
+            if (s == "working") return "\033[32m"
+            if (s == "idle") return "\033[93m"
             return "\033[35m"
         }
         # systime() is gawk only and macOS ships one-true-awk, so the clock arrives as -v now.
