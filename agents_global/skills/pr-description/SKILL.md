@@ -24,7 +24,8 @@ Draft a PR description and iterate with the user before saving it anywhere.
    single sentence is the ideal whenever it can carry the point on its own;
    expand only as far as genuinely needed.
 4. Add a plain bullet list only if there are necessary PR details the prose
-   didn't cover. No section headers for this part.
+   didn't cover, roughly 3 bullets at most, each one sentence of about 100
+   characters or less. No section headers for this part.
 5. Add a `## Verification` section only when there's a non-trivial, non-
    obvious verification step a reviewer wouldn't otherwise know to run (a
    specific command, script, or repro), not by default.
@@ -38,5 +39,7 @@ Draft a PR description and iterate with the user before saving it anywhere.
 ## Rules
 
 - Never wrap the intro/bullets in `## Summary` or any other header.
+- Never let a bullet run past two sentences; cut restatements of the prose
+  and details the diff already shows.
 - Never write the file before the user has agreed on the text.
 - Never overwrite an existing `PR.md` without asking first.

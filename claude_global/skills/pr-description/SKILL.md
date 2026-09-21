@@ -34,6 +34,13 @@ sentence is the ideal when it alone can carry the point. Then a plain bullet
 list, only if there are necessary PR details the prose didn't cover. Never
 use section headers like `## Summary` for this part.
 
+Keep that list to roughly 3 bullets. Each bullet is one sentence of about
+100 characters or less; add a second sentence only when it is load-bearing,
+and never a third. Lead with what changed. Cut anything the prose already
+said, anything the diff shows plainly, and file-by-file inventories. A
+detail that needs a paragraph belongs in the code or in the PR
+conversation, not here.
+
 Exception: add a `## Verification` section, but only when there's a
 non-trivial verification step a reviewer wouldn't otherwise know to run,
 e.g. a specific `uv run ...` command, a script, or a manual repro. Don't add
@@ -41,8 +48,10 @@ this section by default.
 
 ## 3. Iterate
 
-Show the draft in chat and revise based on feedback. Do not write anything
-to disk until the user explicitly agrees on the text.
+Before showing the draft, re-read each bullet against the cap and cut it
+down; a bullet that will not fit is usually two bullets or a detail worth
+dropping. Show the draft in chat and revise based on feedback. Do not
+write anything to disk until the user explicitly agrees on the text.
 
 ## 4. Write the file
 
