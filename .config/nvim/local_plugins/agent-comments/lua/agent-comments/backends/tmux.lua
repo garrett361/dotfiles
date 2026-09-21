@@ -152,9 +152,8 @@ function M.send(target, text, opts, exec)
 			"tmux set-buffer failed: " .. (r.stderr ~= "" and r.stderr or ("exit " .. r.code))
 	end
 	-- -r stops tmux turning each linefeed into a carriage return, which would make the
-	-- receiving TUI submit every line as its own prompt; -S stops it vis-escaping bytes in
-	-- 0x80-0x9F, which mangles any three-byte UTF-8 character with such a continuation byte.
-	r = exec({ "tmux", "paste-buffer", "-p", "-r", "-d", "-S", "-b", name, "-t", target })
+	-- receiving TUI submit every line as its own prompt.
+	r = exec({ "tmux", "paste-buffer", "-p", "-r", "-d", "-b", name, "-t", target })
 	if r.code ~= 0 then
 		-- -d only deletes on success, so the whole prompt would be left sitting in a buffer.
 		exec({ "tmux", "delete-buffer", "-b", name })

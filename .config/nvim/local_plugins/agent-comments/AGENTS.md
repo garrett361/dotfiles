@@ -32,7 +32,11 @@ Entries describe the current state, not the order things happened in. That histo
   through it. The tmux backend lists the panes of the current session, keeps those whose title or
   current command matches a configured agent rule, resolves to the single candidate sharing the
   current window, and delivers through `set-buffer` plus `paste-buffer` so a multi-line prompt
-  arrives as one paste rather than one submitted line per newline.
+  arrives as one paste rather than one submitted line per newline. The paste is flagged `-p -r -d`
+  and deliberately not `-S`, which tmux 3.7 added to disable the `vis(3)` escaping it introduced in
+  the same release so that a buffer containing the bracket end sequence cannot break out of the `-p`
+  bracketed paste. The prompt quotes arbitrary source, so that escaping is wanted, and it is a flag
+  tmux 3.6 and earlier reject outright.
 - There is no per-comment git context and no `git` spawn. The absolute path in each item header
   already identifies the repo, and the branch is one `git rev-parse` away in a tree the agent is
   already sitting in.

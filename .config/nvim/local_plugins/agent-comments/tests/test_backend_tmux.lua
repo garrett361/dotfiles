@@ -321,7 +321,7 @@ T.test("tmux: paste mode sets a buffer and pastes it, no Enter", function()
 	T.eq(#calls, 2)
 	local name = "agent-comments-" .. vim.fn.getpid()
 	T.eq(calls[1], { "tmux", "set-buffer", "-b", name, "--", "line1\nline2" })
-	T.eq(calls[2], { "tmux", "paste-buffer", "-p", "-r", "-d", "-S", "-b", name, "-t", "%3" })
+	T.eq(calls[2], { "tmux", "paste-buffer", "-p", "-r", "-d", "-b", name, "-t", "%3" })
 end)
 
 T.test("tmux: send mode appends a single Enter", function()
