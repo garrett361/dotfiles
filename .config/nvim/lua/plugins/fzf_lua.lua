@@ -1,10 +1,33 @@
 local prequire = require("nvim_utils").prequire
 
+local function close_on_win_leave(e)
+	vim.api.nvim_create_autocmd("WinLeave", {
+		group = vim.api.nvim_create_augroup("FzfLuaCloseOnWinLeave", { clear = true }),
+		buffer = e.bufnr,
+		callback = function()
+			-- Deferred because a WinLeave callback may not close a window. Bailing on a hidden
+			-- picker keeps <M-Esc> alive, and on the builtin previewer's own window because
+			-- entering it is not really leaving.
+			vim.schedule(function()
+				local win = require("fzf-lua").win
+				local fzf_win = win.__SELF()
+				if not fzf_win or fzf_win:hidden() then
+					return
+				end
+				if vim.w[vim.api.nvim_get_current_win()].fzf_lua_preview then
+					return
+				end
+				win.close(e.bufnr)
+			end)
+		end,
+	})
+end
+
 local function config()
 	local fzf_lua = require("nvim_utils").prequire("fzf-lua")
 	fzf_lua.setup({
 		"fzf-native",
-		winopts = { fullscreen = true },
+		winopts = { fullscreen = true, on_create = close_on_win_leave },
 		grep = {
 			rg_opts = "--column --line-number --hidden --color=always --no-ignore"
 				.. " --iglob !.git/ --iglob !.ruff_cache/ --iglob !.mypy_cache/ --iglob !build/ --iglob !.pytest_cache/ "
