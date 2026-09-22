@@ -12,6 +12,20 @@ M.config = {
 	},
 }
 
+-- A message wider than the command line triggers the hit-enter prompt, so trim to one line. The
+-- last column stays empty because filling it scrolls the message area too.
+local function fit_one_line(msg)
+	local max_width = vim.v.echospace - 1
+	if vim.fn.strdisplaywidth(msg) <= max_width then
+		return msg
+	end
+	local nchars = vim.fn.strcharlen(msg)
+	while nchars > 0 and vim.fn.strdisplaywidth(vim.fn.strcharpart(msg, 0, nchars)) >= max_width do
+		nchars = nchars - 1
+	end
+	return vim.fn.strcharpart(msg, 0, nchars) .. "…"
+end
+
 function M.setup(config)
 	config = config or {}
 	-- vim.tbl_deep_extend merges lists by index, so a caller supplying one rule would
@@ -115,12 +129,6 @@ function M.send_all(opts)
 	-- Single funnel for every send (both the resolved and picked paths), so the
 	-- "agent is working" warning lives in exactly one place.
 	local function deliver(agent)
-		if agent.status == "working" then
-			vim.notify(
-				"agent-comments: " .. agents.display(agent) .. " is working, sending anyway",
-				vim.log.levels.WARN
-			)
-		end
 		local ok, derr = dispatch.send(agent.pane_id, text, opts)
 		if not ok then
 			vim.notify("agent-comments: " .. derr, vim.log.levels.ERROR)
@@ -134,7 +142,15 @@ function M.send_all(opts)
 		-- A send can be fired from inside the comment list, which would otherwise go on showing
 		-- comments the store no longer holds.
 		ui.refresh_list()
-		vim.notify(string.format("agent-comments: sent %d comment(s) to %s", #list, agent.title))
+		-- One message per send: a second one in the same tick would also force the hit-enter prompt.
+		local working = agent.status == "working"
+		local msg = string.format(
+			"agent-comments: sent %d comment(s)%s to %s",
+			#list,
+			working and " (agent was working)" or "",
+			agent.title
+		)
+		vim.notify(fit_one_line(msg), working and vim.log.levels.WARN or vim.log.levels.INFO)
 	end
 	-- Skip the picker when the target is unambiguous (the common one-agent case);
 	-- fall back to the picker only when 2+ agents could plausibly be meant.

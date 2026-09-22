@@ -226,7 +226,9 @@ T.test("init: send_all warns once when the resolved agent is working", function(
 			},
 		}
 	end
+	local notes = 0
 	vim.notify = function(msg, level)
+		notes = notes + 1
 		if level == vim.log.levels.WARN then
 			table.insert(warns, msg)
 		end
@@ -235,8 +237,55 @@ T.test("init: send_all warns once when the resolved agent is working", function(
 	hn.send_all({ submit = true })
 	ui.pick_agent, dispatch.send, agents.list, vim.notify = o1, o2, o3, on
 
+	T.eq(notes, 1, "a send must emit exactly one message")
 	T.eq(#warns, 1, "working warning must fire exactly once")
-	T.ok(warns[1]:find("is working", 1, true), "warning names the working state")
+	T.ok(warns[1]:find("working", 1, true), "warning names the working state")
+	T.ok(warns[1]:find("sent 1 comment(s)", 1, true), "warning reports the send")
+end)
+
+T.test("init: send_all fits a long agent title on one line", function()
+	comments.clear()
+	local b = vim.api.nvim_create_buf(false, true)
+	vim.api.nvim_buf_set_lines(b, 0, -1, false, { "alpha" })
+	vim.api.nvim_buf_set_name(b, "/tmp/hn-send-long-title.lua")
+	comments.add(b, 1, 1, "check this")
+
+	local ui = require("agent-comments.ui")
+	local dispatch = require("agent-comments.dispatch")
+	local agents = require("agent-comments.agents")
+	local msgs = {}
+	local o1, o2, o3, on = ui.pick_agent, dispatch.send, agents.list, vim.notify
+	ui.pick_agent = function()
+		error("picker must not open for a lone agent")
+	end
+	dispatch.send = function()
+		return true
+	end
+	agents.list = function()
+		return {
+			{
+				pane_id = "wZ:p9",
+				tab_id = "wZ:t1",
+				kind = "claude",
+				title = "✳ " .. string.rep("long task summary ", 20),
+				status = "idle",
+				cwd = "/x/y/z",
+			},
+		}
+	end
+	vim.notify = function(msg)
+		table.insert(msgs, msg)
+	end
+
+	hn.send_all({ submit = true })
+	ui.pick_agent, dispatch.send, agents.list, vim.notify = o1, o2, o3, on
+
+	T.eq(#msgs, 1, "a send must emit exactly one message")
+	T.ok(vim.fn.strdisplaywidth(msgs[1]) < vim.v.echospace, "message must fit the command line")
+	T.ok(
+		vim.startswith(msgs[1], "agent-comments: sent 1 comment(s) to ✳"),
+		"count survives the cut"
+	)
 end)
 
 T.test("init: send_all shows the picker when agents are ambiguous", function()
