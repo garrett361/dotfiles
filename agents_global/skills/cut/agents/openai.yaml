@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cut"
+  short_description: "Cut verbose comments and docstrings to the minimum that earns its place"
+  default_prompt: "Use $cut to go back over the comments and docstrings you just wrote and cut them."
