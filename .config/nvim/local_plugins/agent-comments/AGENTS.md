@@ -30,7 +30,9 @@ Entries describe the current state, not the order things happened in. That histo
 - The transport is split into `backends/herdr.lua` and `backends/tmux.lua` behind a selector taking
   the first multiplexer whose session is live, herdr before tmux; `agents` and `dispatch` forward
   through it. The tmux backend lists the panes of the current session, keeps those whose title or
-  current command matches a configured agent rule, resolves to the single candidate sharing the
+  current command matches a configured agent rule (by default claude, codex and prime-agent,
+  matched on the same process names as `tmux-agent-lib.sh` but independent of it; supporting
+  another harness is one more `agents` entry), resolves to the single candidate sharing the
   current window, and delivers through `set-buffer` plus `paste-buffer` so a multi-line prompt
   arrives as one paste rather than one submitted line per newline. The paste is flagged `-p -r -d`
   and deliberately not `-S`, which tmux 3.7 added to disable the `vis(3)` escaping it introduced in

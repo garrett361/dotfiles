@@ -9,6 +9,8 @@ M.config = {
 	clear_after_send = true,
 	agents = {
 		{ kind = "claude", title = "^✳", command = "^%d+%.%d+%.%d+$" },
+		{ kind = "codex", command = "^codex$" },
+		{ kind = "prime-agent", command = "^prime%-agent$" },
 	},
 }
 

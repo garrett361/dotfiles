@@ -3,6 +3,7 @@ local hn = require("agent-comments")
 
 local TMUX_SOCKET = "/tmp/tmux-test/default,1,0"
 local claude_rule = { kind = "claude", title = "^✳", command = "^%d+%.%d+%.%d+$" }
+local default_rules = hn.config.agents
 
 -- The separator has to be a real tab byte, so every fixture goes through this concat and
 -- never through a [[long bracket]] literal, where \t would stay a backslash and a t.
@@ -181,6 +182,25 @@ T.test("tmux: list sorts by window index numerically", function()
 		local list = tmux.list(fake_exec(fixture))
 		T.eq(list[1].index, "9")
 		T.eq(list[2].index, "10")
+	end)
+end)
+
+T.test("tmux: the default rules detect every supported harness", function()
+	local harnesses = {
+		{ command = "2.1.280", title = "✳ review", kind = "claude" },
+		{ command = "codex", title = "Ready", kind = "codex" },
+		{ command = "prime-agent", title = "prime-agent - repo", kind = "prime-agent" },
+	}
+	with_session({ TMUX = TMUX_SOCKET, TMUX_PANE = "%0", agents = default_rules }, function()
+		local rows = { { "%99", "@1", "99", "$0", "zsh", "/tmp/shell", "zsh" } }
+		for i, h in ipairs(harnesses) do
+			rows[#rows + 1] = { "%" .. i, "@1", tostring(i), "$0", h.command, "/tmp/a", h.title }
+		end
+		local list = tmux.list(fake_exec(panes(unpack(rows))))
+		T.eq(#list, #harnesses, "a plain shell is not an agent")
+		for i, h in ipairs(harnesses) do
+			T.eq(list[i].kind, h.kind, h.command .. " is detected")
+		end
 	end)
 end)
 
