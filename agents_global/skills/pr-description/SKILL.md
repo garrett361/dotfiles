@@ -36,14 +36,21 @@ use section headers like `## Summary` for this part.
 
 Keep that list to roughly 3 bullets. Each bullet is one sentence of about
 100 characters or less; add a second sentence only when it is load-bearing,
-and never a third. Lead with what changed. Cut anything the prose already
-said, anything the diff shows plainly, and file-by-file inventories. A
-detail that needs a paragraph belongs in the code or in the PR
-conversation, not here.
+and never a third. Lead with what changed; when behavior changes, state what
+the code did before and what it does now. A failed approach that shaped the
+design gets its own bullet saying what was tried and why it failed. Cut
+anything the prose already said, anything the diff shows plainly, and
+file-by-file inventories. A detail that needs a paragraph belongs in the
+code or in the PR conversation, not here.
 
 A results table beats prose when the claim is a measured change; it replaces
 sentences rather than adding to them. Keep the whole description to one screen,
 roughly 30 lines including any table.
+
+For a perf PR, back the table with a profiler figure when one shows the
+mechanism; follow the `profiling` skill's `reporting/figures.md` for how to make,
+embed, and caption it. The figure and caption don't count toward the one-screen
+budget.
 
 A typical result, and the shape to aim for:
 
