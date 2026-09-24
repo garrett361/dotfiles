@@ -59,6 +59,12 @@ and grow by adding a name to their `REPOS` array. The first gives each PrimeInte
 detached clone plus a `<repo>-main` worktree holding `main`, the `git tree` stack root; a root
 needs no registration, only a worktree and `branch.main.remote`.
 
+## Skills
+
+`agents_global/skills/` is the one skill tree for Claude Code, Codex and prime-agent. Claude reads
+only `~/.claude/skills`, so `install.sh` links it there as well as into `~/.agents/skills`.
+`claude_global/skills/` holds only skills that need something Claude-specific.
+
 ## Conventions
 
 - Lua: `stylua`, 100 col, tabs (stylua's default; `.stylua.toml` sets only width). Use `prequire()`

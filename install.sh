@@ -102,6 +102,9 @@ for repo_skills in claude_global/skills agents_global/skills; do
 	done
 done
 
+# Claude reads only ~/.claude/skills, so the shared tree is linked there as well as into
+# ~/.agents/skills below. claude_global/skills holds only the Claude-only skills.
+link_skills "$(readlink -f agents_global/skills)" "${HOME}/.claude/skills"
 link_skills "$(readlink -f claude_global/skills)" "${HOME}/.claude/skills"
 
 # Link repo-managed Codex globals without replacing Codex runtime state or system skills.
@@ -111,8 +114,8 @@ link_entry "$(readlink -f codex_global/AGENTS.md)" "${HOME}/.codex/AGENTS.md"
 # (auth.json, sessions/) and this repo is public.
 link_entry "$(readlink -f prime_agent_global/AGENTS.md)" "${HOME}/.prime/agent/AGENTS.md"
 
-# ~/.agents/skills is the cross-tool location, hence agents_global rather than a Codex-specific
-# name: nothing under it is Codex-only.
+# ~/.agents/skills is the cross-tool location (Codex, prime-agent), hence agents_global rather
+# than a Codex-specific name: nothing under it is Codex-only.
 link_skills "$(readlink -f agents_global/skills)" "${HOME}/.agents/skills"
 
 # Codex also reads $CODEX_HOME/skills, which it marks deprecated. Keep no repo-managed links there

@@ -1,6 +1,6 @@
 ---
 name: pr-description
-description: Draft a PR description (short prose intro, bullets only if needed) from conversation context, git-tree parent branch, or branch diff, iterate with the user, then save the agreed text to a local markdown file. Use when asked to write/draft/update a PR description.
+description: Draft a PR description (short prose intro, bullets only if needed) from conversation context, git-tree parent branch, or branch diff, iterate with the user, then save the agreed text to a local markdown file. Use when asked to write/draft/update a PR description, or "/pr-description".
 ---
 
 # PR Description
@@ -12,7 +12,7 @@ from:
 
 1. This conversation's own knowledge of what was just implemented, if the
    change being described was done earlier in this session.
-2. Any commentary the user typed alongside the request.
+2. Any commentary the user typed after `/pr-description`.
 3. If this is a `git tree` stacked branch, run `git tree --json` and look up
    the current branch (`git branch --show-current`) in its `branches` array.
    If found, use that entry's `parent` field as the base instead of the
@@ -20,7 +20,7 @@ from:
    <parent>..HEAD`.
 4. Otherwise diff/log against the repo's default branch: `git diff
    <base>...HEAD`, `git log <base>..HEAD`.
-5. Only ask the user if the scope or base is still
+5. Only ask the user (via `AskUserQuestion` if available) if the scope or base is still
    unclear after the above.
 
 State which source you used (e.g. "using this session's changes" / "diffing
@@ -83,6 +83,6 @@ silently.
 Find the repo root with `git rev-parse --show-toplevel` and write the agreed
 text there as `PR.md` (GitHub-flavored markdown), since a stable default
 name makes the draft easy to find and re-iterate on. If `PR.md` already exists,
-ask the user what filename to use instead rather than
+ask the user (via `AskUserQuestion` if available) what filename to use instead rather than
 guessing or overwriting. If the user named a file, use theirs instead of
 the default. Report the path written.

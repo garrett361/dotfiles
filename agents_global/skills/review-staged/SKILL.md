@@ -1,47 +1,86 @@
 ---
 name: review-staged
-description: Review staged git changes for bugs, regressions, and convention violations before commit. Use when the user wants a pre-commit review of staged changes, says review staged, check staged changes, or asks for a staged diff review.
+description: Review staged git changes for code quality, bugs, and best practices. Use when the user wants to review or check staged changes before committing, or says "review staged", "/review-staged", or wants a pre-commit code check.
+allowed-tools: Bash(git diff --cached*), Bash(git diff --cached --stat*), Bash(git log --oneline*), Bash(git status --short*), Read, Glob
 ---
 
 # Review Staged Changes
 
-Review whatever is currently staged in git. Run non-interactively and make the best judgment from the staged diff.
+Review whatever is currently staged in git. This runs non-interactively.
+Never ask questions or wait for input. Analyze the staged diff and output a
+concise code review.
 
-## Workflow
+## Steps
 
-1. Gather context in parallel:
-   - `git diff --cached`
-   - `git log --oneline -5`
-   - `git status --short`
-2. If nothing is staged, say so and stop.
-3. If the diff is very large, fall back to:
-   - `git diff --cached --stat`
-   - `git diff --cached --name-only`
-4. Read `AGENTS.md` files that apply to the changed files. If no `AGENTS.md` exists, also check for `CLAUDE.md` during transition.
-5. Review only the staged changes.
+1. **Gather context**
 
-## Focus
+   Run in parallel:
+   - `git diff --cached`: full staged diff
+   - `git log --oneline -5`: recent commits for style/context
+   - `git status --short`: quick view of staged vs unstaged
 
-- Bugs: broken logic, bad conditions, incorrect assumptions, off-by-one errors
-- Regressions: behavior changes that look accidental
-- Security: secrets, unsafe shell usage, injection risks
-- Conventions: clear violations of `AGENTS.md` or established local commit/code conventions
+   If nothing is staged, say so and stop.
 
-## Skip
+   If the diff is very large (hundreds of files), fall back to
+   `git diff --cached --stat` and focus on the most-changed files.
 
-- Style-only nits a formatter or linter would catch
-- Pre-existing issues outside the staged diff
-- Unstaged changes
-- Test coverage complaints unless repo guidance makes them mandatory
+   Read any `AGENTS.md` and `CLAUDE.md` files found in the repo (root and subdirectories):
+   use them to inform style and convention checks.
 
-## Output
+2. **Review the changes**
 
-- List findings first, ordered by severity.
-- Use concise one-line bullets with `path:line` references when possible.
-- If there are no meaningful findings, output exactly: `LGTM — no issues found in staged changes.`
+   Focus on:
+   - **Bugs**: Logic errors, off-by-one, null derefs, wrong conditions
+   - **Regressions**: Behavior changes that look accidental
+   - **Security**: Hardcoded secrets/keys, injection risks
+   - **Convention**: Obvious deviations from `AGENTS.md` / `CLAUDE.md` or recent commit style
+
+   Skip:
+   - Nitpicks a linter/formatter would catch (whitespace, imports, style)
+   - Pre-existing issues not introduced by the diff
+   - Build/test failures (assume CI handles these)
+   - Missing test coverage unless `AGENTS.md` or `CLAUDE.md` explicitly requires it
+
+3. **Output**
+
+   Always lead with a `## Summary`: a few intent-level bullets on what the
+   change accomplishes and why (its effect/purpose), not a per-file restatement
+   of the diff. This shows you understood the change.
+
+   Then group findings by severity, only including non-empty categories:
+
+   ```
+   ## Summary
+   - <what the change does and why>
+   - <second effect, if any>
+
+   ## Critical
+   - `<file>:<line>`: <issue>
+
+   ## Warnings
+   - `<file>:<line>`: <issue>
+
+   ## Notes
+   - `<file>:<line>`: <issue>
+   ```
+
+   If nothing notable, the Summary is still required, followed by exactly
+   `LGTM — no issues found in staged changes.`:
+
+   ```
+   ## Summary
+   - <what the change does and why>
+
+   LGTM — no issues found in staged changes.
+   ```
+
+   One line per finding. No preamble or closing filler beyond the Summary.
 
 ## Rules
 
-- Do not ask questions or wait for confirmation.
-- Read full files only when the diff is genuinely ambiguous.
-- Stay focused on the staged diff; do not review unstaged work.
+- No questions, no confirmation prompts. Make your best judgment.
+- The Summary must describe what the change does and why (its effect), not
+  restate the diff line-by-line. Keep it to a few bullets.
+- Read full file contents only when the diff alone is ambiguous and a few
+  lines of surrounding context would clarify a real issue.
+- Stay focused on the staged diff; do not review unstaged changes.
