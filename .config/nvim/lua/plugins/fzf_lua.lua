@@ -211,6 +211,7 @@ return {
 			function()
 				prequire("fzf-lua").git_commits({
 					actions = git_commit_actions,
+					fzf_opts = { ["--no-sort"] = true },
 				})
 			end,
 		},
