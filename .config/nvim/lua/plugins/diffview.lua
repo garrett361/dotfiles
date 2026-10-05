@@ -182,6 +182,17 @@ local function diffview_pr()
 	vim.cmd("DiffviewOpen " .. merge_base)
 end
 
+---Copy the GitHub URL of the PR associated with the file history entry under the cursor.
+local function copy_pr_url_at_cursor()
+	local view = require("diffview.lib").get_current_view()
+	local entry = view and view.panel:get_log_entry_at_cursor()
+	if not entry then
+		vim.notify("No commit under the cursor", vim.log.levels.WARN)
+		return
+	end
+	require("nvim_utils.gh").copy_commit_pr_url(entry.commit.hash, view.adapter.ctx.toplevel)
+end
+
 local function config()
 	local diffview = prequire("diffview")
 	-- Call the setup function to change the default behavior
@@ -209,6 +220,12 @@ local function config()
 					"n",
 					"<up>",
 					false,
+				},
+				{
+					"n",
+					"<M-y>",
+					copy_pr_url_at_cursor,
+					{ desc = "Copy the PR URL of the commit under the cursor" },
 				},
 			},
 		},

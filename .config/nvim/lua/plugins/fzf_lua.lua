@@ -78,6 +78,27 @@ local function rebase(selected)
 	vim.cmd("G rebase -i " .. commit_hash .. "^")
 end
 
+---Copy the GitHub URL of the PR associated with the selected commit
+---@param selected string[]
+---@param opts table
+local function copy_commit_pr_url(selected, opts)
+	local commit_hash = string.match(selected[1], "^%S+")
+	require("nvim_utils.gh").copy_commit_pr_url(commit_hash, opts.cwd)
+end
+
+---Copy the GitHub URL of the PR whose head is the selected branch
+---@param selected string[]
+---@param opts table
+local function copy_branch_pr_url(selected, opts)
+	local line = selected[1]
+	if line:match("^[%*+]*%s*%S+%s+%->") or line:match("^[%*+]*%s*%(") then
+		vim.notify("No branch name on this line", vim.log.levels.WARN)
+		return
+	end
+	local branch = (line:match("^[%*+]*%s*(%S+)"):gsub("^remotes/[^/]+/", ""))
+	require("nvim_utils.gh").copy_branch_pr_url(branch, opts.cwd)
+end
+
 local git_show_preview = {
 	type = "cmd",
 	fn = function(items)
@@ -90,6 +111,7 @@ local git_commit_actions = {
 	["alt-p"] = diffview_prev,
 	["alt-d"] = diffview_head,
 	["alt-r"] = rebase,
+	["alt-y"] = { fn = copy_commit_pr_url, header = "copy PR url", exec_silent = true },
 }
 
 ---Extract info from a line from :marks (capital marks only)
@@ -117,7 +139,10 @@ local function files_cmd()
 	local cwd = vim.uv.cwd() or ""
 	local sort_by_mtime = mtime_sort_by_cwd[cwd]
 	if sort_by_mtime == nil then
-		local probe = FILES_CMD .. " 2>/dev/null | head -n " .. (MTIME_SORT_FILE_LIMIT + 1) .. " | wc -l"
+		local probe = FILES_CMD
+			.. " 2>/dev/null | head -n "
+			.. (MTIME_SORT_FILE_LIMIT + 1)
+			.. " | wc -l"
 		local count = tonumber(vim.fn.system(probe))
 		sort_by_mtime = count ~= nil and count <= MTIME_SORT_FILE_LIMIT
 		mtime_sort_by_cwd[cwd] = sort_by_mtime
@@ -138,7 +163,15 @@ return {
 		{
 			"<leader>ab",
 			function()
-				prequire("fzf-lua").git_branches()
+				prequire("fzf-lua").git_branches({
+					actions = {
+						["alt-y"] = {
+							fn = copy_branch_pr_url,
+							header = "copy PR url",
+							exec_silent = true,
+						},
+					},
+				})
 			end,
 		},
 		{
