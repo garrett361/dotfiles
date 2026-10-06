@@ -43,9 +43,13 @@ anything the prose already said, anything the diff shows plainly, and
 file-by-file inventories. A detail that needs a paragraph belongs in the
 code or in the PR conversation, not here.
 
+Write each paragraph and each bullet as one unwrapped line, with no hard line
+breaks inside it: GitHub renders long lines fine, and hard wraps make the text
+painful to edit.
+
 A results table beats prose when the claim is a measured change; it replaces
 sentences rather than adding to them. Keep the whole description to one screen,
-roughly 30 lines including any table.
+roughly 30 lines as rendered on GitHub, including any table.
 
 For a perf PR, back the table with a profiler figure when one shows the
 mechanism; follow the `profiling` skill's `reporting/figures.md` for how to make,
@@ -55,12 +59,9 @@ budget.
 A typical result, and the shape to aim for:
 
 ```markdown
-RL compares trainer and inference logprobs token by token, so any disagreement
-between the two FP8 quantizers is model-independent noise. The trainer's
-activation cast is now bit-identical to vLLM's production CUDA op.
+RL compares trainer and inference logprobs token by token, so any disagreement between the two FP8 quantizers is model-independent noise. The trainer's activation cast is now bit-identical to vLLM's production CUDA op.
 
-- Three kernels floor `amax` at `1e-10` and use `tl.math.div_rn` for scale and
-  quotient. Triton's `/` lowers to multiply-by-reciprocal, one fp32 ULP off.
+- Three kernels floor `amax` at `1e-10` and use `tl.math.div_rn` for scale and quotient. Triton's `/` lowers to multiply-by-reciprocal, one fp32 ULP off.
 - The weight kernel is untouched: vLLM's weight path already matched at 100%.
 - A new GPU test pins the equality; the trainer still imports vLLM nowhere.
 
