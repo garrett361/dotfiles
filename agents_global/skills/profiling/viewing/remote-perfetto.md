@@ -3,8 +3,8 @@
 Status: CORS file-server path verified end to end on 2026-09-24 (Slurm login node, Perfetto UI stable
 v58.3-11fbaed83, user on macOS with Vivaldi over Tailscale ssh). A last-step-trimmed trace (2 MB gzipped,
 34 MB JSON) loads by URL in about 4 s; the untrimmed 5-step trace (20 MB gzipped, 405 MB JSON) loads too,
-but takes tens of seconds (single-threaded in-browser JSON parsing, roughly 8 to 9 MB/s). The trace
-processor path is not verified: no `trace_processor` binary was available and nothing was installed.
+but takes tens of seconds (single-threaded in-browser JSON parsing, roughly 8 to 9 MB/s). The optional
+native trace processor path was verified on 2026-10-06 (see its section).
 
 ## Setting
 
@@ -41,11 +41,8 @@ forward maps laptop 9001 to it.
    http.server.ThreadingHTTPServer(("127.0.0.1", port), handler).serve_forever()
    ```
 
-2. Pick a remote port (prefer 9001) and check it is free; the login node is shared and may lack `ss`:
-
-   ```bash
-   python3 -c "import socket; socket.socket().bind(('127.0.0.1', 9001))" && echo free
-   ```
+2. Pick a remote port (prefer 9001). `serve_cors.py` exits at once with `Address already in use` if the port
+   is taken on the shared login node; pick another remote port then.
 
 3. Start it in the background next to the trace directory, recording the PID:
 
@@ -68,21 +65,37 @@ forward maps laptop 9001 to it.
 
 6. Stop: `kill "$(cat "$INV/server.pid")"`, then `curl http://127.0.0.1:$PORT/` should be refused.
 
-## Trace processor path (preferred for big traces, needs install)
+## Optional: native trace_processor for big traces
 
-The UI's own instructions (from its source) for the native accelerator:
+The CORS recipe above is the default. Switch to Perfetto's native trace processor only when a trace is too
+big for the in-browser parser (e.g. a full multi-step or full-model trace; a 405 MB JSON trace took tens of
+seconds in the browser). It parses on the remote machine and the UI queries it over RPC. Verified end to end
+on 2026-10-06 (Slurm login node, Vivaldi on macOS over Tailscale ssh).
 
-```bash
-curl -LO https://get.perfetto.dev/trace_processor
-chmod +x ./trace_processor
-./trace_processor --httpd /path/to/trace
-```
+1. Start it with `scripts/serve_trace_processor.py` (runs in an ephemeral `uv` env; the `perfetto` package
+   downloads the matching `trace_processor_shell` binary on first use):
 
-Then reload the UI; it prompts to use the HTTP+RPC interface rather than switching silently. The UI probes
-it with `POST http://127.0.0.1:9001/status` (a plain GET is not the probe). A non-default port needs
-`--http-port <N>` plus `https://ui.perfetto.dev/#!/?rpc_port=<N>`, and that only works after the user
-enables the UI flag `cspAllowAnyWebsocketPort` ("Relax Content Security Policy for 127.0.0.1:*"). Prefer
-remote `--http-port <N>` with `ssh -L 9001:127.0.0.1:<N>` instead, so no flag is needed.
+   ```bash
+   uv run --script <skill dir>/scripts/serve_trace_processor.py <trace.json.gz> --port 9002 --state-dir "$INV"
+   ```
+
+   It prints the ssh forward, a UI URL pinned to the binary's version, and the stop command.
+2. The user points the laptop's 9001 at it: `ssh -N -L 9001:127.0.0.1:9002 <host>`. Only one of the CORS
+   server and the trace processor can sit behind laptop port 9001 at a time (the UI's CSP allows only
+   `127.0.0.1:9001`), so this replaces the CORS tunnel while in use.
+3. The user opens the printed `https://ui.perfetto.dev/<version>/` URL with no `?url=` and chooses "YES, use
+   loaded trace" in the native-acceleration dialog.
+
+Notes:
+- The live UI is often newer than the binary the `perfetto` package fetches; opening plain
+  `ui.perfetto.dev` then shows a "Version mismatch" dialog. The version-pinned URL avoids it.
+- Chromium browsers need local-network access allowed for `ui.perfetto.dev`, or the UI's `POST /status`
+  probe is blocked and no dialog appears.
+- A stale `?url=` in the tab (e.g. from history) makes the UI fetch a file instead of probing; the trace
+  processor answers 404. Open the pinned URL fresh.
+- It loads one trace as is: to compare arms, serve a merged file from `scripts/merge_traces.py`.
+- The same engine runs headless from Python (`perfetto.trace_processor.TraceProcessor`) for SQL over the
+  standard tables; a possible backend for the analysis scripts.
 
 ## Gotchas
 
@@ -121,6 +134,5 @@ remote `--http-port <N>` with `ssh -L 9001:127.0.0.1:<N>` instead, so no flag is
 ## Not yet verified
 
 - Safari and Firefox on the laptop side.
-- Anything about `trace_processor` beyond what the UI source states: whether `get.perfetto.dev` returns a
-  wrapper that downloads a further binary, where it caches it, gzip JSON support, memory use on large traces.
+- trace_processor memory use and load time on full-model (43-layer, 8-node) traces.
 - The size limit for the in-browser path: 405 MB of JSON loaded in tens of seconds; larger is untested.

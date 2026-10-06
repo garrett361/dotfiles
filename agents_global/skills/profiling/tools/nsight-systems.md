@@ -64,13 +64,9 @@ report with both ranks. Both showed `ncclDevKernel_AllReduce_Sum_bf16_RING_LL` i
   `out.sqlite` next to the report on first use). Add `-f csv` for CSV, `-q` to drop the progress lines.
   `osrt_sum` gives OS runtime call totals.
 - `$N export --type sqlite --force-overwrite true -o out.sqlite out.nsys-rep` for scripted analysis.
-- Kernel totals from the sqlite (no `sqlite3` CLI on the login node, so use Python):
-
-```bash
-uv run python -c "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); [print(r) for r in c.execute('select s.value, count(*), sum(k.end-k.start)/1e3 as us from CUPTI_ACTIVITY_KIND_KERNEL k join StringIds s on s.id=k.demangledName group by s.value order by us desc limit 5')]" out.sqlite
-```
-
-  Joining on `k.shortName` instead merges templated kernels (GELU and mul both become
+- Kernel totals from the sqlite, per device and per step: `scripts/nsys_kernels.py <out>.sqlite --device 0
+  --step-boundary <regex of the kernels that end a step>` (see `analysis/top-kernels.md`). `--group short`
+  groups by `shortName`, which merges templated kernels (GELU and mul both become
   `vectorized_elementwise_kernel`).
 
 ## Overhead and size (toy, one B300)

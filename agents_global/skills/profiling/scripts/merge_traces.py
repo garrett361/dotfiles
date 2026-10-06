@@ -17,11 +17,14 @@ be global, grouped by name across processes, which is why markers use a thread t
 zero duration (autograd launches from its own thread), so an empty GPU marker is extended to the last kernel
 end in that GPU process.
 
-The anchor is the Nth event (0-based, negative counts from the end) whose name equals the anchor name;
-prefix it with `kernel:` to count only GPU kernels.
+The anchor is the Nth event (0-based, negative counts from the end) whose name equals the anchor name. A
+prefix restricts the event category: `kernel:` GPU kernels, `gpu:` GPU-side `record_function` annotations
+(e.g. `gpu:FSDP::all_gather_copy_out (model.layers.2)`, which starts that layer's forward, matching
+`timeline_figure.py --anchor-annotation`), `cpu:` CPU ops and annotations. No prefix matches any event.
 
 Usage: python3 merge_traces.py <out.json.gz> --anchor <name> [--anchor-index N] --trace "<label>=<trace.json.gz>" ...
-  e.g. `--anchor forward --anchor-index -2` (last SFT step start), or `--anchor kernel:main_kernel --anchor-index 2`.
+  e.g. `--anchor forward --anchor-index -2` (last SFT step start), `--anchor kernel:main_kernel --anchor-index 2`,
+  or `--anchor "gpu:FSDP::all_gather_copy_out (model.layers.2)"` (start of layer 2's forward).
 """
 
 import argparse
@@ -33,13 +36,17 @@ ANNOTATION_TID_BASE, STEP_MARKER_TID = 800_000_000, 1
 
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 parser.add_argument("out", help="merged output path (.json.gz)")
-parser.add_argument("--anchor", required=True, help="event name to align arms on; `kernel:` prefix counts only kernels")
+parser.add_argument("--anchor", required=True, help="event name to align on; optional kernel:/gpu:/cpu: category prefix")
 parser.add_argument("--anchor-index", type=int, default=0, help="which occurrence of the anchor (negative counts from the end)")
 parser.add_argument("--trace", action="append", required=True, help="LABEL=PATH, in arm order")
 args = parser.parse_args()
 out, anchor, nth = args.out, args.anchor, args.anchor_index
-kernel_only = anchor.startswith("kernel:")
-anchor_name = anchor.removeprefix("kernel:")
+ANCHOR_CATEGORIES = {"kernel": {"kernel"}, "gpu": {"gpu_user_annotation"}, "cpu": {"cpu_op", "user_annotation"}}
+prefix, _, rest = anchor.partition(":")
+if prefix in ANCHOR_CATEGORIES and rest:
+    anchor_cats, anchor_name = ANCHOR_CATEGORIES[prefix], rest
+else:
+    anchor_cats, anchor_name = None, anchor
 merged = []
 for arm, spec in enumerate(args.trace):
     label, path = spec.split("=", 1)
@@ -47,7 +54,7 @@ for arm, spec in enumerate(args.trace):
     t0 = sorted(
         e["ts"]
         for e in events
-        if e.get("ph") == "X" and e.get("name") == anchor_name and (not kernel_only or e.get("cat") == "kernel")
+        if e.get("ph") == "X" and e.get("name") == anchor_name and (anchor_cats is None or e.get("cat") in anchor_cats)
     )[nth]
     device_labels = {
         e["pid"]: e["args"]["labels"]

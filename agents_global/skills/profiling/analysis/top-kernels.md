@@ -68,21 +68,12 @@ $N profile -t cuda,nvtx -s none --cpuctxsw=none -o <out> --force-overwrite true 
 - `--filter-time <start_ns>/<end_ns>` keeps events overlapping the window, still summed over all GPUs
   (the 6 per-rank sparse-attention backward launches showed as 48 instances). The times are the `start` /
   `end` values of `CUPTI_ACTIVITY_KIND_KERNEL` in the sqlite export that `stats` writes next to the report.
-- Per rank, query the sqlite by `deviceId`. prime-rl emits no NVTX ranges, but each SFT step ends with a
-  cluster of fused AdamW kernels, so the last step runs from the end of the second-to-last cluster to the end
-  of the last one:
+- Per rank and per step, use `scripts/nsys_kernels.py`. prime-rl emits no NVTX ranges, but each SFT step
+  ends with a cluster of fused AdamW kernels, so the last step runs from the end of the second-to-last
+  cluster to the end of the last one:
 
-```python
-import sqlite3, sys
-c = sqlite3.connect(sys.argv[1])
-adam = c.execute("select k.start, k.end from CUPTI_ACTIVITY_KIND_KERNEL k join StringIds s on s.id = k.demangledName"
-                 " where k.deviceId = 0 and s.value like '%FusedAdamMathFunctor%' order by k.start").fetchall()
-ends = [e for (s, e), (s2, _) in zip(adam, adam[1:] + [(float("inf"), 0)]) if s2 - e > 100e6]
-lo, hi = ends[-2], ends[-1]
-for row in c.execute("select s.value, count(*), sum(k.end - k.start) / 1e6 as ms from CUPTI_ACTIVITY_KIND_KERNEL k"
-                     " join StringIds s on s.id = k.demangledName where k.deviceId = 0 and k.start > ? and k.end <= ?"
-                     " group by s.value order by ms desc limit 20", (lo, hi)):
-    print(row)
+```bash
+python3 scripts/nsys_kernels.py <out>.sqlite --device 0 --step-boundary FusedAdamMathFunctor --top 20
 ```
 
 Agreement with torch.profiler (separate runs, same commit and config, rank 0, last step): the same 8410

@@ -5,6 +5,22 @@ description: Measure and explain GPU/PyTorch performance with the right tool for
 
 # Profiling
 
+## Rule: everything goes through this skill's scripts
+
+Every analysis, table, merged trace, and figure is produced by running a script in this skill's `scripts/`
+with explicit arguments. No ad hoc code: no inline `python -c`, no heredoc analysis, no scratch scripts in
+`~/tmp`, no hand-edited trace files or figures. The goal is that every number and figure can be regenerated
+later, by anyone, from the recorded commands and the raw traces.
+
+When a script can't do what's needed, first extend the skill script in a general, maintainable way (a new
+flag or option with a sensible default, documented in its usage docstring, not hardcoded to one model, run,
+or kernel name), then run it. Project-specific knowledge goes in arguments or in `projects/<repo>.md`, not
+in the script. Keep extensions backward compatible so earlier recorded commands still reproduce.
+
+Record every command that produced a result in the investigation's `commands.sh` (see below), in order,
+with the script's path and all arguments. Capture harnesses that must run inside a project (e.g. a
+`sitecustomize.py` hook) also live in this skill's `scripts/`, not in the investigation directory.
+
 ## 1. Pick the tool by the question
 
 | Question | Tool | Details |
@@ -16,7 +32,7 @@ description: Measure and explain GPU/PyTorch performance with the right tool for
 | Where are host gaps, syncs, stream overlap? | Nsight Systems | `tools/nsight-systems.md` |
 | Where does the host block on the GPU (syncs), from which line? | `scripts/find_syncs.py` | `analysis/cuda-syncs.md` |
 | Why is one kernel slow (bandwidth, occupancy)? | Nsight Compute | `tools/nsight-compute.md` |
-| How does the user see a remote trace locally? | Perfetto UI + ssh port forward | `viewing/remote-perfetto.md` |
+| How does the user see a remote trace locally? | Perfetto UI + ssh forward (`serve_cors.py`; big traces: `serve_trace_processor.py`) | `viewing/remote-perfetto.md` |
 
 Project-specific capture recipes live in `projects/` (e.g. `projects/prime-rl.md`). Read the one for the
 current repo before launching anything.
@@ -31,7 +47,7 @@ One root per investigation, `~/tmp/profiling/<investigation>/` (e.g. `ds-v4-rope
 | `derived/` | Trimmed and merged traces, kernel tables, CSVs, nsys reports and exports |
 | `figures/` | Rendered figures |
 | `serve/` | Symlinks to what the user views in Perfetto; the CORS server is rooted here |
-| `scripts/` | One-off analysis scripts; promote reusable ones to this skill's `scripts/` |
+| `commands.sh` | Every skill-script invocation that produced a result, in order, with all arguments |
 | `NOTES.md` | Index: each run's name, job, commit, config, and what each file is |
 
 Per-run compile caches go in `~/tmp/profiling/caches/<run>/` (node-local ones in `/tmp/$USER/<run>/`). Timing
