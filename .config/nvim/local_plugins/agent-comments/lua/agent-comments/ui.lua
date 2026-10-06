@@ -93,7 +93,7 @@ function M.input_comment(on_done, opts)
 		border = "rounded",
 		title = { { " 💬 Comment ", "AgentCommentsText" } },
 		title_pos = "center",
-		footer = { { " :w send  ·  <C-c> cancel ", "Comment" } },
+		footer = { { " :w send  ·  :q cancel ", "Comment" } },
 		footer_pos = "center",
 	})
 	-- A wrapped continuation line would otherwise start at column zero, and column zero is where
@@ -135,7 +135,7 @@ function M.input_comment(on_done, opts)
 		end,
 	})
 
-	-- The single teardown funnel. 'bufhidden' is "wipe", so :w, :wq, ZZ, :q, :q!, <C-c> and :bd
+	-- The single teardown funnel. 'bufhidden' is "wipe", so :w, :wq, ZZ, :q, :q! and :bd
 	-- all arrive here and on_done fires exactly once.
 	vim.api.nvim_create_autocmd("BufWipeout", {
 		group = grp,
@@ -150,18 +150,6 @@ function M.input_comment(on_done, opts)
 			end)
 		end,
 	})
-
-	local function cancel()
-		if vim.api.nvim_win_is_valid(win) then
-			vim.api.nvim_win_close(win, true)
-		end
-	end
-
-	-- No `q` and no <Esc>: `q` is a reflex and nothing recovers the paragraphs it would discard,
-	-- and <Esc> is the insert-to-normal key.
-	for _, mode in ipairs({ "n", "i" }) do
-		vim.keymap.set(mode, "<C-c>", cancel, { buffer = buf, nowait = true, silent = true })
-	end
 end
 
 -- The callout rendered ABOVE the first annotated line. Above, not below: a note

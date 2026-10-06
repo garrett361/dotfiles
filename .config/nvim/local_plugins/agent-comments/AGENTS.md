@@ -49,8 +49,8 @@ Entries describe the current state, not the order things happened in. That histo
   `vim.ui.input`, so a comment can run to several paragraphs and be edited before it is sent. The
   buffer is `acwrite` with a counter-based name, since `:w` on a `nofile` or unnamed buffer fails
   before `BufWriteCmd` fires; `bufhidden` is `wipe` and `BufWipeout` is the one teardown funnel.
-  `q` and `<Esc>` are deliberately unbound; `<C-c>` cancels. `on_done` fires on every exit path,
-  with `nil` on a cancel.
+  `q`, `<Esc>` and `<C-c>` are deliberately unbound, the last because it is the habitual way out
+  of insert mode; `:q` cancels. `on_done` fires on every exit path, with `nil` on a cancel.
 - `init.comment_range` anchors the comment when the editor opens, not when it is written:
   `comments.add(bufnr, start, end, nil)` records a draft, and the callback either edits the text in
   or deletes the draft. The editor can be left with `<C-w>w` to go read the code, so the window

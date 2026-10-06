@@ -375,13 +375,10 @@ local function open_editor_floats()
 	return n
 end
 
--- nvim_buf_get_keymap reports <C-c> in its readable form, uppercased.
-local function editor_cancel(buf, mode)
-	for _, m in ipairs(vim.api.nvim_buf_get_keymap(buf, mode)) do
-		if m.lhs == "<C-C>" then
-			return m.callback
-		end
-	end
+local function quit_editor(buf)
+	vim.api.nvim_buf_call(buf, function()
+		vim.cmd("quit")
+	end)
 end
 
 T.test("ui: :w commits the editor buffer joined by newlines", function()
@@ -402,7 +399,7 @@ T.test("ui: :w commits the editor buffer joined by newlines", function()
 	T.eq(open_editor_floats(), 0, "the editor float is gone once it has committed")
 end)
 
-T.test("ui: <C-c> cancels the editor and reports nil", function()
+T.test("ui: :q cancels the editor and reports nil", function()
 	local done, got = false, "never called"
 	ui.input_comment(function(text)
 		done, got = true, text
@@ -411,8 +408,13 @@ T.test("ui: <C-c> cancels the editor and reports nil", function()
 	vim.api.nvim_buf_set_lines(ebuf, 0, -1, false, { "typed then abandoned" })
 	T.eq(list_keymap(ebuf, "q"), nil, "q must not be bound: it would discard the text by reflex")
 	T.eq(list_keymap(ebuf, "<Esc>"), nil, "<Esc> is the insert-to-normal key, not a cancel")
-	T.ok(editor_cancel(ebuf, "i") ~= nil, "<C-c> cancels from insert mode too")
-	editor_cancel(ebuf, "n")()
+	for _, mode in ipairs({ "n", "i" }) do
+		T.ok(
+			vim.tbl_isempty(vim.fn.maparg("<C-c>", mode, false, true)),
+			"<C-c> must not be bound: it is the habitual way out of insert mode"
+		)
+	end
+	quit_editor(ebuf)
 	vim.wait(2000, function()
 		return done
 	end)
@@ -522,11 +524,11 @@ T.test("ui: a second editor opened on top of the first gets its own buffer name"
 		"a name reused while the first buffer lives fails the open with E95"
 	)
 	T.eq(open_editor_floats(), 2, "both editors are open at once")
-	editor_cancel(second, "n")()
+	quit_editor(second)
 	vim.wait(2000, function()
 		return done2
 	end)
-	editor_cancel(first, "n")()
+	quit_editor(first)
 	vim.wait(2000, function()
 		return done1
 	end)
@@ -541,7 +543,7 @@ T.test("ui: an open editor float is not counted as a comment list", function()
 	end)
 	T.eq(open_list_floats(), 0, "an editor float must not read as a comment list")
 	T.eq(open_editor_floats(), 1)
-	editor_cancel(vim.api.nvim_get_current_buf(), "n")()
+	quit_editor(vim.api.nvim_get_current_buf())
 	vim.wait(2000, function()
 		return done
 	end)
