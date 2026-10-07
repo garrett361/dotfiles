@@ -12,15 +12,23 @@ Missing values are skipped.
 Lines: each `--lines METRIC` draws, per group, that metric over steps for every run named in the CSV's `run_dir`
 column (`<run_dir>/monitors/file/metrics.jsonl`), with `--steady LO HI` shaded.
 
+Summary: `--summarize COLUMN=METRIC` (repeatable) writes the per-run summary CSV that the bar mode reads: one row per
+`--run GROUP:VARIANT=RUN_DIR` with the median of METRIC over the `--steady` steps (all steps without it) in COLUMN,
+plus COLUMN_min and COLUMN_max. It also prints the rows as a markdown table. `--run` can replace `--csv` in the
+other modes too.
+
 Usage:
   uv run --script run_metrics.py --csv summary.csv --out bars.png --noise fp32-cap2,fp32-cap2-r2,fp32-main \\
     --bar "tok_s_gpu:tokens/s/GPU (higher is better)" --bar "peak_gib:peak memory GiB (lower is better)"
   uv run --script run_metrics.py --csv summary.csv --out steps.png --lines time/step --steady 5 20
+  uv run --script run_metrics.py --out summary.csv --steady 5 20 --summarize "step_s=time/step" \\
+    --summarize "peak_gib=perf/peak_memory" --run "qwen:A0=runs/a0/bench" --run "qwen:A1=runs/a1/bench"
 """
 
 import argparse
 import csv
 import json
+import statistics
 from collections import defaultdict
 from pathlib import Path
 
@@ -34,7 +42,9 @@ PALETTE = ["#0072b2", "#e69f00", "#009e73", "#cc79a7", "#56b4e9", "#d55e00", "#f
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--csv", required=True)
+    parser.add_argument("--csv", default=None)
+    parser.add_argument("--run", action="append", default=[], help="GROUP:VARIANT=RUN_DIR, instead of --csv")
+    parser.add_argument("--summarize", action="append", default=[], help="COLUMN=METRIC, write a summary CSV")
     parser.add_argument("--out", required=True)
     parser.add_argument("--bar", action="append", default=[], help="COLUMN:TITLE")
     parser.add_argument("--noise", default=None, help="comma-separated same-code variants for the noise band")
@@ -44,9 +54,39 @@ def parse_args():
     return parser.parse_args()
 
 
-def read_rows(path):
-    with open(path) as f:
-        return list(csv.DictReader(f))
+def read_rows(args):
+    if args.csv:
+        with open(args.csv) as f:
+            return list(csv.DictReader(f))
+    rows = []
+    for spec in args.run:
+        key, run_dir = spec.split("=", 1)
+        group, variant = key.split(":", 1)
+        rows.append({"group": group, "variant": variant, "run_dir": run_dir})
+    return rows
+
+
+def write_summary(rows, args):
+    columns = [spec.split("=", 1) for spec in args.summarize]
+    fields = ["group", "variant", "run_dir"]
+    for column, _ in columns:
+        fields += [column, f"{column}_min", f"{column}_max"]
+    for row in rows:
+        for column, metric in columns:
+            values = [v for s, v in load_steps(row["run_dir"], metric) if not args.steady or args.steady[0] <= s <= args.steady[1]]
+            row[column] = statistics.median(values) if values else ""
+            row[f"{column}_min"] = min(values) if values else ""
+            row[f"{column}_max"] = max(values) if values else ""
+    with open(args.out, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+    print("| group | variant | " + " | ".join(f"{c} (median, min-max)" for c, _ in columns) + " |")
+    print("|---|---|" + "---|" * len(columns))
+    for row in rows:
+        cells = [f"{row[c]:.4g} ({row[c + '_min']:.4g}-{row[c + '_max']:.4g})" if row[c] != "" else "" for c, _ in columns]
+        print(f"| {row['group']} | {row['variant']} | " + " | ".join(cells) + " |")
+    print(f"wrote {args.out}")
 
 
 def number(value):
@@ -100,7 +140,8 @@ def load_steps(run_dir, metric):
     by_step = defaultdict(dict)
     for line in (Path(run_dir) / "monitors/file/metrics.jsonl").read_text().splitlines():
         record = json.loads(line)
-        by_step[record["step"]].update(record)
+        if record.get("step") is not None:
+            by_step[record["step"]].update(record)
     return sorted((step, values[metric]) for step, values in by_step.items() if metric in values)
 
 
@@ -132,7 +173,10 @@ def draw_lines(rows, args):
 
 def main():
     args = parse_args()
-    rows = read_rows(args.csv)
+    rows = read_rows(args)
+    if args.summarize:
+        write_summary(rows, args)
+        return
     fig = draw_lines(rows, args) if args.lines else draw_bars(rows, args)
     if args.title:
         fig.suptitle(args.title, fontsize=12)
