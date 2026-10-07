@@ -60,7 +60,20 @@ trace. The figure explains the mechanism; the untraced numbers are the claim.
   under context parallelism, rank 0 saves kernel time while the slowest rank sets the step), usually keep it
   and say so in the caption; drop it (`--no-delta`) only when it is really non-representative of the change.
 - Link the exact before and after commits, and the config used, as GitHub URLs.
-- Caption: start it with `**Figure:**` and say what the panels plot (stream, rank, step, run scale and
-  settings), what the arms are aligned at and what any marker lines mean, what changed and by how much,
-  what the delta panel sums over, and that the profiled run explains the mechanism while unprofiled runs
-  carry the timing claim.
+
+## Captions
+
+Start with `**Figure:**`. Keep it to the PR description's level: a reader skims it to get the point, not to
+audit the setup (user feedback, 2026-10-07).
+- One or two sentences: what the figure shows, then the one takeaway, in plain words.
+- Name only what the reader must find: the one bar or shading that carries the point, by color and position.
+- Leave out what the figure already says. Rank, step, alignment anchor and axis meaning belong in the
+  figure's title and axis labels; setup details belong in the PR text or table, not the caption.
+- No unexplained jargon. If the caption needs a term like "hook" or "queue", it is explaining a mechanism
+  that belongs in the description's prose.
+
+Example, for a before/after per-layer timeline:
+
+> **Figure:** one layer of backward at a production shape (`ep=8`, 16k tokens/GPU, full activation
+> checkpointing), before and after this PR. The expert reduce-scatter (orange, top row) finishes while the
+> next layer is still recomputing, well before anything waits on it, so dropping to cap 1 adds no stall.

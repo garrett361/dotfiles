@@ -83,8 +83,9 @@ An op-level win that disappears end to end is a finding, not noise: go to layer 
 
 - A results table with medians, spread (min/max), and the exact configs and commits of both arms.
 - A figure from the traces when the mechanism is visual (a removed gap, new overlap): left-aligned
-  before/after timelines of the changed region plus a per-category delta panel, captioned with a
-  `**Figure:**` lead-in and embedded by a pinned raw GitHub URL. See `reporting/figures.md`.
+  before/after timelines of the changed region plus a per-category delta panel, with a short `**Figure:**`
+  caption (one or two plain sentences: what it shows and the takeaway) and embedded by a pinned raw GitHub
+  URL. See `reporting/figures.md`.
 - Delta panel: keep the per-category delta panel by default; if it could mislead (e.g. a per-rank saving that does not
   reach step time), say so in the caption, and drop it only when it is really non-representative.
 - Say what was measured where: scaled-down proxy vs full model, traced vs untraced, which rank and step.
