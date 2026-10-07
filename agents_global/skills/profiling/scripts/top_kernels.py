@@ -6,8 +6,21 @@ window are grouped by kernel name, by call site (innermost `cpu_op` with its `In
 enclosing non-aten op, found via `args["correlation"]` -> launch -> enclosing ops on the launch thread), or by
 both. Ranks by total time and by time per call; NCCL kernels get their own table.
 
+`--annotation-index N` starts the window at the Nth such annotation instead (0-based, negative from the end); unless
+it is the last one, the window ends at the next one's start, so `--annotation-index -3` covers the third-to-last
+step. `--from-annotation NAME` instead windows on GPU-side `record_function` projections (`gpu_user_annotation`):
+from the start of the `--from-index`th one named NAME to the start of the first later one named `--to-annotation`
+(default: the end of the opening one), e.g. one decoder layer's forward, or its recompute plus backward.
+
+The header reports GPU busy time (union of kernel intervals on all selected streams, clipped to the window end), idle time (window minus busy),
+and exposed NCCL time (when an NCCL kernel runs and no non-NCCL kernel does, i.e. busy minus non-NCCL busy).
+
 Usage: python3 top_kernels.py <trace.json.gz> [--by name|site|both] [--top 15] [--stream main|<tid>]
-         [--annotation forward | --whole-trace] [--min-calls 1] [--minmax] [--name-width 55] [--csv out.csv]
+         [--annotation forward [--annotation-index -1] | --whole-trace | --from-annotation NAME [--from-index -1]
+          [--to-annotation NAME]] [--min-calls 1] [--minmax] [--name-width 55] [--csv out.csv]
+  e.g. layer 12's recompute and backward in the last step of a prime-rl SFT trace:
+    --from-annotation "FSDP::all_gather_copy_out (model.layers.12) [pg=16]" --from-index -1 \\
+    --to-annotation "FSDP::all_gather_copy_out (model.layers.11) [pg=16]"
 """
 
 import argparse
@@ -55,6 +68,10 @@ def parse_args():
     p.add_argument("--top", type=int, default=15)
     p.add_argument("--stream", default=None, help="'main' (most kernel time) or a stream tid")
     p.add_argument("--annotation", default="forward")
+    p.add_argument("--annotation-index", type=int, default=-1, help="which step annotation opens the window")
+    p.add_argument("--from-annotation", default=None, help="GPU-side annotation name opening the window")
+    p.add_argument("--from-index", type=int, default=-1, help="which occurrence of --from-annotation")
+    p.add_argument("--to-annotation", default=None, help="first later GPU-side annotation with this name closes it")
     p.add_argument("--whole-trace", action="store_true")
     p.add_argument("--min-calls", type=int, default=1, help="minimum launches for the per-call ranking")
     p.add_argument("--minmax", action="store_true")
@@ -262,9 +279,24 @@ def main():
     end = max(e["ts"] + e["dur"] for e in gpu)
     if args.whole_trace:
         start = min(e["ts"] for e in gpu)
+        description = "whole trace"
+    elif args.from_annotation:
+        marks = sorted((e for e in xs if e.get("cat") == "gpu_user_annotation"), key=lambda e: e["ts"])
+        opener = [e for e in marks if e["name"] == args.from_annotation][args.from_index]
+        start, end = opener["ts"], opener["ts"] + opener["dur"]
+        if args.to_annotation:
+            end = next(e["ts"] for e in marks if e["name"] == args.to_annotation and e["ts"] > start)
+        description = f"GPU `{args.from_annotation}` [{args.from_index}] to " + (
+            f"next GPU `{args.to_annotation}`" if args.to_annotation else "its end")
     else:
-        start = max(e["ts"] for e in xs if e.get("cat") == "user_annotation" and e.get("name") == args.annotation)
-    gpu = [e for e in gpu if e["ts"] >= start]
+        steps = sorted(e["ts"] for e in xs if e.get("cat") == "user_annotation" and e.get("name") == args.annotation)
+        start = steps[args.annotation_index]
+        later = [t for t in steps if t > start]
+        if later:
+            end = later[0]
+        description = (f"`{args.annotation}` [{args.annotation_index}] to "
+                       + ("the next one" if later else "last GPU event"))
+    gpu = [e for e in gpu if start <= e["ts"] < end]
     stream_time = defaultdict(float)
     for e in gpu:
         stream_time[e["tid"]] += e["dur"]
@@ -274,8 +306,8 @@ def main():
     elif args.stream is not None:
         gpu = [e for e in gpu if str(e["tid"]) == args.stream]
     window = end - start
-    busy = union_length((e["ts"], e["ts"] + e["dur"]) for e in gpu)
-    compute_busy = union_length((e["ts"], e["ts"] + e["dur"]) for e in gpu if not is_comm(e["name"]))
+    busy = union_length((e["ts"], min(e["ts"] + e["dur"], end)) for e in gpu)
+    compute_busy = union_length((e["ts"], min(e["ts"] + e["dur"], end)) for e in gpu if not is_comm(e["name"]))
     sites = call_sites(xs, gpu) if args.by in ("site", "both") else {}
 
     def key_of(e):
@@ -293,10 +325,12 @@ def main():
 
     streams = ", ".join(f"{tid}: {t / 1e3:.1f}" for tid, t in sorted(stream_time.items(), key=lambda kv: -kv[1])[:5])
     print(f"# Top GPU kernels: `{args.trace}`\n")
-    print(f"- window: {window / 1e3:.1f} ms ({'whole trace' if args.whole_trace else f'last `{args.annotation}` to last GPU event'})"
+    print(f"- window: {window / 1e3:.1f} ms ({description})"
           f", stream filter: {args.stream or 'none'}, grouped by {args.by}")
     print(f"- GPU busy (union over selected streams): {busy / 1e3:.1f} ms ({100 * busy / window:.1f}% of window);"
-          f" non-NCCL busy {compute_busy / 1e3:.1f} ms")
+          f" non-NCCL busy {compute_busy / 1e3:.1f} ms ({100 * compute_busy / window:.1f}%)")
+    print(f"- GPU idle: {(window - busy) / 1e3:.1f} ms ({100 * (window - busy) / window:.1f}%); exposed NCCL (no"
+          f" non-NCCL kernel running): {(busy - compute_busy) / 1e3:.1f} ms ({100 * (busy - compute_busy) / window:.1f}%)")
     print(f"- summed durations: non-NCCL {sum(r['total_us'] for r in compute) / 1e3:.1f} ms,"
           f" NCCL {sum(r['total_us'] for r in comm) / 1e3:.1f} ms; {len(gpu)} GPU events")
     print(f"- kernel ms per stream (all streams, in window): {streams}\n")
