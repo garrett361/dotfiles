@@ -336,8 +336,7 @@ def main():
             region_end = (end_ts - anchor_ts) / 1e3
             region_ends.append(region_end)
             ax.axvline(region_end, color="black", linestyle="--", linewidth=1)
-            ax.text(region_end, 1.04, f"{args.region_label}: {region_end:.1f} ms", ha="center", va="bottom", fontsize=10,
-                    transform=ax.get_xaxis_transform())
+            ax.set_title(f"{args.region_label}: {region_end:.1f} ms", loc="right", fontsize=10)
             print(f"{label}: {args.region_label} {region_end:.1f} ms")
         axes.append(ax)
         step_end = (step["end"] - anchor_ts) / 1e3
