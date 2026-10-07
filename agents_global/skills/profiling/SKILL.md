@@ -12,10 +12,12 @@ with explicit arguments. No ad hoc code: no inline `python -c`, no heredoc analy
 `~/tmp`, no hand-edited trace files or figures. The goal is that every number and figure can be regenerated
 later, by anyone, from the recorded commands and the raw traces.
 
-When a script can't do what's needed, first extend the skill script in a general, maintainable way (a new
-flag or option with a sensible default, documented in its usage docstring, not hardcoded to one model, run,
-or kernel name), then run it. Project-specific knowledge goes in arguments or in `projects/<repo>.md`, not
-in the script. Keep extensions backward compatible so earlier recorded commands still reproduce.
+The scripts are meant to grow: when one can't do what's needed, extend it (or add a new script) as part of
+the investigation, then run it. Agents are expected to do this, and to update this file and the docs it links
+when they add a capability. Keep extensions general and maintainable: a new flag or option with a sensible
+default, documented in the script's usage docstring, not hardcoded to one model, run, or kernel name.
+Project-specific knowledge goes in arguments or in `projects/<repo>.md`, not in the script. Keep extensions
+backward compatible so earlier recorded commands still reproduce.
 
 Record every command that produced a result in the investigation's `commands.sh` (see below), in order,
 with the script's path and all arguments. Capture harnesses that must run inside a project (e.g. a
@@ -28,7 +30,9 @@ with the script's path and all arguments. Capture harnesses that must run inside
 | Is this kernel/op faster, and by how much? | `triton.testing.do_bench` or CUDA events | `tools/do-bench.md` |
 | Which kernels inside an op cost the time? | `torch.profiler` over a few op iterations | `tools/torch-profiler.md` |
 | Why doesn't an op win show up in step time? | Diff of two end-to-end `torch.profiler` traces | `tools/torch-profiler.md` |
+| What annotations and host ranges does this trace have? | `scripts/trace_events.py` | its usage docstring |
 | Where should I optimize? Which kernels cost most? | `scripts/top_kernels.py` or nsys | `analysis/top-kernels.md` |
+| How do arms compare on step time, memory, loss? | `scripts/run_metrics.py` (`--summarize`, `--lines`, bars) | its usage docstring |
 | Where are host gaps, syncs, stream overlap? | Nsight Systems | `tools/nsight-systems.md` |
 | Where does the host block on the GPU (syncs), from which line? | `scripts/find_syncs.py` | `analysis/cuda-syncs.md` |
 | Why is one kernel slow (bandwidth, occupancy)? | Nsight Compute | `tools/nsight-compute.md` |
