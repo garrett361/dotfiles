@@ -296,7 +296,7 @@ def main():
     legend_rows = -(-legend_count(args) // 6)
     fig_height = 2.8 * len(heights) + 0.6
     grid = fig.add_gridspec(
-        len(heights), 1, height_ratios=heights, hspace=0.6, top=1 - (0.45 + 0.3 * legend_rows) / fig_height
+        len(heights), 1, height_ratios=heights, hspace=0.6, top=1 - (0.75 + 0.3 * legend_rows) / fig_height
     )
     lo, hi = args.window
     totals, region_ends, axes = [], [], []
