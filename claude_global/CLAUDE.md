@@ -15,6 +15,7 @@ Applies to source and config files.
 
 ## Responses & writing
 These govern your replies to me, prose, and docs alike.
+- I often dictate via speech-to-text, so expect misheard words (e.g. "cloud" for "Claude"); infer the intended word from context, and ask if the meaning is genuinely ambiguous.
 - Lead with the answer, then justify.
 - Keep each response to ~3 paragraphs (soft cap). If a topic needs more, deliver it in ~3-paragraph chunks and check in after each before continuing, rather than one long run-on response.
 - Keep markdown tables to ~120 characters per row in the raw source: readable in a diff or narrow pane, and renders cleanly on GitHub. If a table would run wider, use fewer/narrower columns or split it into multiple tables or a list.
