@@ -32,6 +32,7 @@ with the script's path and all arguments. Capture harnesses that must run inside
 | Which kernels inside an op cost the time? | `torch.profiler` over a few op iterations | `tools/torch-profiler.md` |
 | Why doesn't an op win show up in step time? | Diff of two end-to-end `torch.profiler` traces | `tools/torch-profiler.md` |
 | What annotations and host ranges does this trace have? | `scripts/trace_events.py` | its usage docstring |
+| What keeps `torch.compile` recompiling, at which step? | `scripts/recompile_reasons.py` on a `TORCH_LOGS=recompiles` log | its usage docstring |
 | Where should I optimize? Which kernels cost most? | `scripts/top_kernels.py` or nsys | `analysis/top-kernels.md` |
 | How do arms compare on step time, memory, loss? | `scripts/run_metrics.py` (`--summarize`, `--lines`, bars) | its usage docstring |
 | Where are host gaps, syncs, stream overlap? | Nsight Systems | `tools/nsight-systems.md` |
