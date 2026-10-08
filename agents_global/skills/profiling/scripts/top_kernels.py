@@ -11,13 +11,16 @@ it is the last one, the window ends at the next one's start, so `--annotation-in
 step. `--from-annotation NAME` instead windows on GPU-side `record_function` projections (`gpu_user_annotation`):
 from the start of the `--from-index`th one named NAME to the start of the first later one named `--to-annotation`
 (default: the end of the opening one), e.g. one decoder layer's forward, or its recompute plus backward.
+`--launched-in NAME` keeps only kernels launched (via `args["correlation"]`) inside the `--launched-in-index`th CPU-side
+`user_annotation` named NAME, for host ranges torch does not project onto the GPU (e.g. prime-rl's `optimizer`); the
+window runs from the first such kernel's start to the last one's end.
 
 The header reports GPU busy time (union of kernel intervals on all selected streams, clipped to the window end), idle time (window minus busy),
 and exposed NCCL time (when an NCCL kernel runs and no non-NCCL kernel does, i.e. busy minus non-NCCL busy).
 
 Usage: python3 top_kernels.py <trace.json.gz> [--by name|site|both] [--top 15] [--stream main|<tid>]
          [--annotation forward [--annotation-index -1] | --whole-trace | --from-annotation NAME [--from-index -1]
-          [--to-annotation NAME]] [--min-calls 1] [--minmax] [--name-width 55] [--csv out.csv]
+          [--to-annotation NAME] | --launched-in NAME [--launched-in-index -1]] [--min-calls 1] [--minmax] [--name-width 55] [--csv out.csv]
   e.g. layer 12's recompute and backward in the last step of a prime-rl SFT trace:
     --from-annotation "FSDP::all_gather_copy_out (model.layers.12) [pg=16]" --from-index -1 \\
     --to-annotation "FSDP::all_gather_copy_out (model.layers.11) [pg=16]"
@@ -72,6 +75,9 @@ def parse_args():
     p.add_argument("--from-annotation", default=None, help="GPU-side annotation name opening the window")
     p.add_argument("--from-index", type=int, default=-1, help="which occurrence of --from-annotation")
     p.add_argument("--to-annotation", default=None, help="first later GPU-side annotation with this name closes it")
+    p.add_argument("--launched-in", default=None,
+                   help="CPU-side user_annotation name: keep kernels launched inside its --launched-in-index'th range")
+    p.add_argument("--launched-in-index", type=int, default=-1, help="which occurrence of --launched-in")
     p.add_argument("--whole-trace", action="store_true")
     p.add_argument("--min-calls", type=int, default=1, help="minimum launches for the per-call ranking")
     p.add_argument("--minmax", action="store_true")
@@ -280,6 +286,16 @@ def main():
     if args.whole_trace:
         start = min(e["ts"] for e in gpu)
         description = "whole trace"
+    elif args.launched_in:
+        ranges = sorted((e for e in xs if e.get("cat") == "user_annotation" and e["name"] == args.launched_in),
+                        key=lambda e: e["ts"])
+        host = ranges[args.launched_in_index]
+        launched = {e["args"]["correlation"] for e in xs if e.get("cat") in ("cuda_runtime", "cuda_driver")
+                    and "correlation" in e.get("args", {}) and host["ts"] <= e["ts"] < host["ts"] + host["dur"]}
+        gpu = [e for e in gpu if e.get("args", {}).get("correlation") in launched]
+        start, end = min(e["ts"] for e in gpu), max(e["ts"] + e["dur"] for e in gpu)
+        description = (f"kernels launched in CPU `{args.launched_in}` [{args.launched_in_index}],"
+                       " from the first one's start to the last one's end")
     elif args.from_annotation:
         marks = sorted((e for e in xs if e.get("cat") == "gpu_user_annotation"), key=lambda e: e["ts"])
         opener = [e for e in marks if e["name"] == args.from_annotation][args.from_index]

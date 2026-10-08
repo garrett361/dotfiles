@@ -21,6 +21,10 @@ layer's compute; a window starting at 0 then left-aligns every arm. `--end-annot
 such annotation after the anchor as the end of a region: each panel gets a dashed line and the region's
 length, and with two arms an arrow on the second panel labels the difference.
 
+`--launched-in NAME` is for host ranges torch does not project onto the GPU (e.g. prime-rl's `optimizer`): it aligns
+at the GPU start of the first kernel launched inside the step's CPU-side `user_annotation` named NAME and marks the end
+of the last such kernel (any stream of that GPU) as the region end, like `--end-annotation`.
+
 `--annotate-gaps MIN_MS` shades every interval of at least MIN_MS in the window where no stream of that GPU
 (or, with `--gap-scope main`, not the main stream) runs a kernel, labeled with its length and, if one exists, the shortest CPU op or annotation spanning the
 whole gap (what the host was inside). Gap details and all spanning CPU events are printed. A dashed line
@@ -81,6 +85,8 @@ def parse_args():
     parser.add_argument("--anchor-index", type=int, default=0, help="which occurrence of the anchor in the step")
     parser.add_argument("--anchor-annotation", default=None, help="GPU annotation name to align arms on")
     parser.add_argument("--end-annotation", default=None, help="GPU annotation name that ends the marked region")
+    parser.add_argument("--launched-in", default=None,
+                        help="CPU user_annotation name: align at its first launched kernel, end region at its last")
     parser.add_argument("--region-label", default="region", help="wording for the marked region")
     parser.add_argument("--step-index", type=int, default=-1, help="which step-marker event starts the step")
     parser.add_argument("--annotate-gaps", type=float, default=None, metavar="MIN_MS", help="mark GPU idle gaps")
@@ -140,6 +146,14 @@ def load_step(path, step_marker, step_index, main_exclude=None):
         "annotations": annotations,
         "trace": trace,
     }
+
+
+def launched_in(step, name):
+    """Kernels on the main stream's GPU launched inside the step's first CPU-side `user_annotation` named `name`."""
+    host = next(e for e in step["host"] if e.get("cat") == "user_annotation" and e["name"] == name
+                and step["start"] <= e["ts"] < step["end"])
+    return [k for k in step["device"] if k.get("launch") is not None
+            and host["ts"] <= k["launch"]["ts"] < host["ts"] + host["dur"]]
 
 
 def parse_segments(specs):
@@ -305,7 +319,10 @@ def main():
         stream = step["stream"]
         comm = comm_analysis(step, args) if args.comm_kernel else None
         phases = assign_segments(stream, step["host"], segments) if segments else {}
-        if args.anchor_comm_owner:
+        launched = launched_in(step, args.launched_in) if args.launched_in else None
+        if launched:
+            anchor_ts = min(e["ts"] for e in launched)
+        elif args.anchor_comm_owner:
             anchor_ts = next(c["start"] for c in comm["comms"] if c["owner"] == args.anchor_comm_owner)
         elif args.anchor_annotation:
             anchor_ts = [e for e in step["annotations"] if e["name"] == args.anchor_annotation][args.anchor_index]["ts"]
@@ -331,8 +348,12 @@ def main():
         ax.set_title(label, loc="left", fontsize=11)
         if args.annotate_gaps is not None:
             annotate_gaps(ax, step, anchor_ts, lo, hi, args.annotate_gaps, label, args.gap_scope, args.gap_labels)
-        if args.end_annotation:
-            end_ts = next(e["ts"] for e in step["annotations"] if e["name"] == args.end_annotation and e["ts"] > anchor_ts)
+        if args.end_annotation or launched:
+            if launched:
+                end_ts = max(e["ts"] + e["dur"] for e in launched)
+            else:
+                end_ts = next(e["ts"] for e in step["annotations"]
+                              if e["name"] == args.end_annotation and e["ts"] > anchor_ts)
             region_end = (end_ts - anchor_ts) / 1e3
             region_ends.append(region_end)
             ax.axvline(region_end, color="black", linestyle="--", linewidth=1)
@@ -348,7 +369,9 @@ def main():
             per_category[kernel_label(e, categories, phases)[0]] += e["dur"] / 1e3
         totals.append(per_category)
         if row == len(arms) - 1:
-            if args.anchor_comm_owner:
+            if args.launched_in:
+                default_anchor = f"the first kernel launched in {args.launched_in}"
+            elif args.anchor_comm_owner:
                 default_anchor = f"the GPU start of the comm kernel launched in {args.anchor_comm_owner}"
             elif args.anchor_annotation:
                 default_anchor = args.anchor_annotation
