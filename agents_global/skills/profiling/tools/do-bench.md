@@ -9,8 +9,9 @@ kernels inside the op changed, see `torch-profiler.md`.
 
 - `triton.testing.do_bench(fn, warmup=..., rep=...)` handles warmup, CUDA sync, and repetitions. Report the
   min (or a low quantile) across several calls, plus the median.
-- For hand-rolled timing, use `torch.cuda.Event(enable_timing=True)` pairs around the call, with warmup
-  iterations first and `torch.cuda.synchronize()` before reading.
+- For timing regions of a script or project, copy `scripts/cuda_timer.py` in: `with timer("name"):` around each
+  region records CUDA events without host syncs, and `timer.table()` reports count, total, mean, median, min and
+  max per region. Drop warmup entries with `timer.reset_after_warmup(n)`.
 - Time forward and backward together when the change touches autograd; a faster forward can hide a slower
   backward.
 - Use the real shapes and dtypes from the model (log them from a trace's `Input Dims` if unsure).

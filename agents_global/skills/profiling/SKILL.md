@@ -28,6 +28,7 @@ with the script's path and all arguments. Capture harnesses that must run inside
 | Question | Tool | Details |
 |---|---|---|
 | Is this kernel/op faster, and by how much? | `triton.testing.do_bench` or CUDA events | `tools/do-bench.md` |
+| How long does a region of my code take (per call, aggregated)? | `scripts/cuda_timer.py`, copied in | `tools/do-bench.md` |
 | Which kernels inside an op cost the time? | `torch.profiler` over a few op iterations | `tools/torch-profiler.md` |
 | Why doesn't an op win show up in step time? | Diff of two end-to-end `torch.profiler` traces | `tools/torch-profiler.md` |
 | What annotations and host ranges does this trace have? | `scripts/trace_events.py` | its usage docstring |
@@ -40,6 +41,11 @@ with the script's path and all arguments. Capture harnesses that must run inside
 
 Project-specific capture recipes live in `projects/` (e.g. `projects/prime-rl.md`). Read the one for the
 current repo before launching anything.
+
+Always time GPU work with CUDA events, never host clocks around `torch.cuda.synchronize()`: events measure the
+stream without stalling the host. For timing a region inside a project, copy `scripts/cuda_timer.py` (one file,
+no dependencies beyond torch) into it rather than hand-rolling event pairs; it is the one script meant to be copied
+instead of run.
 
 ## Where artifacts go
 
