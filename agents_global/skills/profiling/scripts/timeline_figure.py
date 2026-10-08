@@ -98,6 +98,8 @@ def parse_args():
     parser.add_argument("--category", action="append", default=[], help="label:regex:color, matched in order")
     parser.add_argument("--step-marker", default="forward")
     parser.add_argument("--title", default="")
+    parser.add_argument("--edge-width", type=float, default=0.3,
+                        help="white outline between kernels; use 0 for wide windows where kernels are thinner than it")
     parser.add_argument("--anchor-label", default=None, help="x-axis wording for the anchor")
     parser.add_argument("--no-delta", action="store_true", help="omit the per-category delta panel")
     parser.add_argument("--segment", action="append", default=[], help="LABEL:REGEX:COLOR[:end], a phase cycle")
@@ -334,7 +336,8 @@ def main():
             t0 = (e["ts"] - anchor_ts) / 1e3
             if lo <= t0 + e["dur"] / 1e3 and t0 <= hi:
                 color = kernel_label(e, categories, phases)[1]
-                ax.broken_barh([(t0, e["dur"] / 1e3)], (0, 1), facecolors=color, edgecolor="white", linewidth=0.3)
+                ax.broken_barh([(t0, e["dur"] / 1e3)], (0, 1), facecolors=color, edgecolor="white",
+                               linewidth=args.edge_width)
         ax.set_xlim(lo, hi)
         ax.set_yticks([])
         if comm is not None:
