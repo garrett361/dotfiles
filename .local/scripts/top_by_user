@@ -150,17 +150,26 @@ append_cmdline() {
 
 mapfile -t uids < <(cut -f1 <<<"$top_users"; cut -f2 <<<"$top_procs")
 term_width=0
+color=0
 if [[ -t 1 ]]; then
     term_width=$(tput cols 2>/dev/null || echo 0)
+    [[ -n ${NO_COLOR:-} ]] || color=1
 fi
-awk -v window="$window" -v ncpu="$ncpu" -v mem_total="$mem_total" -v term_width="$term_width" '
+awk -v window="$window" -v ncpu="$ncpu" -v mem_total="$mem_total" -v term_width="$term_width" \
+    -v color="$color" '
     function display_name(uid) { return (uid in name) ? name[uid] : uid }
     function display_cmd(cmdline, comm) {
         sub(/ +$/, "", cmdline)
         return cmdline == "" ? comm : cmdline
     }
     function widen(user) { if (length(user) > user_width) user_width = length(user) }
-    function emit(line) { print (term_width > 0 ? substr(line, 1, term_width) : line) }
+    function emit(line, style) {
+        if (term_width > 0) line = substr(line, 1, term_width)
+        if (color && style == "header") line = "\033[1;36m" line "\033[0m"
+        if (color && style == "stripe")
+            line = "\033[48;5;236m" sprintf("%-" term_width "s", line) "\033[0m"
+        print line
+    }
     BEGIN { FS = "\t" }
     FILENAME == ARGV[1] { split($0, entry, ":"); name[entry[3]] = entry[1]; next }
     FILENAME == ARGV[2] {
@@ -191,17 +200,17 @@ awk -v window="$window" -v ncpu="$ncpu" -v mem_total="$mem_total" -v term_width=
             mem_total / 1e9))
         emit(sprintf(user_fmt "  %6s  %16s  %7s  %16s  %6s  %s", "USER", "CORES",
             "CPU_%_OF_MACHINE", "MEM_GB", "MEM_%_OF_MACHINE", "PROCS",
-            "HEAVIEST_PROC (cores, pid, cmd)"))
+            "HEAVIEST_PROC (cores, pid, cmd)"), "header")
         for (i = 1; i <= n_users; i++)
             emit(sprintf(user_fmt "  %6.2f  %16.1f  %7.1f  %16.1f  %6d  %-" prefix_width "s ",
                 user[i], cores[i], 100 * cores[i] / ncpu, rss[i] / 1e9, 100 * rss[i] / mem_total,
-                procs[i], heavy_prefix[i]) heavy_cmd[i] ")")
+                procs[i], heavy_prefix[i]) heavy_cmd[i] ")", i % 2 == 0 ? "stripe" : "")
         emit("")
         emit(sprintf(user_fmt "  %6s  %16s  %7s  %16s  %7s  %s", "USER", "CORES",
-            "CPU_%_OF_MACHINE", "MEM_GB", "MEM_%_OF_MACHINE", "PID", "CMD"))
+            "CPU_%_OF_MACHINE", "MEM_GB", "MEM_%_OF_MACHINE", "PID", "CMD"), "header")
         for (i = 1; i <= n_procs; i++)
             emit(sprintf(user_fmt "  %6.2f  %16.1f  %7.1f  %16.1f  %7s  ", proc_user[i],
                 proc_cores[i], 100 * proc_cores[i] / ncpu, proc_rss[i] / 1e9,
-                100 * proc_rss[i] / mem_total, proc_pid[i]) proc_cmd[i])
+                100 * proc_rss[i] / mem_total, proc_pid[i]) proc_cmd[i], i % 2 == 0 ? "stripe" : "")
     }' <(getent passwd "${uids[@]}" || true) <(append_cmdline 5 <<<"$top_users") \
     <(append_cmdline 0 <<<"$top_procs")
