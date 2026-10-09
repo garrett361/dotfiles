@@ -73,36 +73,28 @@ local function gh_pr_base(branch)
 	return base, "local " .. base, "no origin/" .. base, vim.log.levels.WARN
 end
 
----Base from the branch's `git tree` parent: the recorded fork commit while it is still an ancestor
----of HEAD, else the parent branch itself.
-local function git_tree_base(branch)
-	local git_tree = "git-tree"
-	if vim.fn.executable(git_tree) ~= 1 then
-		git_tree = vim.fn.expand("~/.local/bin/git-tree")
-		if vim.fn.executable(git_tree) ~= 1 then
-			return nil
-		end
-	end
-
-	local result = run({ git_tree, "--json" }, 1500)
+---A branch's `git tree` state from git config, or nil when unset.
+local function git_tree_config(branch, key)
+	local result = run({ "git", "config", "--get", ("branch.%s.%s"):format(branch, key) }, 2000)
 	if not ok(result) then
-		return nil, nil, "git tree failed: " .. error_detail(result), vim.log.levels.WARN
+		return nil
 	end
-	local forest = decode_json(result.stdout)
-	if not forest or forest.ok ~= true then
-		return nil, nil, "git tree --json failed", vim.log.levels.WARN
-	end
+	local value = vim.trim(result.stdout or "")
+	return value ~= "" and value or nil
+end
 
-	for _, entry in ipairs(forest.branches or {}) do
-		if entry.name == branch and entry.parent then
-			local fork = entry.fork_commit
-			if fork and ok(run({ "git", "merge-base", "--is-ancestor", fork, "HEAD" }, 2000)) then
-				return fork, ("git tree fork of %s (%s)"):format(entry.parent, fork:sub(1, 7))
-			end
-			return entry.parent, "git tree parent " .. entry.parent
-		end
+---Base from the branch's `git tree` parent: the recorded fork commit while it is still an ancestor
+---of HEAD, else the parent branch itself. Reads git config, since `git tree --json` takes seconds.
+local function git_tree_base(branch)
+	local parent = git_tree_config(branch, "tree-parent-branch")
+	if not parent then
+		return nil
 	end
-	return nil
+	local fork = git_tree_config(branch, "tree-fork-commit")
+	if fork and ok(run({ "git", "merge-base", "--is-ancestor", fork, "HEAD" }, 2000)) then
+		return fork, ("git tree fork of %s (%s)"):format(parent, fork:sub(1, 7))
+	end
+	return parent, "git tree parent " .. parent
 end
 
 ---The repo's detected default branch, else the first of the usual names that verifies.
