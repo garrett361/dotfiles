@@ -1,0 +1,207 @@
+#!/usr/bin/env bash
+#
+# top_by_user: per-user CPU and memory averaged over a time window, heaviest users first.
+#
+# Reads /proc directly instead of parsing top, which truncates usernames to 8 characters, depends
+# on the ~/.toprc column layout, and reports %CPU per core. CORES is the average number of cores a
+# user kept busy over the window; MEM_GB is their summed RSS averaged over once-per-second samples.
+
+set -euo pipefail
+
+usage() {
+    cat <<EOF
+Usage: top_by_user [-n ROWS] [SECONDS]
+
+Per-user CPU and memory averaged over SECONDS (default 10), heaviest users first, followed by
+the heaviest individual processes. /proc is sampled once per second.
+
+  -n ROWS  rows in each table (default 10)
+  -h       show this help
+
+Limits: a process that exits mid-window loses the CPU time it used after its last sample, and
+summed RSS double-counts shared pages (e.g. dataloader workers).
+EOF
+}
+
+die_usage() {
+    usage >&2
+    exit 2
+}
+
+is_positive_int() {
+    [[ $1 =~ ^[0-9]+$ ]] && (( 10#$1 > 0 ))
+}
+
+rows=10
+while getopts ":n:h" opt; do
+    case $opt in
+        n) rows=$OPTARG ;;
+        h)
+            usage
+            exit 0
+            ;;
+        *) die_usage ;;
+    esac
+done
+shift $((OPTIND - 1))
+(( $# <= 1 )) || die_usage
+window=${1:-10}
+is_positive_int "$rows" || die_usage
+is_positive_int "$window" || die_usage
+rows=$((10#$rows))
+window=$((10#$window))
+
+clk_tck=$(getconf CLK_TCK)
+page_size=$(getconf PAGESIZE)
+ncpu=$(nproc --all)
+mem_total=$(awk '/^MemTotal:/ { printf "%.0f", $2 * 1024 }' /proc/meminfo)
+
+snapshot() {
+    {
+        stat -c 'U %n %u' /proc/[0-9]* 2>/dev/null || true
+        cat /proc/[0-9]*/stat 2>/dev/null || true
+    } | awk '
+        BEGIN { OFS = "\t" }
+        $1 == "U" { sub("^/proc/", "", $2); uid[$2] = $3; next }
+        !($1 in uid) { next }
+        {
+            comm = $0
+            sub(/^[0-9]+ \(/, "", comm)
+            sub(/\) [^)]*$/, "", comm)
+            gsub(/\t/, " ", comm)
+            rest = $0
+            sub(/^.*\) /, "", rest)
+            split(rest, field, " ")
+            print $1, field[20], uid[$1], field[12] + field[13], field[22], comm
+        }'
+}
+
+sample_window() {
+    local start_time sample delay
+    start_time=$EPOCHREALTIME
+    for ((sample = 0; sample <= window; sample++)); do
+        if ((sample > 0)); then
+            delay=$(awk -v start="$start_time" -v sample="$sample" -v now="$EPOCHREALTIME" \
+                'BEGIN { delay = start + sample - now; print (delay > 0 ? delay : 0) }')
+            sleep "$delay"
+        fi
+        printf 'T %s\n' "$EPOCHREALTIME"
+        snapshot
+    done
+}
+
+per_proc=$(sample_window | awk -v hz="$clk_tck" -v page="$page_size" '
+    BEGIN { FS = "\t" }
+    /^T / {
+        n_samples++
+        sample_time = substr($0, 3)
+        if (n_samples == 1) first_time = sample_time
+        last_time = sample_time
+        next
+    }
+    {
+        key = $1 ":" $2
+        if (!(key in last_ticks)) first_ticks[key] = (n_samples == 1) ? $4 : 0
+        last_ticks[key] = $4
+        rss_sum[key] += $5 * page
+        pid[key] = $1
+        uid[key] = $3
+        comm[key] = $6
+    }
+    END {
+        elapsed = last_time - first_time
+        for (key in last_ticks)
+            printf "%s\t%s\t%.6f\t%.0f\t%s\n", pid[key], uid[key],
+                (last_ticks[key] - first_ticks[key]) / (hz * elapsed), rss_sum[key] / n_samples,
+                comm[key]
+    }')
+
+top_users=$(awk '
+    BEGIN { FS = "\t" }
+    {
+        user = $2
+        total_cores[user] += $3
+        rss[user] += $4
+        procs[user]++
+        if (!(user in heavy_cores) || $3 > heavy_cores[user]) {
+            heavy_cores[user] = $3
+            heavy_pid[user] = $1
+            heavy_comm[user] = $5
+        }
+    }
+    END {
+        for (user in total_cores)
+            printf "%s\t%.6f\t%.0f\t%d\t%.6f\t%s\t%s\n", user, total_cores[user], rss[user],
+                procs[user], heavy_cores[user], heavy_pid[user], heavy_comm[user]
+    }' <<<"$per_proc" | sort -t $'\t' -k2,2gr | awk -v rows="$rows" 'NR <= rows')
+
+top_procs=$(sort -t $'\t' -k3,3gr <<<"$per_proc" | awk -v rows="$rows" 'NR <= rows')
+
+append_cmdline() {
+    local pid_index=$1 row cmd
+    local -a fields
+    while IFS= read -r row; do
+        [[ -n $row ]] || continue
+        IFS=$'\t' read -r -a fields <<<"$row"
+        cmd=$({ tr '\0\t\n' '   ' <"/proc/${fields[pid_index]}/cmdline"; } 2>/dev/null || true)
+        printf '%s\t%s\n' "$row" "$cmd"
+    done
+}
+
+mapfile -t uids < <(cut -f1 <<<"$top_users"; cut -f2 <<<"$top_procs")
+term_width=0
+if [[ -t 1 ]]; then
+    term_width=$(tput cols 2>/dev/null || echo 0)
+fi
+awk -v window="$window" -v ncpu="$ncpu" -v mem_total="$mem_total" -v term_width="$term_width" '
+    function display_name(uid) { return (uid in name) ? name[uid] : uid }
+    function display_cmd(cmdline, comm) {
+        sub(/ +$/, "", cmdline)
+        return cmdline == "" ? comm : cmdline
+    }
+    function widen(user) { if (length(user) > user_width) user_width = length(user) }
+    function emit(line) { print (term_width > 0 ? substr(line, 1, term_width) : line) }
+    BEGIN { FS = "\t" }
+    FILENAME == ARGV[1] { split($0, entry, ":"); name[entry[3]] = entry[1]; next }
+    FILENAME == ARGV[2] {
+        n_users++
+        user[n_users] = display_name($1)
+        cores[n_users] = $2
+        rss[n_users] = $3
+        procs[n_users] = $4
+        heavy_prefix[n_users] = sprintf("(%.2f, %s,", $5, $6)
+        heavy_cmd[n_users] = display_cmd($8, $7)
+        widen(user[n_users])
+        if (length(heavy_prefix[n_users]) > prefix_width) prefix_width = length(heavy_prefix[n_users])
+        next
+    }
+    {
+        n_procs++
+        proc_pid[n_procs] = $1
+        proc_user[n_procs] = display_name($2)
+        proc_cores[n_procs] = $3
+        proc_rss[n_procs] = $4
+        proc_cmd[n_procs] = display_cmd($6, $5)
+        widen(proc_user[n_procs])
+    }
+    END {
+        if (user_width < 4) user_width = 4
+        user_fmt = "%-" user_width "s"
+        emit(sprintf("Averaged over %d s on a machine with %d cores and %.0f GB RAM", window, ncpu,
+            mem_total / 1e9))
+        emit(sprintf(user_fmt "  %6s  %16s  %7s  %16s  %6s  %s", "USER", "CORES",
+            "CPU_%_OF_MACHINE", "MEM_GB", "MEM_%_OF_MACHINE", "PROCS",
+            "HEAVIEST_PROC (cores, pid, cmd)"))
+        for (i = 1; i <= n_users; i++)
+            emit(sprintf(user_fmt "  %6.2f  %16.1f  %7.1f  %16.1f  %6d  %-" prefix_width "s ",
+                user[i], cores[i], 100 * cores[i] / ncpu, rss[i] / 1e9, 100 * rss[i] / mem_total,
+                procs[i], heavy_prefix[i]) heavy_cmd[i] ")")
+        emit("")
+        emit(sprintf(user_fmt "  %6s  %16s  %7s  %16s  %7s  %s", "USER", "CORES",
+            "CPU_%_OF_MACHINE", "MEM_GB", "MEM_%_OF_MACHINE", "PID", "CMD"))
+        for (i = 1; i <= n_procs; i++)
+            emit(sprintf(user_fmt "  %6.2f  %16.1f  %7.1f  %16.1f  %7s  ", proc_user[i],
+                proc_cores[i], 100 * proc_cores[i] / ncpu, proc_rss[i] / 1e9,
+                100 * proc_rss[i] / mem_total, proc_pid[i]) proc_cmd[i])
+    }' <(getent passwd "${uids[@]}" || true) <(append_cmdline 5 <<<"$top_users") \
+    <(append_cmdline 0 <<<"$top_procs")
