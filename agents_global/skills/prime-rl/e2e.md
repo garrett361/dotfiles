@@ -26,6 +26,7 @@ Run both unless the change only touches one of them:
 - **Frozen arms:** give each arm its own worktree, checked out detached at the commit under test (base at its
   SHA, feature branch at its SHA), with fresh compile caches per run. Never run an arm from a worktree that is
   still being edited or pulled. Record the commits in the results.
+- **Harness in history:** commit the A/B configs, drivers and comparison scripts per the rule in `SKILL.md`.
 - **Noise floor:** repeat the baseline and the leading candidate with identical code. Parity means within that
   floor, and a real bug shows as a gap that grows over steps.
 
