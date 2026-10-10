@@ -16,6 +16,11 @@ local function ok(result)
 	return result ~= nil and result.code == 0
 end
 
+---True when ref resolves to an object.
+local function ref_exists(ref)
+	return ok(run({ "git", "rev-parse", "--verify", "-q", ref }, 2000))
+end
+
 ---Decode command output as JSON, or nil when it does not parse into a table.
 local function decode_json(text)
 	local decoded_ok, decoded = pcall(vim.json.decode, text or "", json_opts)
@@ -47,32 +52,6 @@ local function current_branch()
 	return branch ~= "" and branch or nil
 end
 
----Base of the branch's open PR, as `origin/<base>` when that ref exists. `gh pr list` rather than
----`gh pr view`: it exits 0 with an empty list for no PR, so a non-zero exit means a real failure.
-local function gh_pr_base(branch)
-	if vim.fn.executable("gh") ~= 1 then
-		return nil, nil, "no gh", vim.log.levels.INFO
-	end
-	local query =
-		{ "gh", "pr", "list", "--head", branch, "--state", "open", "--json", "baseRefName" }
-	local result = run(query, 3000)
-	if not ok(result) then
-		return nil, nil, "gh failed: " .. error_detail(result), vim.log.levels.WARN
-	end
-	local prs = decode_json(result.stdout)
-	if not prs then
-		return nil, nil, "gh output would not decode", vim.log.levels.WARN
-	end
-	local base = prs[1] and prs[1].baseRefName
-	if not base or base == "" then
-		return nil, nil, "no open PR", vim.log.levels.INFO
-	end
-	if ok(run({ "git", "rev-parse", "--verify", "-q", "origin/" .. base }, 2000)) then
-		return "origin/" .. base
-	end
-	return base, "local " .. base, "no origin/" .. base, vim.log.levels.WARN
-end
-
 ---A branch's `git tree` state from git config, or nil when unset.
 local function git_tree_config(branch, key)
 	local result = run({ "git", "config", "--get", ("branch.%s.%s"):format(branch, key) }, 2000)
@@ -83,6 +62,15 @@ local function git_tree_config(branch, key)
 	return value ~= "" and value or nil
 end
 
+---The branch's recorded `git tree` fork commit while it is still an ancestor of HEAD, else nil.
+local function git_tree_fork(branch)
+	local fork = git_tree_config(branch, "tree-fork-commit")
+	if fork and ok(run({ "git", "merge-base", "--is-ancestor", fork, "HEAD" }, 2000)) then
+		return fork
+	end
+	return nil
+end
+
 ---Base from the branch's `git tree` parent: the recorded fork commit while it is still an ancestor
 ---of HEAD, else the parent branch itself. Reads git config, since `git tree --json` takes seconds.
 local function git_tree_base(branch)
@@ -90,11 +78,25 @@ local function git_tree_base(branch)
 	if not parent then
 		return nil
 	end
-	local fork = git_tree_config(branch, "tree-fork-commit")
-	if fork and ok(run({ "git", "merge-base", "--is-ancestor", fork, "HEAD" }, 2000)) then
+	local fork = git_tree_fork(branch)
+	if fork then
 		return fork, ("git tree fork of %s (%s)"):format(parent, fork:sub(1, 7))
 	end
 	return parent, "git tree parent " .. parent
+end
+
+---Number of commits in merge-base(HEAD, ref)..HEAD, or nil when either git call fails.
+local function commits_since_merge_base(ref)
+	local merge_base = run({ "git", "merge-base", "HEAD", ref }, 2000)
+	if not ok(merge_base) then
+		return nil
+	end
+	local count =
+		run({ "git", "rev-list", "--count", vim.trim(merge_base.stdout) .. "..HEAD" }, 2000)
+	if not ok(count) then
+		return nil
+	end
+	return tonumber(vim.trim(count.stdout or ""))
 end
 
 ---The repo's detected default branch, else the first of the usual names that verifies.
@@ -114,9 +116,83 @@ local function default_branch_base()
 	return nil
 end
 
+---Base of the branch's open PR: whichever of `origin/<base>` (local `<base>` when that is missing)
+---or the `git tree` fork has the merge-base nearest HEAD, so a locally rebased stack parent beats
+---its stale `origin` ref, and a base branch already containing HEAD ranks last. The fork is skipped
+---when the base is the default branch, whose unpushed local commits never reach the PR. `gh pr
+---list` rather than `gh pr view`: it exits 0 with an empty list for no PR, so a non-zero exit
+---means a real failure.
+local function gh_pr_base(branch, decline)
+	if vim.fn.executable("gh") ~= 1 then
+		decline("no gh", vim.log.levels.INFO)
+		return nil
+	end
+	local query =
+		{ "gh", "pr", "list", "--head", branch, "--state", "open", "--json", "baseRefName" }
+	local result = run(query, 3000)
+	if not ok(result) then
+		decline("gh failed: " .. error_detail(result), vim.log.levels.WARN)
+		return nil
+	end
+	local prs = decode_json(result.stdout)
+	if not prs then
+		decline("gh output would not decode", vim.log.levels.WARN)
+		return nil
+	end
+	local base = prs[1] and prs[1].baseRefName
+	if not base or base == "" then
+		decline("no open PR", vim.log.levels.INFO)
+		return nil
+	end
+
+	local candidates = {}
+	local remote_base = "refs/remotes/origin/" .. base
+	local has_remote_base = ref_exists(remote_base)
+	if has_remote_base then
+		candidates[#candidates + 1] = { ref = remote_base, description = "origin/" .. base }
+	else
+		decline("no origin/" .. base, vim.log.levels.WARN)
+	end
+	local tree_parent = git_tree_config(branch, "tree-parent-branch")
+	if tree_parent == base then
+		local fork = git_tree_fork(branch)
+		local default_branch = default_branch_base()
+		local targets_default_branch = default_branch == base or default_branch == "origin/" .. base
+		if fork and not targets_default_branch then
+			local description = ("git tree fork of %s (%s)"):format(base, fork:sub(1, 7))
+			candidates[#candidates + 1] = { ref = fork, description = description, is_fork = true }
+		end
+	elseif tree_parent then
+		decline(("git tree parent %s != PR base %s"):format(tree_parent, base), vim.log.levels.WARN)
+	end
+	local local_base = "refs/heads/" .. base
+	if not has_remote_base and ref_exists(local_base) then
+		candidates[#candidates + 1] = { ref = local_base, description = "local " .. base }
+	end
+
+	local nearest, nearest_rank
+	for _, candidate in ipairs(candidates) do
+		local rank = commits_since_merge_base(candidate.ref)
+		if rank == 0 and not candidate.is_fork then
+			rank = math.huge
+		end
+		if rank and (nearest_rank == nil or rank < nearest_rank) then
+			nearest, nearest_rank = candidate, rank
+		end
+	end
+	if not nearest then
+		decline("no usable ref for PR base " .. base, vim.log.levels.WARN)
+		return nil
+	end
+	if has_remote_base and nearest.ref ~= remote_base then
+		decline(("origin/%s stale"):format(base), vim.log.levels.INFO)
+	end
+	return nearest.ref, nearest.description
+end
+
 ---Resolve the ref to diff HEAD's merge-base against, preferring the open PR's base, then the
 ---`git tree` parent, then the repo's default branch. Reasons collect why each step was passed
----over, for `diffview_pr` to report.
+---over, plus notes on how the PR base was chosen, for `diffview_pr` to report.
 ---@return string ref
 ---@return string description
 ---@return string[] reasons
@@ -125,32 +201,28 @@ local function get_diff_base_ref()
 	local reasons = {}
 	local level = vim.log.levels.INFO
 	local function decline(reason, reason_level)
-		if reason then
-			reasons[#reasons + 1] = reason
-			level = math.max(level, reason_level)
-		end
+		reasons[#reasons + 1] = reason
+		level = math.max(level, reason_level)
 	end
 
 	local branch = current_branch()
 	if not branch then
 		decline("no current branch", vim.log.levels.INFO)
 	else
-		local ref, description, reason, reason_level = gh_pr_base(branch)
-		decline(reason, reason_level)
+		local ref, description = gh_pr_base(branch, decline)
 		if ref then
-			return ref, description or ref, reasons, level
+			return ref, description, reasons, level
 		end
 
-		ref, description, reason, reason_level = git_tree_base(branch)
-		decline(reason, reason_level)
+		ref, description = git_tree_base(branch)
 		if ref then
-			return ref, description or ref, reasons, level
+			return ref, description, reasons, level
 		end
 	end
 
 	local ref, description = default_branch_base()
 	if ref then
-		return ref, description or ref, reasons, level
+		return ref, description, reasons, level
 	end
 
 	return "HEAD", "HEAD (no base resolved)", reasons, math.max(level, vim.log.levels.WARN)
