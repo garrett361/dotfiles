@@ -100,6 +100,8 @@ class Trace:
             for e in thread_events:
                 if lo <= e["ts"] < hi:
                     busy[key] += e.get("dur", 0)
+        if not busy:
+            sys.exit("no host ranges start inside the window")
         return max(busy, key=busy.get)
 
     def thread_events(self, key):
@@ -113,6 +115,8 @@ class Trace:
         for e in kernels:
             if pattern is None or not pattern.search(e["name"]):
                 per_stream[(e["pid"], e["tid"])] += e["dur"]
+        if not per_stream:
+            sys.exit(f"no kernels{' outside ' + repr(exclude) if exclude else ''} in the window to pick a main stream from")
         return max(per_stream, key=per_stream.get)
 
 
