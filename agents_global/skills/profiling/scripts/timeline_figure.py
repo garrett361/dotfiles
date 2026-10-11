@@ -137,7 +137,7 @@ def categorize(name, categories):
 
 def load_step(path, step_marker, step_index, main_exclude=None):
     trace = load_trace(path)
-    nth(trace.annotations(f"^{re.escape(step_marker)}$"), step_index, f"{path}: CPU user_annotation {step_marker!r}")
+    nth(trace.annotations(f"^{re.escape(step_marker)}(#\\d+)?$"), step_index, f"{path}: CPU user_annotation {step_marker!r}")
     start, end = trace.window(step_marker, step_index, span="next")
     kernels = [e for e in trace.kernels if start <= (e["launch"] or e)["ts"] < end]
     main = trace.main_stream(kernels, main_exclude)
