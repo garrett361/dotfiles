@@ -6,7 +6,8 @@ Use for kernel-level attribution: inside one op, and especially for diffing two 
 
 `scripts/bench_ops.py CASES.py --trace DIR` runs each implementation of an op 10 times (`--trace-iters`) under
 the profiler after timing it. Then, per implementation, `top_kernels.py DIR/<case>__<label>.json.gz --whole-trace
---csv <label>.csv`, and `kernel_diff.py a.csv b.csv --decimals 3` (divide totals by the iteration count). This
+--decimals 3 --csv <label>.csv`, and `kernel_diff.py a.csv b.csv --decimals 3` (divide totals by the iteration
+count). This
 separates, for example, cast overhead from GEMM time, with launch counts. `prof.key_averages().table()`
 truncates kernel names, so templated elementwise kernels all look alike there.
 
