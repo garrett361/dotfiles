@@ -1,7 +1,8 @@
 """Print markdown tables of the most expensive GPU kernels in a window of a torch.profiler chrome trace.
 
-The default window runs from the last CPU-side `user_annotation` named `forward` (prime-rl SFT's per-step
-marker, as in `trim_last_step.py`) to the last GPU event end. Kernels, memcpys, and memsets that start in the
+The default window runs from the last CPU-side `user_annotation` named `forward` (as in `trim_last_step.py`) to the
+last GPU event end. prime-rl wraps each micro-batch's forward in `forward`, so with K micro-batches per step the
+default covers only the last micro-batch; `--annotation-index -K --annotation-span K` covers the last step. Kernels, memcpys, and memsets that start in the
 window are grouped by kernel name, by call site (innermost `cpu_op` with its `Input Dims`, plus the nearest
 enclosing non-aten op, found via `args["correlation"]` -> launch -> enclosing ops on the launch thread), or by
 both. Ranks by total time and by time per call; NCCL kernels get their own table.
@@ -359,7 +360,7 @@ def main():
         if len(later) >= args.annotation_span:
             end = later[args.annotation_span - 1]
         description = (f"`{args.annotation}` [{args.annotation_index}] to "
-                       + (f"the {args.annotation_span}th later one" if len(later) >= args.annotation_span
+                       + (f"{args.annotation_span} annotation(s) later" if len(later) >= args.annotation_span
                           else "last GPU event"))
     gpu = [e for e in gpu if start <= e["ts"] < end]
     if not gpu:
