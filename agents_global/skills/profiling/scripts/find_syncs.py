@@ -21,9 +21,11 @@ Per sync point:
 Sites are deduplicated and sorted by exposed idle.
 
 `--stacks syncs_rank<R>.jsonl` (from sync_stacks/sitecustomize.py, same run and rank as the trace) matches each
-sync point to a Python stack recorded on the same thread, in order: each record goes to the earliest unmatched point
-that started at most 1 ms after it and returned at most 20 ms before it (callbacks record just before a sync,
-warnings just after the Python call that did one or more syncs), and groups by Python site.
+sync point to a Python stack recorded on the same thread, and groups by Python site. Callback records come just
+before a sync, so each goes, in order, to the earliest unmatched point that returned after it and started at most
+1 ms after it. Warn records come just after the Python call that did one or more syncs, so each goes to the latest
+unmatched point that returned before it (at most 20 ms before), and is dropped as a duplicate when that point
+already has a callback record.
 `--dump out.json` writes the per-point rows for join_sync_dumps.py. `--list` prints every sync point in time order.
 
 `--to-end` windows from the last anchor to the last GPU event instead (e.g. the final micro-batch plus optimizer).
@@ -53,6 +55,7 @@ ASYNC_COPIES = {"cudaMemcpyAsync", "cudaMemcpy2DAsync", "cuMemcpyAsync", "cuMemc
 GPU_CATS = ("kernel", "gpu_memcpy", "gpu_memset")
 MARGIN = 5e4
 LEAD = 50
+CLOCK_SLACK = 20
 SKIP_FOR_DIMS = ("aten::copy_", "aten::_to_copy", "aten::to", "aten::_local")
 
 p = argparse.ArgumentParser()
@@ -203,9 +206,10 @@ if args.stacks:
     for tid, recs in recs_by_tid.items():
         recs.sort(key=lambda r: r["t"])
         pts = [pt for pt in with_margin if pt["tid"] == tid]
+        rets = [pt["ret"] for pt in pts]
         k = 0
-        for r in recs:
-            while k < len(pts) and pts[k]["ret"] + 2e4 < r["t"]:
+        for r in (r for r in recs if r["source"] != "warn"):
+            while k < len(pts) and (pts[k]["rec"] is not None or pts[k]["ret"] < r["t"] - CLOCK_SLACK):
                 k += 1
             if k < len(pts) and pts[k]["ts"] <= r["t"] + 1e3:
                 r["matched"] = True
@@ -213,6 +217,18 @@ if args.stacks:
                 if id(pts[k]) in ordered_ids:
                     lags.append(r["t"] - pts[k]["ts"])
                 k += 1
+        for r in (r for r in recs if r["source"] == "warn"):
+            j = bisect.bisect_right(rets, r["t"] + CLOCK_SLACK) - 1
+            if j >= 0 and pts[j]["rec"] is not None and pts[j]["rec"]["source"] != "warn":
+                r["matched"] = True
+                continue
+            while j >= 0 and pts[j]["rec"] is not None and pts[j]["ret"] >= r["t"] - 2e4:
+                j -= 1
+            if j >= 0 and pts[j]["rec"] is None and pts[j]["ret"] >= r["t"] - 2e4:
+                r["matched"] = True
+                pts[j]["rec"] = r
+                if id(pts[j]) in ordered_ids:
+                    lags.append(r["t"] - pts[j]["ts"])
     unmatched = [r for recs in recs_by_tid.values() for r in recs if not r.get("matched") and start <= r["t"] < end]
     print(f"stacks: matched {len(lags)} of {len(ordered)} sync points (median record minus call start "
           f"{statistics.median(lags) if lags else float('nan'):.0f} us); {len(unmatched)} recorded syncs in the window "
