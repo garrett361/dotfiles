@@ -30,6 +30,11 @@ truncates kernel names, so templated elementwise kernels all look alike there.
 
 ## Analysis recipe
 
+For "why doesn't my op-level win show up in step time?", run these on both arms. The answer is usually one of:
+the op is a small share of GPU busy time; the GPU idles (host-bound), so saved kernel time becomes idle time;
+other kernels got slower or new launches appeared; or the saving is on a rank or stream that does not set the
+step time.
+
 1. **Step window.** `top_kernels.py` windows on the last step marker (`--annotation`, `--annotation-index`).
    Check the window length against the logged step time before trusting any number derived from it.
    `trace_events.py <trace> --list-annotations ""` lists the annotation names a trace has.
@@ -60,7 +65,9 @@ it name the call site.
 - Communication kernels run on side streams and their durations include waiting. Report their deltas
   separately; they may not be on the critical path.
 - Rank 0 is representative only under balanced work; otherwise also check the slowest rank.
-- Traced step times are inflated, most for host-bound steps. Quote untraced medians for timing.
+- Traced step times are inflated, most for host-bound steps. Quote untraced medians for timing. The
+  profiler's host overhead also lowers the traced busy fraction: a toy loop was 56% busy in its trace (3.1 ms
+  window) while its untraced step was 1.88 ms for 1.7 ms of kernels.
 - CPU-side step windows (`top_kernels.py --annotation`, `timeline_figure.py --step-marker`) select kernels by
   GPU start time. When the host runs ahead of the GPU this misplaces them: in a GPU-bound toy loop with 44.5 ms
   of kernels per step, the last three `ProfilerStep` windows held 4.5, 3.5 and 203 ms. `top_kernels.py
