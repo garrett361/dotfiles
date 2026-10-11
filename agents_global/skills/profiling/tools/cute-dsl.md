@@ -15,7 +15,7 @@ The working-tree docs may describe a newer release.
   arguments, `make_fake_stream(use_tvm_ffi_env_stream=True)`) 4.0 us, classic executor with pre-converted
   `cute.Tensor` arguments 9.5 us, classic with `from_dlpack` per call 23.5 us. Benchmark the TVM-FFI
   executor, or report which path was timed.
-- Compile cost: `import cutlass.cute` 3 to 4 s (15.6 s on the first process on a node), a trivial kernel
+- Compile cost: `import cutlass.cute` 0.6 to 4 s (15.6 s on the first process on a node), a trivial kernel
   0.1 s, a kernel with 4096 unrolled FMAs 7 s. `CUTE_DSL_JIT_TIME_PROFILING=1 CUTE_DSL_LOG_TO_CONSOLE=1
   CUTE_DSL_LOG_LEVEL=20` logs the split: tracing (`build_ir_module`), lowering plus ptxas
   (`compile_and_jit`), module load (`lookup`).
@@ -48,21 +48,24 @@ The working-tree docs may describe a newer release.
 ## Dumps and line info
 
 - `CUTE_DSL_KEEP=ir,ptx,cubin,sass CUTE_DSL_DUMP_DIR=<dir>` writes the clean IR, PTX, cubin and SASS per
-  compiled host function (SASS via the `nvdisasm` bundled in the venv). Any `CUTE_DSL_KEEP` disables the
-  JIT cache, so implicit calls then pay a full compile each time.
+  compiled host function (SASS via the `nvdisasm` bundled in the venv). Keeping `ptx`, `cubin` or `sass`
+  disables the JIT cache (`dsl.py`), so implicit calls then pay a full compile each time (43-46 ms vs 18-21 ms
+  with `CUTE_DSL_KEEP=ir` alone, on a trivial kernel).
 - `CUTE_DSL_LINEINFO=1` maps PTX/SASS to Python `file:line` (`//## File "...py", line 37` in the SASS
   dump), and is what ncu source correlation needs (`nsight-compute.md`). The DSL docs advise validating performance with it off.
 - `compiled.__ptx__` is `None` unless the compile passed `options="--keep-ptx"` (checked with and
   without `--enable-tvm-ffi`); `--keep-ptx` also writes the `.ptx` into `CUTE_DSL_DUMP_DIR`, which
   defaults to the working directory at import time, so it litters the repo when run from there.
   `compiled.__cubin__` is likewise `None` unless the compile kept it (`options="--keep-cubin"`).
-- `kernel.set_name_prefix("name", remove_cutlass_symbol=True, keep_mangled_name=False)` inside the
-  `@cute.jit` function gives the GPU function the stable name `name_0`, convenient for `ncu -k regex:name`.
+- `my_kernel.set_name_prefix("name", remove_cutlass_symbol=True, keep_mangled_name=False)`, called on the
+  `@cute.kernel` function inside the `@cute.jit` function before `my_kernel(...).launch(...)`, gives the GPU
+  function the stable name `name_0`, convenient for `ncu -k regex:name`. The launcher that
+  `my_kernel(...)` returns has no `set_name_prefix`.
 
 ## Registers and spills
 
 - Register count: `cuobjdump --dump-resource-usage <cubin>` (`REG:`, `STACK:`, `LOCAL:`), or ncu Launch
-  Statistics (allocation-rounded). The DSL does not print it.
+  Statistics (the same count, but never below 16). The DSL does not print it.
 - `CUTE_DSL_COMPILER_OPT='remarks{ptx}'` (or `options="remarks{ptx}"`) prints "ptxas detected register
   spills" or "ptxas detected local memory usage" with the Python source frame, and nothing for a clean
   kernel. Spill byte counts are in `cuobjdump`'s `STACK:` (8376 bytes for a forced spill).
@@ -88,9 +91,12 @@ The working-tree docs may describe a newer release.
   `TVMFFIKernelAdapter` has no `libpath`.
 - MMA flavor from SASS: `HGMMA` is WGMMA (sm90a), `HMMA` is `mma.sync`. `WARPGROUP.DEPBAR.LE gsb0, 0x0`
   right after the `HGMMA`s means the WGMMA is waited on immediately (synchronous).
-- `scripts/sass_inventory.py <cache dir or cubin> ...` prints, per kernel, registers/stack/local plus
-  static counts of `HGMMA` by shape, `HMMA`, `LDGSTS`, TMA, `LDSM`/`STSM`, barriers and `MUFU`. Verified
-  on the TileLang DSv4 forward's cubin and its CuTe port's (`CUTE_DSL_KEEP=cubin`), side by side.
+- `scripts/sass_inventory.py <cache dir, cubin or .so> ...` prints, per kernel (and per SASS arch in a
+  multi-arch `.so`), registers/stack/local plus static counts of `HGMMA` by shape, `HMMA`, `UTCHMMA`
+  (sm100), `LDGSTS`, TMA, `LDSM`/`STSM`, barriers (`BAR.*`, mbarrier `SYNCS`) and `MUFU`. Verified on the
+  TileLang DSv4 forward's cubin and its CuTe port's (`CUTE_DSL_KEEP=cubin`), on flash_mla's `.so`, and on a
+  Triton cache, against `cuobjdump -sass | grep`. Pass `--kernel` on a large cache: it skips non-matching
+  cubins before disassembly (3 s instead of 5.5 min on a 983-cubin Triton cache).
 
 ## Copies and swizzled shared memory (verified on the DSv4 port)
 
