@@ -17,10 +17,11 @@ the next) is swept on one GPU. Every instant goes to exactly one row:
   already queued and waited on a device-side dependency ("idle, queued (stream wait)").
 
 `--step-boundary` must match kernels that run only at the end of each step, normally the optimizer's:
-`FusedAdamMathFunctor` for torch.optim Adam/AdamW with `fused=True`, `multi_tensor_apply_kernel` for
-`foreach=True` optimizers. The latter also matches every other `_foreach_*` kernel (grad clipping, FSDP copies),
-so it only works when none run mid-step: on a prime-rl trace it cut 4 real steps into 70 windows. Check with
-`--per-rank`, which prints each rank's window count and mean window; both should match the traced steps.
+`FusedAdamMathFunctor` for torch.optim Adam/AdamW with `fused=True` (`FusedSgdMathFunctor` for SGD),
+`multi_tensor_apply_kernel` for `foreach=True` optimizers. The latter also matches every other `_foreach_*`
+kernel (e.g. grad clipping's `_foreach_norm`), so it only works when none run mid-step: on a prime-rl trace it
+cut 4 real steps into 70 windows. Check with `--per-rank`, which prints each rank's window count and mean
+window; both should match the traced steps.
 
 Inputs, repeatable, one per arm: `--trace LABEL=GLOB` (torch.profiler chrome traces, one file per rank) or
 `--nsys LABEL=SQLITE` (one export with every rank; ranks are deviceIds). `--steps LO:HI` picks step windows by
@@ -28,7 +29,9 @@ index (Python slice over each rank's windows; default the last two complete step
 `--steps=-3:`) and rows are averaged per step, then over the ranks that have a selected window. With two arms a
 delta column is added. `--untraced LABEL=SECONDS` adds the untraced median step time per arm, and the table then
 ends with a "tracing overhead / residual" row so the delta column sums to the untraced step delta. `--per-rank`
-prints each rank's window and partition, to check that one rank is representative. `--host-depth N` keeps N levels of cpu_op names in host-late labels.
+prints each rank's window and partition, to check that one rank is representative. `--host-depth N` keeps N
+levels of cpu_op names in host-late labels. Collectives that launch no GPU kernel (gloo) show up as host-late
+idle, and a `--comm` regex that matches nothing moves the NCCL kernels into compute rows.
 
 The header also reports the number of GPU activities (kernels, memcpys, memsets) per step.
 
