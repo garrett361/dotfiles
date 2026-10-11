@@ -5,7 +5,7 @@
 """CUDA-event timer for named regions, meant to be copied into a project as one file.
 
 Wrap each timed region in `with timer("name"):`. Every entry records a pair of CUDA events on the current stream, so
-timing never stalls the host. Events are only read in `summary()`, which waits on the last end event, so call it once
+timing never stalls the host. Events are only read in `summary()`, which waits on every end event, so call it once
 after the measured iterations, not inside the loop. Regions can repeat and nest; each name aggregates every entry.
 
 Events time the current stream's timeline: work launched on another stream counts only if the current stream waits on
@@ -55,8 +55,8 @@ class CudaTimer:
     def times_ms(self) -> dict[str, list[float]]:
         """Elapsed milliseconds of every entry, per region."""
         for pairs in self._events.values():
-            if pairs:
-                pairs[-1][1].synchronize()
+            for _, end in pairs:
+                end.synchronize()
         return {name: [start.elapsed_time(end) for start, end in pairs] for name, pairs in self._events.items()}
 
     def summary(self) -> dict[str, dict[str, float]]:
