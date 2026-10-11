@@ -10,14 +10,17 @@ min-to-max band of those variants (same-code repeats) in every panel, so a bar o
 Missing values are skipped.
 
 Lines: each `--lines METRIC` draws, per group, that metric over steps for every run named in the CSV's `run_dir`
-column (`<run_dir>/monitors/file/metrics.jsonl`), with `--steady LO HI` shaded.
+column, with `--steady LO HI` shaded. A run dir is read as prime-rl's `<run_dir>/monitors/file/metrics.jsonl`; a
+path to a `.jsonl` file is read directly, so any repo can log one JSON object per line with a `step` key and
+metric keys (records of the same step are merged).
 
 Summary: `--summarize COLUMN=METRIC` (repeatable) writes the per-run summary CSV that the bar mode reads: one row per
 `--run GROUP:VARIANT=RUN_DIR` with the median of METRIC over the `--steady` steps (all steps without it) in COLUMN,
-plus COLUMN_min and COLUMN_max. It also prints the rows as a markdown table. `--run` can replace `--csv` in the
-other modes too. METRIC may also be a per-step ratio 'NUM / DEN' or 'NUM / DEN * SCALE' (spaces around `/` and `*`
-required, since metric names contain slashes), e.g. "s_per_mtok=time/forward_backward / progress/tokens * 1e6" to
-normalize a time by a varying per-step workload.
+plus COLUMN_min and COLUMN_max. It also prints the rows as a markdown table. Non-finite values (NaN, inf) are
+dropped, and a metric with no values in a run is reported on stderr. `--run` can replace `--csv` in lines mode
+too; bars need the summary CSV. METRIC may also be a per-step ratio 'NUM / DEN' or 'NUM / DEN * SCALE' (spaces
+around `/` and `*` required, since metric names contain slashes), e.g.
+"s_per_mtok=time/forward_backward / progress/num_tokens * 1e6" to normalize a time by a varying per-step workload.
 
 Usage:
   uv run --script run_metrics.py --csv summary.csv --out bars.png --noise fp32-cap2,fp32-cap2-r2,fp32-main \\
@@ -30,7 +33,9 @@ Usage:
 import argparse
 import csv
 import json
+import math
 import statistics
+import sys
 from collections import defaultdict
 from pathlib import Path
 
@@ -75,7 +80,13 @@ def write_summary(rows, args):
         fields += [column, f"{column}_min", f"{column}_max"]
     for row in rows:
         for column, metric in columns:
-            values = [v for s, v in load_metric(row["run_dir"], metric) if not args.steady or args.steady[0] <= s <= args.steady[1]]
+            values = [
+                v
+                for s, v in load_metric(row["run_dir"], metric)
+                if (not args.steady or args.steady[0] <= s <= args.steady[1]) and math.isfinite(v)
+            ]
+            if not values:
+                print(f"warning: no finite '{metric}' values in {row['run_dir']} for the steps asked", file=sys.stderr)
             row[column] = statistics.median(values) if values else ""
             row[f"{column}_min"] = min(values) if values else ""
             row[f"{column}_max"] = max(values) if values else ""
@@ -132,6 +143,8 @@ def draw_bars(rows, args):
             ax.invert_yaxis()
             ax.set_title(f"{group}: {title}", loc="left", fontsize=10)
             ax.grid(axis="x", alpha=0.3)
+    if not any(ax.get_visible() for ax in axes.flat):
+        sys.exit("no bar values: each --bar COLUMN must be a numeric column of --csv (written by --summarize)")
     if noise:
         fig.text(0.5, 0.005, f"Gray bars: same-code repeats ({', '.join(sorted(noise))}); red band: their min-to-max.",
                  ha="center", fontsize=9)
@@ -140,7 +153,10 @@ def draw_bars(rows, args):
 
 def load_steps(run_dir, metric):
     by_step = defaultdict(dict)
-    for line in (Path(run_dir) / "monitors/file/metrics.jsonl").read_text().splitlines():
+    path = Path(run_dir)
+    if not path.is_file():
+        path = path / "monitors/file/metrics.jsonl"
+    for line in path.read_text().splitlines():
         record = json.loads(line)
         if record.get("step") is not None:
             by_step[record["step"]].update(record)
@@ -178,8 +194,11 @@ def draw_lines(rows, args):
             ax.set_xlabel("step")
             ax.grid(alpha=0.3)
             values = [v for r in rows if r["group"] == group and r.get("run_dir")
-                      for s, v in load_steps(r["run_dir"], metric) if not args.steady or s >= args.steady[0]]
-            if values:
+                      for s, v in load_steps(r["run_dir"], metric)
+                      if (not args.steady or s >= args.steady[0]) and math.isfinite(v)]
+            if not values:
+                print(f"warning: no finite '{metric}' values for group {group}", file=sys.stderr)
+            else:
                 pad = 0.1 * (max(values) - min(values) + 1e-9)
                 ax.set_ylim(min(values) - pad, max(values) + pad)
             ax.legend(fontsize=7, ncol=2)
