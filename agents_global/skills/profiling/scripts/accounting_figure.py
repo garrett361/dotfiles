@@ -33,12 +33,18 @@ def load(path, folds):
     rows = {}
     with open(path, newline="") as f:
         reader = csv.reader(f)
-        next(reader)
+        if next(reader)[-1] != "delta":
+            raise SystemExit(f"{path} has no delta column: pass a step_accounting.py CSV from a two-arm run")
         for row in reader:
             label, delta = row[0], float(row[-1])
             for prefix in folds:
                 if label.startswith(prefix):
-                    label = f"{prefix} (all causes)" if prefix.startswith("idle") else f"{prefix} (all collectives)"
+                    if prefix.startswith("idle"):
+                        label = f"{prefix} (all causes)"
+                    elif prefix.startswith("exposed comm"):
+                        label = f"{prefix} (all collectives)"
+                    else:
+                        label = f"{prefix} (all rows)"
                     break
             rows[label] = rows.get(label, 0.0) + delta
     return rows
@@ -66,6 +72,7 @@ def main():
     axes = [axes] if len(panels) == 1 else list(axes)
     span = max(max(abs(v) for v in rows.values()) for _, rows in panels)
     span = max(span, max(abs(sum(rows.values())) for _, rows in panels))
+    reference_texts = []
     for ax, (title, rows) in zip(axes, panels):
         values = [rows.get(k, 0.0) for k in labels[:-1]] + [sum(rows.values())]
         ys = range(len(labels))
@@ -79,7 +86,9 @@ def main():
         for ref in args.reference:
             name, ms = ref.rsplit("=", 1)
             ax.axvline(float(ms), color=INK, linewidth=1.0, linestyle="--")
-            ax.text(float(ms), len(labels) - 1.5, f" {name} {float(ms):+.1f}", fontsize=8, color=INK, va="bottom")
+            reference_texts.append(
+                ax.text(float(ms), len(labels) - 1.5, f" {name} {float(ms):+.1f}", fontsize=8, color=INK, va="bottom")
+            )
         ax.set_xlim(-span * 1.35, span * 1.35)
         ax.set_title(title, fontsize=10, color=INK)
         ax.set_xlabel("ms per step (red adds time, blue saves time)", fontsize=9, color=MUTED)
@@ -95,6 +104,11 @@ def main():
     if args.title:
         fig.suptitle(args.title, fontsize=11, color=INK)
     fig.tight_layout()
+    renderer = fig.canvas.get_renderer()
+    for text in reference_texts:
+        if text.get_window_extent(renderer).x1 > text.axes.get_window_extent(renderer).x1:
+            text.set_horizontalalignment("right")
+            text.set_text(f"{text.get_text().strip()} ")
     fig.savefig(args.out, dpi=160, facecolor=SURFACE)
     print(f"wrote {args.out}")
 
