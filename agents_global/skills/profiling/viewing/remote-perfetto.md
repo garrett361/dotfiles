@@ -23,26 +23,15 @@ forward maps laptop 9001 to it.
 0. Trim first. In-browser parsing runs at roughly 8 to 9 MB of JSON per second, so keep only the step being
    analyzed:
    `python3 <skill dir>/scripts/trim_last_step.py trace_0.json.gz trace_0_laststep.json.gz`
-   (gzipped output loads fine by URL; no need to decompress).
+   (gzipped output loads fine by URL; no need to decompress). To compare arms side by side, serve one file
+   from `scripts/merge_traces.py` instead (usage in its docstring).
 
 1. The server is `scripts/serve_cors.py` (stdlib only). Set `INV=~/tmp/profiling/<investigation>` and put
-   symlinks to the files to view in `$INV/serve/`. Its core:
+   symlinks to the files to view in `$INV/serve/`. It is a static file server bound to `127.0.0.1`
+   that adds `Access-Control-Allow-Origin: https://ui.perfetto.dev` to every response.
 
-   ```python
-   import functools, http.server, sys
-
-   class CORSHandler(http.server.SimpleHTTPRequestHandler):
-       def end_headers(self):
-           self.send_header("Access-Control-Allow-Origin", "https://ui.perfetto.dev")
-           super().end_headers()
-
-   port, directory = int(sys.argv[1]), sys.argv[2]
-   handler = functools.partial(CORSHandler, directory=directory)
-   http.server.ThreadingHTTPServer(("127.0.0.1", port), handler).serve_forever()
-   ```
-
-2. Pick a remote port (prefer 9001). `serve_cors.py` exits at once with `Address already in use` if the port
-   is taken on the shared login node; pick another remote port then.
+2. Pick a remote port (prefer 9001). `serve_cors.py` exits at once with an `Address already in use` traceback
+   if the port is taken on the shared login node; pick another remote port then.
 
 3. Start it in the background next to the trace directory, recording the PID:
 
@@ -102,6 +91,8 @@ Notes:
 - The ssh host: on the verified node `hostname -f` returned only a short name (`prime`) and there is no
   `tailscale` CLI, so the user's Tailscale name or ssh alias is not discoverable from the remote side.
   Print `<host>` as a placeholder and ask for it.
+- Start the server on the host the user's ssh lands on (the login node), not inside an `srun` step: it binds
+  `127.0.0.1`, which the forward resolves on the ssh host.
 - Bind to `127.0.0.1` only (verified unreachable via the node's LAN IP). On a shared login node, other
   users on that node can still read the served directory, so serve only the trace directory.
 - The static server answers the UI's `POST /status` probe with 501, so the UI does not mistake it for a
@@ -134,5 +125,8 @@ Notes:
 ## Not yet verified
 
 - Safari and Firefox on the laptop side.
+- Two servers at once: the UI's feature flag "Relax Content Security Policy for 127.0.0.1:*"
+  (`cspAllowAnyWebsocketPort`, found in the v58.3 UI source) plus `#!/?rpc_port=<port>` should admit a trace
+  processor on a laptop port other than 9001.
 - trace_processor memory use and load time on full-model (43-layer, 8-node) traces.
 - The size limit for the in-browser path: 405 MB of JSON loaded in tens of seconds; larger is untested.
