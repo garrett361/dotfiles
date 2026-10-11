@@ -13,7 +13,8 @@ that stream's kernel track so each annotation sits next to the kernels it descri
 Perfetto's JSON importer silently drops events with negative timestamps, so after aligning every arm at its
 anchor, all arms are shifted by one common offset that puts the earliest event at t = 0. Arms stay aligned
 with each other; the anchor lands at the printed offset instead of 0. (Plain-`id` async events would also
-be global, grouped by name across processes, which is why markers use a thread track.) torch projects `backward` onto the GPU with
+be global, grouped by name across processes, which is why markers use a thread track.) Flow ids, which link a
+launch to its kernel, are offset per arm so no two arms share one. torch projects `backward` onto the GPU with
 zero duration (autograd launches from its own thread), so a GPU marker shorter than 10 us is extended to the
 next step marker's start in that GPU process, or to its last kernel end if no marker follows.
 
@@ -38,6 +39,7 @@ from trace_events import is_marker, pick, read_trace
 
 STEP_MARKERS = {"forward", "backward"}
 EMPTY_MARKER_US = 10.0
+FLOW_PHASES = ("s", "t", "f")
 ANNOTATION_TID_BASE, STEP_MARKER_TID = 800_000_000, 1
 
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -53,7 +55,7 @@ if prefix in ANCHOR_CATEGORIES and rest:
     anchor_cats, anchor_name = ANCHOR_CATEGORIES[prefix], rest
 else:
     anchor_cats, anchor_name = None, anchor
-merged = []
+merged, flow_id_offset = [], 0
 for arm, spec in enumerate(args.trace):
     label, path = spec.split("=", 1)
     events = read_trace(path)["traceEvents"]
@@ -89,6 +91,8 @@ for arm, spec in enumerate(args.trace):
         if e.get("ph") == "M" and e.get("name") == "thread_sort_index" and device_labels[old].startswith("GPU"):
             continue
         e = dict(e, pid=new_pid[old])
+        if e.get("ph") in FLOW_PHASES and "id" in e:
+            e["id"] = e["id"] + flow_id_offset
         if "ts" in e:
             e["ts"] = e["ts"] - t0
         if e.get("cat") == "gpu_user_annotation" and e.get("name") in STEP_MARKERS:
@@ -125,6 +129,7 @@ for arm, spec in enumerate(args.trace):
     for pid, tracks in annotation_tracks.items():
         for tid, stream in tracks:
             merged.append({"ph": "M", "name": "thread_name", "pid": pid, "tid": tid, "args": {"name": f"stream {stream} annotations"}})
+    flow_id_offset += 1 + max((e["id"] for e in events if e.get("ph") in FLOW_PHASES and "id" in e), default=0)
     for old, pid in new_pid.items():
         merged.append({"ph": "M", "name": "process_name", "pid": pid, "args": {"name": f"{label} | {device_labels[old]}"}})
         merged.append({"ph": "M", "name": "process_sort_index", "pid": pid, "args": {"sort_index": sort_index[old]}})
