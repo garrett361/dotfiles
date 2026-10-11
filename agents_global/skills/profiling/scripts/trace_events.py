@@ -14,7 +14,10 @@ Library (imported by comm_waits.py and timeline_figure.py):
   kernels matching `exclude` (pass the NCCL pattern when communication can outweigh compute).
 
 CLI: print every host range on the busiest host thread inside a window, indented by nesting, to learn a
-trace's annotation structure before writing category or label regexes. `--include-python` also prints the
+trace's annotation structure before writing category or label regexes. `--list-annotations REGEX` instead
+prints every distinct CPU-side (`user_annotation`) and GPU-side (`gpu_user_annotation`) annotation name matching
+the regex, with its count, which finds anchor names (e.g. for `timeline_figure.py --anchor-annotation`) that do
+not run on the busiest thread, such as backward hooks on autograd's thread. `--include-python` also prints the
 Python frames (from a `with_stack=True` profile) and CUDA runtime/driver calls, to attribute host time inside an
 op down to the Python function or the launch call.
 
@@ -22,6 +25,7 @@ Usage:
   uv run --script trace_events.py <trace.json.gz> --from-annotation "FSDP::pre_backward (model.layers.12)" \\
     [--from-index -1] [--to-annotation "FSDP::post_backward_reduce (model.layers.12) [pg=16]"] \\
     [--name-filter REGEX] [--min-us 0] [--max-depth 6] [--include-python]
+  uv run --script trace_events.py <trace.json.gz> --list-annotations "layers\\.4\\b"
 """
 
 import argparse
@@ -117,7 +121,10 @@ def load_trace(path, extra_host_categories=()):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("trace")
-    parser.add_argument("--from-annotation", required=True, help="exact CPU user_annotation name opening the window")
+    parser.add_argument("--from-annotation", help="exact CPU user_annotation name opening the window")
+    parser.add_argument(
+        "--list-annotations", metavar="REGEX", help="list distinct CPU and GPU annotation names matching REGEX, then exit"
+    )
     parser.add_argument("--from-index", type=int, default=-1, help="which occurrence opens the window")
     parser.add_argument("--to-annotation", default=None, help="first later annotation with this name closes it")
     parser.add_argument("--name-filter", default=None, help="only print ranges whose name matches this regex")
@@ -129,6 +136,18 @@ def main():
     args = parser.parse_args()
 
     trace = load_trace(args.trace, PYTHON_CATEGORIES if args.include_python else ())
+    if args.list_annotations is not None:
+        pattern = re.compile(args.list_annotations)
+        for side, events in (("cpu", trace.annotations("")), ("gpu", trace.gpu_annotations)):
+            counts = defaultdict(int)
+            for e in events:
+                if pattern.search(e["name"]):
+                    counts[e["name"]] += 1
+            for name, count in sorted(counts.items()):
+                print(f"{side} {count:5d}  {name}")
+        return
+    if args.from_annotation is None:
+        parser.error("--from-annotation is required unless --list-annotations is given")
     opener = [e for e in trace.annotations("") if e["name"] == args.from_annotation][args.from_index]
     lo = opener["ts"]
     hi = opener["ts"] + opener["dur"]
