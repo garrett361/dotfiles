@@ -1,8 +1,10 @@
 """Inventory the SASS a compiler emitted: MMA flavor and shapes, async copies, and registers per kernel.
 
 Finds every `.cubin` and `.so` under the given paths (files or directories, e.g. a fresh
-`TILELANG_CACHE_DIR`, a `CUTE_DSL_DUMP_DIR` written with `CUTE_DSL_KEEP=cubin`, or a Triton cache),
-disassembles each with `cuobjdump -sass`, and prints one markdown table per kernel function:
+`TILELANG_CACHE_DIR`, a `CUTE_DSL_DUMP_DIR` written with `CUTE_DSL_KEEP=cubin`, or a Triton cache,
+`$TRITON_CACHE_DIR` or `~/.triton/cache`), disassembles each with `cuobjdump -sass`, and prints one
+markdown table per kernel function, suffixed with its SASS arch when a `.so` holds several. `--kernel`
+skips cubins with no matching symbol before disassembly, which matters on caches with hundreds of cubins.
 
 - registers, stack and local memory from `cuobjdump --dump-resource-usage` (`STACK`/`LOCAL` > 0 means
   spills or local arrays);
@@ -16,7 +18,9 @@ Counts are static (instructions in the binary), not executed counts: a loop body
 twice counts twice. Use ncu for executed counts.
 
 `--by-line OPCODE ...` adds, per kernel, which source lines those opcodes come from (e.g. `LDL STL` to find
-spills), via `nvdisasm --print-line-info`; the binary needs line info (`CUTE_DSL_LINEINFO=1`, `-lineinfo`).
+spills), via `nvdisasm --print-line-info` (on each cubin a `.so` holds); the binary needs line info
+(`CUTE_DSL_LINEINFO=1`, `-lineinfo`, Triton by default), else every opcode lands on `unknown`. Code
+inlined from a header is attributed to the header's line, not to its call site.
 For CuTe DSL kernels this is more precise than the `remarks{ptx}` spill remark, whose source frame marks a
 register-pressure region rather than the spilling instructions.
 
