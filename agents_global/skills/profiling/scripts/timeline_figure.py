@@ -13,8 +13,10 @@ kernel savings do not reach step time and the panel would mislead).
 Steps start at the CPU-side `user_annotation` events named `--step-marker`; `--step-index` picks one (default
 -1, the last) and the step runs until the next marker or the end of the trace. A step's kernels are those
 launched inside it, so GPU work that lags the host still counts toward its own step; panels draw every
-main-stream kernel in the window. The main stream is the stream with the most kernel time. Categories are
-`label:regex:color`, matched in order against kernel names; unmatched kernels fall into "other".
+main-stream kernel in the window. When the host runs ahead of the GPU (no per-step sync), the step start
+precedes the step's first kernel and the panel opens on the previous step's GPU work; align with an anchor
+then. The main stream is the stream with the most kernel time. Categories are `label:regex:color`, matched in
+order against kernel names; unmatched kernels fall into "other".
 
 `--anchor-annotation NAME` aligns at the Nth (`--anchor-index`) GPU-side `record_function` annotation with
 exactly that name instead of a kernel, e.g. `FSDP::all_gather_copy_out (model.layers.2)`, which starts a
@@ -32,11 +34,12 @@ whole gap (what the host was inside). Gap details and all spanning CPU events ar
 marks the end of the step when it falls inside the window.
 
 Communication row (`--comm-kernel REGEX`): each panel gets a second row with that GPU's kernels matching the
-regex from other streams, labeled by the host range enclosing their launch (`--launch-annotation`) through
-ordered `--comm-label LABEL:REGEX:COLOR` rules. `--wait-annotation REGEX` shades the GPU stalls those host waits
-cause on the main stream (computed as in comm_waits.py, over the last `--comm-step-marker` range), labeled
-with what was popped. `--anchor-comm-owner NAME` aligns arms at the GPU start of the first communication
-kernel launched inside a host range named exactly NAME (e.g. a layer's expert reduce-scatter).
+regex launched inside the `--step-index`th `--comm-step-marker` range (default `backward`), labeled by the host
+range enclosing their launch (`--launch-annotation`) through ordered `--comm-label LABEL:REGEX:COLOR` rules.
+`--wait-annotation REGEX` shades the GPU stalls those host waits cause on the main stream (computed as in
+comm_waits.py over the same range), labeled with what was popped. `--anchor-comm-owner NAME` aligns arms at the
+GPU start of the first communication kernel launched inside a host range named exactly NAME (e.g. a layer's
+expert reduce-scatter).
 
 Phase coloring (`--segment LABEL:REGEX:COLOR[:end]`, repeatable): main-stream kernels not matched by a
 `--category` take the color of the phase their launch falls in. Phases form a cycle in the given order: phase
