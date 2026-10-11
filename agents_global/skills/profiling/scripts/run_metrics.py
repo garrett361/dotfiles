@@ -15,7 +15,9 @@ column (`<run_dir>/monitors/file/metrics.jsonl`), with `--steady LO HI` shaded.
 Summary: `--summarize COLUMN=METRIC` (repeatable) writes the per-run summary CSV that the bar mode reads: one row per
 `--run GROUP:VARIANT=RUN_DIR` with the median of METRIC over the `--steady` steps (all steps without it) in COLUMN,
 plus COLUMN_min and COLUMN_max. It also prints the rows as a markdown table. `--run` can replace `--csv` in the
-other modes too.
+other modes too. METRIC may also be a per-step ratio 'NUM / DEN' or 'NUM / DEN * SCALE' (spaces around `/` and `*`
+required, since metric names contain slashes), e.g. "s_per_mtok=time/forward_backward / progress/tokens * 1e6" to
+normalize a time by a varying per-step workload.
 
 Usage:
   uv run --script run_metrics.py --csv summary.csv --out bars.png --noise fp32-cap2,fp32-cap2-r2,fp32-main \\
@@ -73,7 +75,7 @@ def write_summary(rows, args):
         fields += [column, f"{column}_min", f"{column}_max"]
     for row in rows:
         for column, metric in columns:
-            values = [v for s, v in load_steps(row["run_dir"], metric) if not args.steady or args.steady[0] <= s <= args.steady[1]]
+            values = [v for s, v in load_metric(row["run_dir"], metric) if not args.steady or args.steady[0] <= s <= args.steady[1]]
             row[column] = statistics.median(values) if values else ""
             row[f"{column}_min"] = min(values) if values else ""
             row[f"{column}_max"] = max(values) if values else ""
@@ -143,6 +145,19 @@ def load_steps(run_dir, metric):
         if record.get("step") is not None:
             by_step[record["step"]].update(record)
     return sorted((step, values[metric]) for step, values in by_step.items() if metric in values)
+
+
+def load_metric(run_dir, spec):
+    """Per-step values of METRIC, or of the per-step ratio for a spec of the form 'NUM / DEN [* SCALE]'."""
+    if " / " not in spec:
+        return load_steps(run_dir, spec)
+    numerator, denominator = spec.split(" / ", 1)
+    scale = 1.0
+    if " * " in denominator:
+        denominator, scale_text = denominator.split(" * ", 1)
+        scale = float(scale_text)
+    den_by_step = dict(load_steps(run_dir, denominator.strip()))
+    return [(s, v / den_by_step[s] * scale) for s, v in load_steps(run_dir, numerator.strip()) if den_by_step.get(s)]
 
 
 def draw_lines(rows, args):
