@@ -7,8 +7,9 @@ disassembles each with `cuobjdump -sass`, and prints one markdown table per kern
 - registers, stack and local memory from `cuobjdump --dump-resource-usage` (`STACK`/`LOCAL` > 0 means
   spills or local arrays);
 - counts of the instruction classes that tell designs apart: `HGMMA` (sm90 WGMMA, split by shape),
-  `HMMA` (`mma.sync`), `WARPGROUP.ARRIVE`/`DEPBAR` (WGMMA issue and wait), `LDGSTS` (`cp.async`),
-  `UTMALDG`/`UTMASTG` (TMA), `LDSM`/`STSM` (`ldmatrix`/`stmatrix`), `BAR.SYNC`, `MUFU.*`, global
+  `HMMA` (`mma.sync`), `UTCHMMA` (sm100 `tcgen05.mma`), `WARPGROUP.ARRIVE`/`DEPBAR` (WGMMA issue and
+  wait), `LDGSTS` (`cp.async`), `UTMALDG`/`UTMASTG` (TMA), `UBLKCP` (bulk copy), `LDSM`/`STSM`
+  (`ldmatrix`/`stmatrix`), `BAR.SYNC`/`BAR.ARV` (named barriers), `SYNCS` (mbarrier), `MUFU.*`, global
   loads and stores, and `LDL`/`STL` (local memory traffic).
 
 Counts are static (instructions in the binary), not executed counts: a loop body the compiler emitted
@@ -34,14 +35,18 @@ from collections import Counter
 
 DEFAULT_OPCODES = (
     "HMMA",
+    "UTCHMMA",
     "WARPGROUP.ARRIVE",
     "WARPGROUP.DEPBAR",
     "LDGSTS",
     "UTMALDG",
     "UTMASTG",
+    "UBLKCP",
     "LDSM",
     "STSM",
     "BAR.SYNC",
+    "BAR.ARV",
+    "SYNCS",
     "MUFU.EX2",
     "MUFU.LG2",
     "MUFU.RCP",
