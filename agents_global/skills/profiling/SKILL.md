@@ -34,6 +34,7 @@ with the script's path and all arguments. Capture harnesses that must run inside
 | Why doesn't an op win show up in step time? | Diff of two end-to-end `torch.profiler` traces | `tools/torch-profiler.md` |
 | What annotations and host ranges does this trace have? | `scripts/trace_events.py` | its usage docstring |
 | Where does one op's host time go, down to Python frames and launch calls? | `with_stack=True` trace, then `scripts/trace_events.py --include-python` | its usage docstring |
+| Does a prime-rl model change move per-token logprobs, step time or peak memory, on real weights and text? Which class did a module become after the replacement passes? | `scripts/prime_rl_logprob_ab.py` (`dump` per arm under torchrun, then `compare`, `--module-types`) | its usage docstring |
 | What keeps `torch.compile` recompiling, at which step? | `scripts/recompile_reasons.py` on a `TORCH_LOGS=recompiles` log | its usage docstring |
 | Where should I optimize? Which kernels cost most? | `scripts/top_kernels.py` or nsys | `analysis/top-kernels.md` |
 | Which kernels changed between two traces, per kernel and per category? | `scripts/kernel_diff.py` on two `top_kernels.py --csv` files | its usage docstring; `--key label` on `--by both` CSVs splits by launching op |
