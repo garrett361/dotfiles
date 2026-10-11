@@ -16,6 +16,8 @@ step: from the last CPU-side `user_annotation` named `forward` to the last GPU e
 - `--stream main`: only the stream with the most kernel time (or pass a stream id).
 - `--csv out.csv` writes every row with raw kernel names; `--minmax` adds min/max columns; `--top N`,
   `--min-calls N` (per-call ranking), `--name-width N`, `--annotation NAME`, `--whole-trace`.
+- `--category LABEL:REGEX` (repeatable, ordered, raw kernel names) adds a per-category time budget table;
+  `--annotation-span N` widens an `--annotation` window to N annotations (one per micro-batch in prime-rl RL).
 
 Output: a header (window length, GPU busy time as the union of kernel intervals, NCCL vs non-NCCL sums,
 kernel time per stream), then three tables: non-NCCL by total, non-NCCL by mean time per call, and NCCL by

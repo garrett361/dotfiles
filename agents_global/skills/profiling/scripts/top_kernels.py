@@ -15,6 +15,11 @@ from the start of the `--from-index`th one named NAME to the start of the first 
 `user_annotation` named NAME, for host ranges torch does not project onto the GPU (e.g. prime-rl's `optimizer`); the
 window runs from the first such kernel's start to the last one's end.
 
+`--annotation-span N` ends an `--annotation` window at the Nth later annotation instead of the next one, for loops that
+annotate each micro-batch (e.g. prime-rl RL's `forward` with 2 micro-batches per step: `--annotation-index -4
+--annotation-span 2` is the second-to-last whole step). `--category LABEL:REGEX` (repeatable, first match wins on the raw
+kernel name, unmatched kernels go to "other") adds a per-category table with summed and union time.
+
 The header reports GPU busy time (union of kernel intervals on all selected streams, clipped to the window end), idle time (window minus busy),
 and exposed NCCL time (when an NCCL kernel runs and no non-NCCL kernel does, i.e. busy minus non-NCCL busy).
 
@@ -83,6 +88,10 @@ def parse_args():
     p.add_argument("--minmax", action="store_true")
     p.add_argument("--name-width", type=int, default=55)
     p.add_argument("--csv", default=None)
+    p.add_argument("--category", action="append", default=[], metavar="LABEL:REGEX",
+                   help="ordered rules matched against raw kernel names; adds a per-category table (repeatable)")
+    p.add_argument("--annotation-span", type=int, default=1,
+                   help="with --annotation: end the window at the Nth later step annotation instead of the next one")
     return p.parse_args()
 
 
@@ -277,6 +286,25 @@ def make_labels(keys):
     return labels
 
 
+def category_table(gpu, end, busy, window, specs):
+    rules = [(label, re.compile(regex)) for label, regex in (spec.split(":", 1) for spec in specs)]
+    durs, intervals = defaultdict(list), defaultdict(list)
+    for e in gpu:
+        label = next((lab for lab, rx in rules if rx.search(e["name"])), "other")
+        durs[label].append(e["dur"])
+        intervals[label].append((e["ts"], min(e["ts"] + e["dur"], end)))
+    lines = ["\n## By category (first matching `--category` rule on the raw kernel name)\n",
+             "| category | total ms | union ms | % busy | % win | calls |", "|---|---|---|---|---|---|"]
+    for label in [lab for lab, _ in rules] + ["other"]:
+        if label not in durs:
+            continue
+        total = sum(durs[label])
+        lines.append(f"| {label} | {total / 1e3:.1f} | {union_length(intervals[label]) / 1e3:.1f} |"
+                     f" {100 * total / busy:.1f} | {100 * total / window:.1f} | {len(durs[label])} |")
+    lines.append("\nunion ms = time covered by at least one kernel of the category (overlap across streams counted once).")
+    return "\n".join(lines)
+
+
 def main():
     args = parse_args()
     events = json.load(gzip.open(args.trace))["traceEvents"]
@@ -308,10 +336,11 @@ def main():
         steps = sorted(e["ts"] for e in xs if e.get("cat") == "user_annotation" and e.get("name") == args.annotation)
         start = steps[args.annotation_index]
         later = [t for t in steps if t > start]
-        if later:
-            end = later[0]
+        if len(later) >= args.annotation_span:
+            end = later[args.annotation_span - 1]
         description = (f"`{args.annotation}` [{args.annotation_index}] to "
-                       + ("the next one" if later else "last GPU event"))
+                       + (f"the {args.annotation_span}th later one" if len(later) >= args.annotation_span
+                          else "last GPU event"))
     gpu = [e for e in gpu if start <= e["ts"] < end]
     stream_time = defaultdict(float)
     for e in gpu:
@@ -357,6 +386,8 @@ def main():
     print(table(sorted(per_call, key=lambda r: -r["mean_us"])[: args.top], busy, window, labels, args))
     print("\n## NCCL (durations include waiting for peers)\n")
     print(table(sorted(comm, key=lambda r: -r["total_us"])[: args.top], busy, window, labels, args))
+    if args.category:
+        print(category_table(gpu, end, busy, window, args.category))
     print()
     print(textwrap.fill(
         "Legend: total = summed durations in the window; % busy = total / GPU busy time and % win = total /"
