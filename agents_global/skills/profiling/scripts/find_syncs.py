@@ -26,7 +26,9 @@ that started at most 1 ms after it and returned at most 20 ms before it (callbac
 warnings just after the Python call that did one or more syncs), and groups by Python site.
 `--dump out.json` writes the per-point rows for join_sync_dumps.py. `--list` prints every sync point in time order.
 
-Usage: python3 find_syncs.py <trace.json.gz> [--steps N] [--anchor forward] [--stacks syncs.jsonl] [--list] [--dump f]
+`--to-end` windows from the last anchor to the last GPU event instead (e.g. the final micro-batch plus optimizer).
+
+Usage: python3 find_syncs.py <trace.json.gz> [--steps N | --to-end] [--anchor forward] [--stacks syncs.jsonl] [--list] [--dump f]
 """
 
 import argparse
@@ -61,15 +63,23 @@ p.add_argument("--stacks")
 p.add_argument("--list", action="store_true")
 p.add_argument("--dump")
 p.add_argument("--depth", type=int, default=4)
+p.add_argument("--to-end", action="store_true", help="window runs from the last anchor to the last GPU event (one step)")
 args = p.parse_args()
 
 trace = json.load(gzip.open(args.trace))
 xs = [e for e in trace["traceEvents"] if e.get("ph") == "X"]
 anchors = sorted(e["ts"] for e in xs if e.get("cat") == "user_annotation" and e["name"] == args.anchor)
-if len(anchors) < args.steps + 1:
-    raise SystemExit(f"need {args.steps + 1} '{args.anchor}' annotations, found {len(anchors)}")
-start, end = anchors[-1 - args.steps], anchors[-1]
-n = args.steps
+if args.to_end:
+    if not anchors:
+        raise SystemExit(f"no '{args.anchor}' annotations")
+    start = anchors[-1]
+    end = max(e["ts"] + e["dur"] for e in xs if e.get("cat") in GPU_CATS)
+    n = 1
+else:
+    if len(anchors) < args.steps + 1:
+        raise SystemExit(f"need {args.steps + 1} '{args.anchor}' annotations, found {len(anchors)}")
+    start, end = anchors[-1 - args.steps], anchors[-1]
+    n = args.steps
 
 gpu = sorted((e["ts"], e["ts"] + e["dur"]) for e in xs if e.get("cat") in GPU_CATS and e["ts"] + e["dur"] >= start
              and e["ts"] <= end + 1e6)
