@@ -14,12 +14,14 @@ Library (imported by comm_waits.py and timeline_figure.py):
   kernels matching `exclude` (pass the NCCL pattern when communication can outweigh compute).
 
 CLI: print every host range on the busiest host thread inside a window, indented by nesting, to learn a
-trace's annotation structure before writing category or label regexes.
+trace's annotation structure before writing category or label regexes. `--include-python` also prints the
+Python frames (from a `with_stack=True` profile) and CUDA runtime/driver calls, to attribute host time inside an
+op down to the Python function or the launch call.
 
 Usage:
   uv run --script trace_events.py <trace.json.gz> --from-annotation "FSDP::pre_backward (model.layers.12)" \\
     [--from-index -1] [--to-annotation "FSDP::post_backward_reduce (model.layers.12) [pg=16]"] \\
-    [--name-filter REGEX] [--min-us 0] [--max-depth 6]
+    [--name-filter REGEX] [--min-us 0] [--max-depth 6] [--include-python]
 """
 
 import argparse
@@ -31,13 +33,14 @@ from collections import defaultdict
 
 HOST_CATEGORIES = ("cpu_op", "user_annotation")
 LAUNCH_CATEGORIES = ("cuda_runtime", "cuda_driver")
+PYTHON_CATEGORIES = ("python_function", *LAUNCH_CATEGORIES)
 
 
 class Trace:
-    def __init__(self, events):
+    def __init__(self, events, extra_host_categories=()):
         complete = [e for e in events if e.get("ph") == "X"]
         self.kernels = sorted((e for e in complete if e.get("cat") == "kernel"), key=lambda e: e["ts"])
-        self.host = [e for e in complete if e.get("cat") in HOST_CATEGORIES]
+        self.host = [e for e in complete if e.get("cat") in HOST_CATEGORIES + tuple(extra_host_categories)]
         self.gpu_annotations = sorted(
             (e for e in complete if e.get("cat") == "gpu_user_annotation"), key=lambda e: e["ts"]
         )
@@ -105,10 +108,10 @@ class Trace:
         return max(per_stream, key=per_stream.get)
 
 
-def load_trace(path):
+def load_trace(path, extra_host_categories=()):
     opener = gzip.open if str(path).endswith(".gz") else open
     with opener(path, "rt") as f:
-        return Trace(json.load(f)["traceEvents"])
+        return Trace(json.load(f)["traceEvents"], extra_host_categories)
 
 
 def main():
@@ -120,9 +123,12 @@ def main():
     parser.add_argument("--name-filter", default=None, help="only print ranges whose name matches this regex")
     parser.add_argument("--min-us", type=float, default=0.0, help="only print ranges at least this long")
     parser.add_argument("--max-depth", type=int, default=6)
+    parser.add_argument(
+        "--include-python", action="store_true", help="also print Python frames and CUDA runtime/driver calls"
+    )
     args = parser.parse_args()
 
-    trace = load_trace(args.trace)
+    trace = load_trace(args.trace, PYTHON_CATEGORIES if args.include_python else ())
     opener = [e for e in trace.annotations("") if e["name"] == args.from_annotation][args.from_index]
     lo = opener["ts"]
     hi = opener["ts"] + opener["dur"]
