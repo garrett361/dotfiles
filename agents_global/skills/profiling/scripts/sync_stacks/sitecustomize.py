@@ -37,6 +37,7 @@ if (
 
     import torch
 
+    os.makedirs(os.environ["SYNC_STACKS_OUT"], exist_ok=True)
     _out = open(os.path.join(os.environ["SYNC_STACKS_OUT"], f"syncs_rank{os.environ['RANK']}.jsonl"), "a")
     _pending = []
     _step = [0]

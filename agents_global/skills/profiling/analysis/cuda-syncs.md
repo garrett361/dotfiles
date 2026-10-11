@@ -68,7 +68,7 @@ syncs run on the autograd thread, which has its own `tid` and no `forward`/`back
 `scripts/sync_stacks/sitecustomize.py` is imported by every Python process that has its directory on
 `PYTHONPATH`, so it reaches torchrun workers without touching the repo, venv, or launcher. It appends one JSON
 line per sync (full Python stack, native thread id, wall time, step, autograd node in the autograd thread). Env vars
-are in its docstring. It does nothing unless `SYNC_STACKS_OUT` names an existing directory, the command line contains
+are in its docstring. It does nothing unless `SYNC_STACKS_OUT` names a directory (created if missing), the command line contains
 `SYNC_STACKS_MATCH` (default `prime_rl.trainer`) and `RANK` is in `SYNC_STACKS_RANKS` (default `0`; set `RANK=0` by
 hand for a single process). It starts recording at the first call of the step hook (default
 `torch.cuda.reset_peak_memory_stats`, which prime-rl calls once at the top of each SFT and RL training step), so a
@@ -110,7 +110,6 @@ Dry-run to write the resolved config, then launch it the way the rendered sbatch
 T=~/tmp/profiling/<investigation>/traces
 uv run sft @ cfg.toml --run.name $R --max-steps 5 --trace-path $T/$R --dry-run
 RUN=$PRL_OUTPUT_DIR/$R
-mkdir -p $T/$R-stacks
 PRL_ATTEMPT_CONFIG_DIR=$RUN/configs/attempt_1/resolved PRL_ATTEMPT_LOG_DIR=$RUN/logs/attempt_1 \
 PYTHONPATH=<skill>/scripts/sync_stacks SYNC_STACKS_OUT=$T/$R-stacks \
   uv run --no-sync sft @ $RUN/configs/attempt_1/resolved/sft.json --dry-run False
