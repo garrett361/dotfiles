@@ -1,9 +1,9 @@
 """Rank a kernel's source lines (or SASS instructions) by warp-stall samples from an ncu report.
 
-Runs `ncu --import <report> --page source --print-source cuda,sass --csv` and prints a markdown table
-of the hottest high-level source lines: warp-stall samples, their share of the kernel's samples,
-instructions executed, and the dominant stall reasons. The "source" is whatever the kernel's line
-info points at: `.cu` files for CUDA C++, the Python file for CuTe DSL kernels compiled with
+Runs `ncu --import <report> --page source --print-source cuda,sass --csv` (`sass` alone for `--view sass`)
+and prints a markdown table of the hottest high-level source lines: warp-stall samples, their share of
+the kernel's samples, instructions executed, and the dominant stall reasons. The "source" is whatever the
+kernel's line info points at: `.cu` files for CUDA C++, the Python file for CuTe DSL kernels compiled with
 `CUTE_DSL_LINEINFO=1`, Triton's `.py` for Triton kernels. "% of kernel" is the share of that launch's
 samples. ncu credits an inlined instruction to every line of its inline chain (header line and call site),
 so line shares can add up to more than 100%. Repeat launches of one kernel are ranked separately (`#2`, ...).
