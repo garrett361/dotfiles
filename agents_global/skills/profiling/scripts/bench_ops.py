@@ -112,18 +112,22 @@ def main():
 
     rows = []
     checks = {}
+    first_labels = {}
     failures = []
     for case_name, fns in load_cases(args.cases_file):
         if args.only and args.only not in case_name:
             continue
         reference = None
+        first_labels[case_name] = next(iter(fns), None)
         for label, fn in fns.items():
             try:
                 if args.check:
                     output = output_tensors(fn())
-                    if reference is None:
+                    if label == first_labels[case_name]:
                         reference = output
                         checks[case_name, label] = "reference"
+                    elif reference is None:
+                        checks[case_name, label] = "no reference (first label failed)"
                     else:
                         checks[case_name, label] = compare_outputs(reference, output)
                     del output
@@ -162,14 +166,13 @@ def main():
     check_header = " check vs first label |" if args.check else ""
     print(f"| case | label | median ms | p20 ms | p80 ms | first label / this |{memory_header}{check_header}")
     print("|---|---|---|---|---|---|" + ("---|" if args.memory else "") + ("---|" if args.check else ""))
-    first_median = {}
+    medians = {(case_name, label): p50 for case_name, label, p50, *_ in rows}
     for case_name, label, p50, p20, p80, *memory in rows:
-        speedup = first_median.setdefault(case_name, p50) / p50
+        reference_median = medians.get((case_name, first_labels[case_name]))
+        speedup = f"{reference_median / p50:.2f}x" if reference_median else "n/a"
         memory_cell = f" {memory[0]:.1f} |" if memory else ""
         check_cell = f" {checks.get((case_name, label), '')} |" if args.check else ""
-        print(
-            f"| {case_name} | {label} | {p50:.4f} | {p20:.4f} | {p80:.4f} | {speedup:.2f}x |{memory_cell}{check_cell}"
-        )
+        print(f"| {case_name} | {label} | {p50:.4f} | {p20:.4f} | {p80:.4f} | {speedup} |{memory_cell}{check_cell}")
     if failures:
         print("\n" + "\n".join(f"failed: {failure}" for failure in failures))
     if args.csv:
