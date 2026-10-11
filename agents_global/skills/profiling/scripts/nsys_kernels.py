@@ -17,6 +17,7 @@ Usage:
 
 import argparse
 import csv
+import pathlib
 import re
 import sqlite3
 import statistics
@@ -43,8 +44,16 @@ def load_kernels(path, device, group):
         f"select s.value, k.start, k.end, k.deviceId from CUPTI_ACTIVITY_KIND_KERNEL k "
         f"join StringIds s on s.id = k.{column}"
     )
-    rows = sqlite3.connect(path).execute(query).fetchall()
-    return [(name, start, end) for name, start, end, dev in rows if device is None or dev == device]
+    if not pathlib.Path(path).is_file():
+        raise SystemExit(f"{path}: no such file (export one with `nsys export --type sqlite`)")
+    try:
+        rows = sqlite3.connect(pathlib.Path(path).resolve().as_uri() + "?mode=ro", uri=True).execute(query).fetchall()
+    except sqlite3.DatabaseError as e:
+        raise SystemExit(f"{path}: {e} (expected an nsys SQLite export with kernel activity)")
+    kernels = [(name, start, end) for name, start, end, dev in rows if device is None or dev == device]
+    if not kernels:
+        raise SystemExit(f"{path}: no kernels on device {device}; deviceIds present: {sorted({r[3] for r in rows})}")
+    return kernels
 
 
 def step_window(kernels, boundary, gap_ns, index):
@@ -56,6 +65,8 @@ def step_window(kernels, boundary, gap_ns, index):
     if len(cluster_ends) < 2:
         raise SystemExit(f"found {len(cluster_ends)} boundary cluster(s); need at least 2 to form a step")
     starts, ends = cluster_ends[:-1], cluster_ends[1:]
+    if not -len(starts) <= index < len(starts):
+        raise SystemExit(f"--step-index {index} out of range: found {len(starts)} step(s)")
     return starts[index], ends[index]
 
 
