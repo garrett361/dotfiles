@@ -25,7 +25,7 @@ from pathlib import Path
 from perfetto.trace_processor.platform import PlatformDelegate
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("trace")
     parser.add_argument("--port", type=int, default=9002, help="remote port to serve on (laptop side is always 9001)")
@@ -34,15 +34,18 @@ def parse_args():
     return parser.parse_args()
 
 
-def main():
+def main() -> None:
     args = parse_args()
     trace = Path(args.trace).expanduser().resolve()
     state = Path(args.state_dir).expanduser()
     state.mkdir(parents=True, exist_ok=True)
     with socket.socket() as probe:
-        probe.bind(("127.0.0.1", args.port))
+        try:
+            probe.bind(("127.0.0.1", args.port))
+        except OSError as error:
+            raise SystemExit(f"port {args.port} is unavailable ({error.strerror}); pass another --port") from None
     binary = PlatformDelegate().get_shell_path(bin_path=None)
-    version = subprocess.run([binary, "--version"], capture_output=True, text=True).stdout
+    version = subprocess.run([binary, "--version"], capture_output=True, text=True, check=True).stdout
     version_code = re.search(r"v\d+\.\d+-[0-9a-f]+", version).group(0)
     log, pid_file = state / "trace_processor.log", state / "trace_processor.pid"
     with open(log, "w") as out:
