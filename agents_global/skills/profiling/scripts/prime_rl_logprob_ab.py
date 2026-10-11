@@ -16,8 +16,8 @@ allocated and reserved CUDA memory over all steps (max over ranks, GiB). With --
 prints and stores the count of module class names among modules whose qualified name matches REGEX, after
 setup_model's replacement passes (e.g. 'o_a_proj$' to check which class a projection became).
 
-`compare` prints the step-time medians and peak memory of both dumps and the per-token logprob difference
-(mean absolute, max absolute, signed mean, B minus A) over all gathered tokens.
+`compare` prints the step-time medians and peak memory of both dumps, how many tokens' logprobs differ at all, and
+the per-token logprob difference (mean absolute, max absolute, signed mean, B minus A) over all gathered tokens.
 
 `table` prints one markdown row per --row: the arm's median step time (ms) and peak allocated memory (GiB), its
 mean absolute and signed mean logprob difference against REF (arm minus REF), and, when REF2 is given (a rerun
@@ -34,6 +34,7 @@ import sys
 
 def dump(args, model_args):
     from datetime import timedelta
+    from pathlib import Path
 
     import torch
     import torch.distributed as dist
@@ -47,6 +48,9 @@ def dump(args, model_args):
     from prime_rl.utils.config import cli
 
     config = cli(ModelConfig, args=model_args)
+    paths = sorted(glob.glob(args.text_glob, recursive=True))
+    if not paths:
+        sys.exit(f"--text-glob {args.text_glob!r} matched no files (relative paths resolve from the working directory)")
     world = get_world()
     setup_torch_distributed(timeout=timedelta(hours=2))
     resolve_ep(config)
@@ -61,7 +65,7 @@ def dump(args, model_args):
             print(f"module types matching {args.module_types!r}: {module_types}")
 
     tokenizer = AutoTokenizer.from_pretrained(config.name, trust_remote_code=config.trust_remote_code)
-    text = "\n".join(open(path).read() for path in sorted(glob.glob(args.text_glob, recursive=True)))
+    text = "\n".join(Path(path).read_text() for path in paths)
     ids = tokenizer(text, add_special_tokens=False, return_tensors="pt").input_ids[0]
     needed = (world.world_size + 1) * args.tokens_per_gpu
     ids = ids.repeat(needed // ids.numel() + 1)
@@ -107,6 +111,15 @@ def dump(args, model_args):
     dist.destroy_process_group()
 
 
+def logprob_diff(ref: dict, arm: dict):
+    if ref["logprobs"].shape != arm["logprobs"].shape:
+        sys.exit(
+            f"dumps hold {ref['logprobs'].numel()} and {arm['logprobs'].numel()} tokens; "
+            "rerun both arms with the same world size and --tokens-per-gpu"
+        )
+    return arm["logprobs"] - ref["logprobs"]
+
+
 def compare(args):
     import torch
 
@@ -116,8 +129,8 @@ def compare(args):
         print(f"{label}: median step {statistics.median(steady):.1f} ms, min {min(steady):.1f}, max {max(steady):.1f}")
         if "peak_alloc_gib" in run:
             print(f"{label}: peak allocated {run['peak_alloc_gib']:.2f} GiB, reserved {run['peak_reserved_gib']:.2f} GiB")
-    diff = b["logprobs"] - a["logprobs"]
-    print(f"tokens: {diff.numel()}")
+    diff = logprob_diff(a, b)
+    print(f"tokens: {diff.numel()} ({int(diff.count_nonzero())} differ)")
     print(f"mean |logprob B - A|: {diff.abs().mean():.6f}")
     print(f"max |logprob B - A|: {diff.abs().max():.6f}")
     print(f"mean (logprob B - A): {diff.mean():.6f}")
@@ -131,12 +144,12 @@ def table(args):
     print("|---|---|---|---|---|---|---|")
     for label, *paths in args.row:
         ref, arm = torch.load(paths[0]), torch.load(paths[1])
-        diff = arm["logprobs"] - ref["logprobs"]
+        diff = logprob_diff(ref, arm)
         step_ms = statistics.median(arm["step_ms"][arm["warmup"] :])
         cells = [label, f"{step_ms:.1f}", f"{arm.get('peak_alloc_gib', float('nan')):.2f}"]
         cells += [f"{diff.abs().mean():.4f}", f"{diff.mean():+.4f}"]
         if len(paths) > 2:
-            noise = torch.load(paths[2])["logprobs"] - ref["logprobs"]
+            noise = logprob_diff(ref, torch.load(paths[2]))
             cells += [f"{noise.abs().mean():.4f}", f"{noise.mean():+.4f}"]
         else:
             cells += ["", ""]
@@ -164,6 +177,8 @@ def main():
     table_parser = sub.add_parser("table")
     table_parser.add_argument("--row", nargs="+", action="append", required=True, metavar="LABEL REF ARM [REF2]")
     args = parser.parse_args(argv)
+    if args.command == "dump" and not 0 <= args.warmup < args.steps:
+        dump_parser.error("--warmup must be at least 0 and less than --steps")
     if args.command == "dump":
         dump(args, model_args)
     elif args.command == "table":
