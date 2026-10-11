@@ -32,6 +32,7 @@ and exposed NCCL time (when an NCCL kernel runs and no non-NCCL kernel does, i.e
 Usage: python3 top_kernels.py <trace.json.gz> [--by name|site|both] [--top 15] [--stream main|<tid>]
          [--annotation forward [--annotation-index -1] | --whole-trace | --from-annotation NAME [--from-index -1]
           [--to-annotation NAME] | --launched-in NAME [--launched-in-index -1]] [--min-calls 1] [--minmax] [--name-width 55] [--csv out.csv]
+         [--decimals 1]
   e.g. layer 12's recompute and backward in the last step of a prime-rl SFT trace:
     --from-annotation "FSDP::all_gather_copy_out (model.layers.12) [pg=16]" --from-index -1 \\
     --to-annotation "FSDP::all_gather_copy_out (model.layers.11) [pg=16]"
@@ -98,6 +99,7 @@ def parse_args():
     p.add_argument("--csv", default=None)
     p.add_argument("--category", action="append", default=[], metavar="LABEL:REGEX",
                    help="ordered rules matched against raw kernel names; adds a per-category table (repeatable)")
+    p.add_argument("--decimals", type=int, default=1, help="decimal places for ms totals (e.g. 3 for op-level traces)")
     p.add_argument("--annotation-span", type=int, default=1,
                    help="with --annotation: end the window at the Nth later step annotation instead of the next one")
     return p.parse_args()
@@ -263,7 +265,7 @@ def table(rows, busy, window, labels, args):
     for rank, r in enumerate(rows, 1):
         vals = [
             f"{rank:>1}",
-            f"{r['total_us'] / 1e3:8.1f}",
+            f"{r['total_us'] / 1e3:8.{args.decimals}f}",
             f"{100 * r['total_us'] / busy:6.1f}",
             f"{100 * r['total_us'] / window:5.1f}",
             f"{r['calls']:5d}",
@@ -296,7 +298,7 @@ def make_labels(keys):
     return labels
 
 
-def category_table(gpu, end, busy, window, specs):
+def category_table(gpu, end, busy, window, specs, d=1):
     rules = [(label, re.compile(regex)) for label, regex in (spec.split(":", 1) for spec in specs)]
     durs, intervals = defaultdict(list), defaultdict(list)
     for e in gpu:
@@ -309,7 +311,7 @@ def category_table(gpu, end, busy, window, specs):
         if label not in durs:
             continue
         total = sum(durs[label])
-        lines.append(f"| {label} | {total / 1e3:.1f} | {union_length(intervals[label]) / 1e3:.1f} |"
+        lines.append(f"| {label} | {total / 1e3:.{d}f} | {union_length(intervals[label]) / 1e3:.{d}f} |"
                      f" {100 * total / busy:.1f} | {100 * total / window:.1f} | {len(durs[label])} |")
     lines.append("\nunion ms = time covered by at least one kernel of the category (overlap across streams counted once).")
     return "\n".join(lines)
@@ -388,16 +390,17 @@ def main():
     compute, comm = summarize(groups[False]), summarize(groups[True])
     labels = make_labels({r["key"] for r in compute + comm})
 
-    streams = ", ".join(f"{tid}: {t / 1e3:.1f}" for tid, t in sorted(stream_time.items(), key=lambda kv: -kv[1])[:5])
+    d = args.decimals
+    streams = ", ".join(f"{tid}: {t / 1e3:.{d}f}" for tid, t in sorted(stream_time.items(), key=lambda kv: -kv[1])[:5])
     print(f"# Top GPU kernels: `{args.trace}`\n")
-    print(f"- window: {window / 1e3:.1f} ms ({description})"
+    print(f"- window: {window / 1e3:.{d}f} ms ({description})"
           f", stream filter: {args.stream or 'none'}, grouped by {args.by}")
-    print(f"- GPU busy (union over selected streams): {busy / 1e3:.1f} ms ({100 * busy / window:.1f}% of window);"
-          f" non-NCCL busy {compute_busy / 1e3:.1f} ms ({100 * compute_busy / window:.1f}%)")
-    print(f"- GPU idle: {(window - busy) / 1e3:.1f} ms ({100 * (window - busy) / window:.1f}%); exposed NCCL (no"
-          f" non-NCCL kernel running): {(busy - compute_busy) / 1e3:.1f} ms ({100 * (busy - compute_busy) / window:.1f}%)")
-    print(f"- summed durations: non-NCCL {sum(r['total_us'] for r in compute) / 1e3:.1f} ms,"
-          f" NCCL {sum(r['total_us'] for r in comm) / 1e3:.1f} ms; {len(gpu)} GPU events")
+    print(f"- GPU busy (union over selected streams): {busy / 1e3:.{d}f} ms ({100 * busy / window:.1f}% of window);"
+          f" non-NCCL busy {compute_busy / 1e3:.{d}f} ms ({100 * compute_busy / window:.1f}%)")
+    print(f"- GPU idle: {(window - busy) / 1e3:.{d}f} ms ({100 * (window - busy) / window:.1f}%); exposed NCCL (no"
+          f" non-NCCL kernel running): {(busy - compute_busy) / 1e3:.{d}f} ms ({100 * (busy - compute_busy) / window:.1f}%)")
+    print(f"- summed durations: non-NCCL {sum(r['total_us'] for r in compute) / 1e3:.{d}f} ms,"
+          f" NCCL {sum(r['total_us'] for r in comm) / 1e3:.{d}f} ms; {len(gpu)} GPU events")
     print(f"- kernel ms per stream (all streams, in window): {streams}\n")
     print(f"## Non-NCCL, by total time (top {args.top})\n")
     print(table(sorted(compute, key=lambda r: -r["total_us"])[: args.top], busy, window, labels, args))
@@ -407,7 +410,7 @@ def main():
     print("\n## NCCL (durations include waiting for peers)\n")
     print(table(sorted(comm, key=lambda r: -r["total_us"])[: args.top], busy, window, labels, args))
     if args.category:
-        print(category_table(gpu, end, busy, window, args.category))
+        print(category_table(gpu, end, busy, window, args.category, d))
     print()
     print(textwrap.fill(
         "Legend: total = summed durations in the window; % busy = total / GPU busy time and % win = total /"
