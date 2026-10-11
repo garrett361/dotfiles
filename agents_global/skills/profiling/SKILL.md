@@ -36,6 +36,7 @@ with the script's path and all arguments. Capture harnesses that must run inside
 | Where does one op's host time go, down to Python frames and launch calls? | `with_stack=True` trace, then `scripts/trace_events.py --include-python` | its usage docstring |
 | What keeps `torch.compile` recompiling, at which step? | `scripts/recompile_reasons.py` on a `TORCH_LOGS=recompiles` log | its usage docstring |
 | Where should I optimize? Which kernels cost most? | `scripts/top_kernels.py` or nsys | `analysis/top-kernels.md` |
+| Which kernels changed between two traces, per kernel and per category? | `scripts/kernel_diff.py` on two `top_kernels.py --csv` files | its usage docstring; `--key label` on `--by both` CSVs splits by launching op |
 | How do arms compare on step time, memory, loss? | `scripts/run_metrics.py` (`--summarize`, `--lines`, bars) | its usage docstring |
 | Where are host gaps, syncs, stream overlap? | Nsight Systems | `tools/nsight-systems.md` |
 | Where does the host block on the GPU (syncs), from which line? | `scripts/find_syncs.py` | `analysis/cuda-syncs.md` |
