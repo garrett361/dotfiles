@@ -60,7 +60,7 @@ SKIP_FOR_DIMS = ("aten::copy_", "aten::_to_copy", "aten::to", "aten::_local")
 
 p = argparse.ArgumentParser()
 p.add_argument("trace")
-p.add_argument("--steps", type=int, default=1)
+p.add_argument("--steps", type=int, default=1, help="window covers the last N complete steps")
 p.add_argument("--anchor", default="forward")
 p.add_argument("--stacks")
 p.add_argument("--list", action="store_true")
@@ -69,7 +69,7 @@ p.add_argument("--depth", type=int, default=4)
 p.add_argument("--to-end", action="store_true", help="window runs from the last anchor to the last GPU event (one step)")
 args = p.parse_args()
 
-trace = json.load(gzip.open(args.trace))
+trace = json.load((gzip.open if args.trace.endswith(".gz") else open)(args.trace))
 xs = [e for e in trace["traceEvents"] if e.get("ph") == "X"]
 anchors = sorted(e["ts"] for e in xs if e.get("cat") == "user_annotation" and e["name"] == args.anchor)
 if args.to_end:
@@ -79,6 +79,8 @@ if args.to_end:
     end = max(e["ts"] + e["dur"] for e in xs if e.get("cat") in GPU_CATS)
     n = 1
 else:
+    if args.steps < 1:
+        raise SystemExit("--steps must be at least 1")
     if len(anchors) < args.steps + 1:
         raise SystemExit(f"need {args.steps + 1} '{args.anchor}' annotations, found {len(anchors)}")
     start, end = anchors[-1 - args.steps], anchors[-1]
