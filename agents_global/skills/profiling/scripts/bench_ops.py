@@ -18,7 +18,7 @@ no per-call event overhead (do_bench adds about 3 us per call, which dominates o
 come from only 10 replays. The callable must be capturable (no host syncs).
 With --trace DIR, each callable is also run --trace-iters times (after timing) under torch.profiler, and the
 chrome trace is written to DIR/<case>__<label>.json.gz for a per-kernel breakdown with `top_kernels.py
---whole-trace` (divide totals by --trace-iters for per-call numbers).
+--whole-trace --csv OUT` (the CSV is in us; divide totals by --trace-iters for per-call numbers).
 Build inputs inside `cases()` so they are allocated once. Keep CASES.py in the investigation root and list it in
 NOTES.md: it is an input, like a config. Run it with the interpreter of the project under test (e.g. `uv run
 --no-sync python bench_ops.py ...`) so its imports resolve.
