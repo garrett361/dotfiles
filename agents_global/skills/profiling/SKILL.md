@@ -47,6 +47,7 @@ with the script's path and all arguments. Capture harnesses that must run inside
 | Which source lines (CUDA, CuTe DSL, Triton) of one kernel do warps stall on, and why? | ncu `SourceCounters` on a line-info build, then `scripts/ncu_source_lines.py` | `tools/nsight-compute.md` |
 | A CuTe DSL kernel: compile vs launch time, JIT cache, PTX/SASS dumps, registers and spills? Which MMA instruction did a compiler emit? | DSL env vars, `cuobjdump` | `tools/cute-dsl.md` |
 | Do two kernels (TileLang, CuTe DSL, Triton, CUDA) share a design: MMA flavor and shapes, `cp.async` vs TMA, `stmatrix`, barriers, registers, spills (and from which source lines)? | `scripts/sass_inventory.py` (`--by-line LDL STL`) on cubins, `.so` files or cache dirs | its usage docstring; `tools/cute-dsl.md` |
+| Inside one kernel, when does each warp role issue, wait and finish, which wait gates the next step, do loads bunch up across the GPU? | Intra-kernel tracing (IKET for CuTe DSL) | `tools/intra-kernel.md` |
 | Turn an intra-kernel trace into a recorder-agnostic event table | `scripts/intra_kernel_events.py` | its usage docstring |
 | Named intervals per CTA and iteration, the gating wait, SM gaps, launch spans, load crowding | `scripts/intra_kernel_intervals.py` | its usage docstring |
 | A/B figures from intra-kernel events: per-warp timelines, interval distributions | `scripts/intra_kernel_ab_figure.py` | its usage docstring |
