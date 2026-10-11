@@ -52,7 +52,10 @@ def read_source_csv(args):
         command += ["--kernel-name", args.kernel]
     if args.resolve_source_file:
         command += ["--resolve-source-file", args.resolve_source_file]
-    return subprocess.run(command, capture_output=True, text=True, check=True).stdout
+    result = subprocess.run(command, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        raise SystemExit(f"{' '.join(command)} failed:\n{result.stdout}{result.stderr}")
+    return result.stdout
 
 
 def to_number(value):
@@ -119,6 +122,8 @@ def main():
     rows = [row for row in all_rows if row[4] == args.view]
     if not rows:
         raise SystemExit(f"no {args.view} rows in the source page; was the kernel built with line info?")
+    if not any(ALL_SAMPLES in row[5] for row in rows):
+        raise SystemExit("no warp-stall samples in the report; collect with --section SourceCounters (or --set full)")
     instruction_samples = {
         (launch, address): metrics.get(ALL_SAMPLES, 0.0)
         for launch, _, address, _, kind, metrics in all_rows
