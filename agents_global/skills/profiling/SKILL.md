@@ -28,6 +28,7 @@ with the script's path and all arguments. Capture harnesses that must run inside
 | Question | Tool | Details |
 |---|---|---|
 | Is this kernel/op faster, and by how much? | `triton.testing.do_bench` or CUDA events | `tools/do-bench.md` |
+| Which of several implementations of an op is faster (median, p20, p80), and its peak memory (`--memory`)? | `scripts/bench_ops.py` with a cases file | its usage docstring |
 | How long does a region of my code take (per call, aggregated)? | `scripts/cuda_timer.py`, copied in | `tools/do-bench.md` |
 | Which kernels inside an op cost the time? | `torch.profiler` over a few op iterations | `tools/torch-profiler.md` |
 | Why doesn't an op win show up in step time? | Diff of two end-to-end `torch.profiler` traces | `tools/torch-profiler.md` |
