@@ -3,7 +3,7 @@
 usage (one node, under torchrun, from the arm's worktree):
   uv run --no-sync torchrun --nproc-per-node 8 prime_rl_logprob_ab.py dump OUT.pt --tokens-per-gpu N
       [--steps S] [--warmup W] [--text-glob GLOB] [--module-types REGEX]
-      -- <trainer ModelConfig CLI args, e.g. --name X --ep 8>
+      -- <trainer ModelConfig CLI args, e.g. --name X --ep 8; `-- --help` lists them>
   uv run --no-sync python prime_rl_logprob_ab.py compare A.pt B.pt
   uv run --no-sync python prime_rl_logprob_ab.py table --row LABEL REF.pt ARM.pt [REF2.pt] [--row ...]
 
