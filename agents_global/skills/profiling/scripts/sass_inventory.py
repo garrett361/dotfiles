@@ -174,6 +174,7 @@ def names_in_cubin_match(path: str, pattern: str) -> bool:
 def main():
     args = parse_args()
     opcodes = list(dict.fromkeys(list(DEFAULT_OPCODES) + list(args.extra)))
+    found_any = False
     for path in find_binaries(args.paths):
         if args.kernel and path.endswith(".cubin") and not names_in_cubin_match(path, args.kernel):
             continue
@@ -183,6 +184,7 @@ def main():
             functions = {key: lines for key, lines in functions.items() if re.search(args.kernel, key[1])}
         if not functions:
             continue
+        found_any = True
         usage = resource_usage(args.cuobjdump, path)
         by_line = lines_by_source(args.cuobjdump, args.nvdisasm, path, args.by_line) if args.by_line else {}
         several_archs = len({arch for arch, _ in functions}) > 1
@@ -202,6 +204,9 @@ def main():
                 for source, count in lines_counter.most_common():
                     print(f"| `{source}` | {count} |")
                 print()
+    if not found_any:
+        matching = f" matching --kernel {args.kernel!r}" if args.kernel else ""
+        raise SystemExit(f"no kernel functions{matching} in .cubin/.so files under {' '.join(args.paths)}")
 
 
 if __name__ == "__main__":
