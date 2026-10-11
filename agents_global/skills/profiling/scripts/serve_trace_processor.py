@@ -65,7 +65,8 @@ def main() -> None:
         except OSError:
             time.sleep(2)
     else:
-        raise SystemExit(f"trace_processor did not answer within {args.timeout:.0f} s; see {log}")
+        proc.terminate()
+        raise SystemExit(f"trace_processor did not answer within {args.timeout:.0f} s; stopped it; see {log}")
     print(f"serving {trace} with trace_processor {version_code} on 127.0.0.1:{args.port} (pid {proc.pid}, {pid_file})")
     print(f"laptop: ssh -N -L 9001:127.0.0.1:{args.port} <host>")
     print(f"then open https://ui.perfetto.dev/{version_code}/ and choose 'YES, use loaded trace'")
