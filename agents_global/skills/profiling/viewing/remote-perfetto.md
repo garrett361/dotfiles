@@ -108,11 +108,13 @@ Notes:
   traceback in the server log. Harmless: the UI abandons the first download and refetches.
 - Perfetto's JSON importer silently drops events with negative timestamps: anything before an anchor
   shifted to t = 0 vanishes (verified: markers starting before the anchor never showed until shifted).
-  `scripts/merge_traces.py` shifts all arms so the earliest event is at 0. Check a file with the SQL page:
+  `scripts/merge_traces.py` shifts all arms so the earliest event is at 0. The `stats` table counts the
+  dropped events as `trace_sorter_negative_timestamp_dropped`. Check a file with the SQL page:
   `select min(ts), max(ts), count(*) from slice`. Metadata (`ph: "M"`) events need no `ts`; a stale one
   from the run's start can stretch the timeline by minutes.
 - Chrome-JSON async events with a plain `id` are global: Perfetto groups them by name under "Global Legacy
-  Events" across processes. Put per-process markers on a thread track instead.
+  Events" across processes. Put per-process markers on a thread track, or give them `"id2": {"local": ...}`,
+  which scopes them to their process.
 - Find markers and annotations programmatically on the "Query (SQL)" page, e.g.
   `select s.ts, s.dur, s.name, p.name from slice s join thread_track tt on s.track_id = tt.id join thread
   t using (utid) join process p using (upid) where s.name like 'FSDP::%' order by s.ts`; the `stats` table
