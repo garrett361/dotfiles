@@ -39,6 +39,7 @@ with the script's path and all arguments. Capture harnesses that must run inside
 | Where does the host block on the GPU (syncs), from which line? | `scripts/find_syncs.py` | `analysis/cuda-syncs.md` |
 | Why is one kernel slow (bandwidth, occupancy)? | Nsight Compute | `tools/nsight-compute.md` |
 | Which source lines (CUDA, CuTe DSL, Triton) of one kernel do warps stall on, and why? | ncu `SourceCounters` on a line-info build, then `scripts/ncu_source_lines.py` | `tools/nsight-compute.md` |
+| Do two kernels (TileLang, CuTe DSL, Triton, CUDA) share a design: MMA flavor and shapes, `cp.async` vs TMA, `stmatrix`, barriers, registers, spills (and from which source lines)? | `scripts/sass_inventory.py` (`--by-line LDL STL`) on cubins, `.so` files or cache dirs | its usage docstring; `tools/cute-dsl.md` |
 | How does the user see a remote trace locally? | Perfetto UI + ssh forward (`serve_cors.py`; big traces: `serve_trace_processor.py`) | `viewing/remote-perfetto.md` |
 
 Project-specific capture recipes live in `projects/` (e.g. `projects/prime-rl.md`). Read the one for the
