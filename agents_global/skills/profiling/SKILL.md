@@ -106,6 +106,8 @@ An op-level win that disappears end to end is a finding, not noise: go to layer 
 ## 4. Report hard evidence
 
 - A results table with medians, spread (min/max), and the exact configs and commits of both arms.
+- An ASCII diagram of what differs between the arms, shown once in chat with the first result, and in a
+  PR only when the mechanism is in the weeds. See `reporting/ascii-diagrams.md`.
 - A figure from the traces when the mechanism is visual (a removed gap, new overlap): left-aligned
   before/after timelines of the changed region plus a per-category delta panel, with a short `**Figure:**`
   caption (one or two plain sentences: what it shows and the takeaway) and embedded by a pinned raw GitHub
