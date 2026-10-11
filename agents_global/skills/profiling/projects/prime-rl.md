@@ -21,6 +21,8 @@
   8-node MFU in a prior investigation. Re-check the before/after step-time ratio against full-model untraced
   runs before trusting its traces.
 - Keep full-model untraced runs as the timing claim.
+- Its first 6 layers are sliding, sliding, CSA, HCA, CSA, HCA (`compress_ratios` 0, 0, 4, 128, 4, 128 in
+  the DeepSeek-V4-Flash-0731 `config.json`), so the proxy exercises all three attention layer types.
 
 ## Launching on Slurm
 
