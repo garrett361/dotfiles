@@ -104,13 +104,19 @@ def main():
     for spec in args.trace:
         label, pattern = spec.split("=", 1)
         files = sorted(glob.glob(pattern), key=lambda p: int(re.search(r"(\d+)\D*$", p).group(1)))
+        if not files:
+            parser.error(f"--trace {spec}: no files match")
         thread_rows, group_rows, n = defaultdict(lambda: [0.0, 0.0, 0.0]), defaultdict(lambda: [0.0, 0.0, 0.0]), 0
         win = 0.0
         for i, path in enumerate(files):
             if wanted is not None and i not in wanted:
                 continue
             events = load(path)
-            chosen = windows(events, boundary, args.cluster_gap_ms * 1e3)[step_slice]
+            found = windows(events, boundary, args.cluster_gap_ms * 1e3)
+            chosen = found[step_slice]
+            if not chosen:
+                print(f"{label} rank {i}: --steps {args.steps} selects none of its {len(found)} step windows, skipped")
+                continue
             for lo, hi in chosen:
                 threads, groups = analyze(events, lo, hi, ops)
                 ranked = sorted(threads.items(), key=lambda kv: -kv[1][0])
@@ -123,6 +129,8 @@ def main():
                         group_rows[g][j] += values[j] / len(chosen)
                 win += (hi - lo) / len(chosen)
             n += 1
+        if not n:
+            parser.error(f"{label}: no step windows selected; check --step-boundary, --cluster-gap-ms and --steps")
         results.append((label, {k: [v / n for v in vals] for k, vals in thread_rows.items()},
                         {k: [v / n for v in vals] for k, vals in group_rows.items()}, win / n))
 

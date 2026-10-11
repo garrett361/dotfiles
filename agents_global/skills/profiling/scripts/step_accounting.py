@@ -263,6 +263,8 @@ def main():
     for spec in args.trace:
         label, pattern = spec.split("=", 1)
         files = sorted(glob.glob(pattern), key=lambda p: int(re.search(r"(\d+)\D*$", p).group(1)))
+        if not files:
+            parser.error(f"--trace {spec}: no files match")
         ranks = {i: load_torch(p, args.host_depth) for i, p in enumerate(files) if wanted is None or i in wanted}
         arms.append((label, ranks))
     for spec in args.nsys:
@@ -276,23 +278,31 @@ def main():
         total = defaultdict(float)
         windows, launch_counts, n = [], [], 0
         for rank_id, rank in ranks.items():
-            chosen = step_windows(rank, boundary, args.cluster_gap_ms * 1e3)[step_slice]
+            found = step_windows(rank, boundary, args.cluster_gap_ms * 1e3)
+            chosen = found[step_slice]
+            if not chosen:
+                print(f"{label} rank {rank_id}: --steps {args.steps} selects none of its {len(found)} step windows, "
+                      "skipped")
+                continue
             per_rank = defaultdict(float)
             for lo, hi in chosen:
                 rows, launches = account(rank, lo, hi, categories, comm, args)
                 for k, v in rows.items():
                     per_rank[k] += v / len(chosen)
-                windows.append(hi - lo)
                 launch_counts.append(launches)
+            windows.append(sum(hi - lo for lo, hi in chosen) / len(chosen))
             if args.per_rank:
                 comp = sum(v for k, v in per_rank.items() if k.startswith("compute"))
                 com = sum(v for k, v in per_rank.items() if k.startswith("exposed comm"))
                 idle = sum(v for k, v in per_rank.items() if k.startswith("idle"))
-                print(f"{label} rank {rank_id}: {len(chosen)} steps, window {(comp + com + idle) / 1e3:.1f} ms = "
-                      f"compute {comp / 1e3:.1f} + exposed comm {com / 1e3:.1f} + idle {idle / 1e3:.1f}")
+                print(f"{label} rank {rank_id}: {len(chosen)} of {len(found)} steps, "
+                      f"window {(comp + com + idle) / 1e3:.1f} ms = compute {comp / 1e3:.1f} + "
+                      f"exposed comm {com / 1e3:.1f} + idle {idle / 1e3:.1f}")
             for k, v in per_rank.items():
                 total[k] += v
             n += 1
+        if not n:
+            parser.error(f"{label}: no step windows selected; check --step-boundary, --cluster-gap-ms and --steps")
         mean = {k: v / n / 1e3 for k, v in total.items()}
         results.append((label, fold_idle(mean, args.top_idle), sum(windows) / len(windows) / 1e3,
                         sum(launch_counts) / len(launch_counts)))
