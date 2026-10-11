@@ -14,6 +14,7 @@ the number plus the raw kernel name, since the numbering depends on which kernel
 
 Usage: python3 kernel_diff.py before.csv after.csv [--top 30] [--name-width 90] [--group compute]
        [--category "expert GEMM:sm90_fp8_gemm_1d"] [--before-label A] [--after-label B] [--key label] [--filter REGEX]
+       [--decimals 1]
 """
 
 import argparse
@@ -63,6 +64,7 @@ def main():
     parser.add_argument("--after-label", default="after")
     parser.add_argument("--key", choices=("kernel", "label"), default="kernel", help="join on raw kernel names or labels")
     parser.add_argument("--filter", default=None, help="keep only rows whose key matches this regex")
+    parser.add_argument("--decimals", type=int, default=1, help="decimal places for ms (e.g. 3 for op-level traces)")
     args = parser.parse_args()
 
     column = "kernel_names" if args.key == "kernel" else "label"
@@ -83,12 +85,16 @@ def main():
     b_total = sum(v[0] for v in before.values())
     a_total = sum(v[0] for v in after.values())
     print(f"# Kernel time diff ({args.group}): {args.before_label} -> {args.after_label}\n")
-    print(f"- summed kernel time: {b_total:.1f} ms -> {a_total:.1f} ms ({a_total - b_total:+.1f} ms)")
+    d = args.decimals
+    print(f"- summed kernel time: {b_total:.{d}f} ms -> {a_total:.{d}f} ms ({a_total - b_total:+.{d}f} ms)")
     print(f"- before: `{args.before}`\n- after: `{args.after}`\n")
     print(f"| # | {args.before_label} ms | {args.after_label} ms | delta ms | calls before | calls after | kernel |")
     print("|---|---|---|---|---|---|---|")
     for i, (delta, b_ms, a_ms, b_calls, a_calls, key) in enumerate(rows[: args.top], 1):
-        print(f"| {i} | {b_ms:.1f} | {a_ms:.1f} | {delta:+.1f} | {b_calls} | {a_calls} | `{shorten(key[1], args.name_width)}` |")
+        print(
+            f"| {i} | {b_ms:.{d}f} | {a_ms:.{d}f} | {delta:+.{d}f} | {b_calls} | {a_calls} |"
+            f" `{shorten(key[1], args.name_width)}` |"
+        )
 
     if args.category:
         rules = []
@@ -109,7 +115,7 @@ def main():
         print("|---|---|---|---|")
         for label in labels:
             b_ms, a_ms = sums[label]
-            print(f"| {label} | {b_ms:.1f} | {a_ms:.1f} | {a_ms - b_ms:+.1f} |")
+            print(f"| {label} | {b_ms:.{d}f} | {a_ms:.{d}f} | {a_ms - b_ms:+.{d}f} |")
 
 
 if __name__ == "__main__":
