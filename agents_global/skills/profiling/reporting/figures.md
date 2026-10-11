@@ -8,10 +8,13 @@ kernels in a region.
 Models: prime-rl PR #3638's reduce-scatter overlap figure, and PR #3645's RoPE figure (the preferred layout:
 two left-aligned timelines plus a per-category delta panel).
 - One panel per arm, stacked, sharing a time axis in milliseconds.
-- Rows per stream of interest (e.g. main-stream compute, a communication stream).
+- Rows per stream of interest: `timeline_figure.py` draws the main compute stream, plus a communication row
+  with `--comm-kernel REGEX`.
 - Align both arms at the start of the region that changed, at t = 0, and mark where the region ends in each
   arm (see "What reads well").
-- Color by category, label the key region inline, and annotate the saved time with an arrow and its size.
+- Color by category, name the region (`--region-label`, shown with its length on each panel), and annotate
+  the saved time with an arrow and its size. Pick a window that contains the region's end in every arm, or
+  the arrow and its label fall outside the plot.
 - The #3645 figure, as a starting point:
 
   ```bash
