@@ -94,17 +94,18 @@ on a shared time axis.
 Example, the tile-count fix in the same kernel:
 
 ```
-NP TMA forward, one CTA, sliding16k (to scale, 1 char = 0.1 µs, medians)
+NP TMA forward, sliding16k (to scale, 1 char = 0.1 µs, medians over every CTA, 0 = init done)
+warp 0: Q issue, wait to Q ready (first |), wait to K ready (second |), then the first GEMM
 
-np_tma (8.67 µs/CTA)
-  warp 0     >Q..................wait Q.....|GEMM ...
-  producer   tile count.......|gather........
-             ^ 4-byte load arrives late (0.83 µs): the 64 KiB TMA is in flight
+np_tma (CTA lifetime 8.67 µs)
+  warp 0     >>....................|........|GEMM
+  producer   ........|gather ...
+             ^ the 4-byte tile count lands at 0.83 µs: the 64 KiB Q TMA is in flight
 
-np_tma_tcfirst (7.58 µs/CTA)
-  warp 0     tc...|>Q.......wait Q....|GEMM ...
-  producer   tc...|gather....
-                  ^ wait for the tile count, then issue Q: Q lands 0.42 µs sooner
+np_tma_tcfirst (CTA lifetime 7.58 µs)
+  warp 0     ...>>.............|...|GEMM
+  producer   ....|gather ...
+             ^ wait for the tile count (0.45 µs), then issue Q: Q ready 0.42, GEMM 0.86 µs sooner
 ```
 
 Measured with IKET traces and timed untraced: waiting for the tile count before the Q TMA recovers 86 of
