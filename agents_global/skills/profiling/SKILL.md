@@ -47,6 +47,9 @@ with the script's path and all arguments. Capture harnesses that must run inside
 | Which source lines (CUDA, CuTe DSL, Triton) of one kernel do warps stall on, and why? | ncu `SourceCounters` on a line-info build, then `scripts/ncu_source_lines.py` | `tools/nsight-compute.md` |
 | A CuTe DSL kernel: compile vs launch time, JIT cache, PTX/SASS dumps, registers and spills? Which MMA instruction did a compiler emit? | DSL env vars, `cuobjdump` | `tools/cute-dsl.md` |
 | Do two kernels (TileLang, CuTe DSL, Triton, CUDA) share a design: MMA flavor and shapes, `cp.async` vs TMA, `stmatrix`, barriers, registers, spills (and from which source lines)? | `scripts/sass_inventory.py` (`--by-line LDL STL`) on cubins, `.so` files or cache dirs | its usage docstring; `tools/cute-dsl.md` |
+| Turn an intra-kernel trace into a recorder-agnostic event table | `scripts/intra_kernel_events.py` | its usage docstring |
+| Named intervals per CTA and iteration, the gating wait, SM gaps, launch spans, load crowding | `scripts/intra_kernel_intervals.py` | its usage docstring |
+| A/B figures from intra-kernel events: per-warp timelines, interval distributions | `scripts/intra_kernel_ab_figure.py` | its usage docstring |
 | How does the user see a remote trace locally? | Perfetto UI + ssh forward (`serve_cors.py`; big traces: `serve_trace_processor.py`) | `viewing/remote-perfetto.md` |
 
 Project-specific capture recipes live in `projects/` (e.g. `projects/prime-rl.md`). Read the one for the
