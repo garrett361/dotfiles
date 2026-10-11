@@ -67,7 +67,8 @@ report with both ranks. Both showed `ncclDevKernel_AllReduce_Sum_bf16_RING_LL` i
 - Kernel totals from the sqlite, per device and per step: `scripts/nsys_kernels.py <out>.sqlite --device 0
   --step-boundary <regex of the kernels that end a step>` (see `analysis/top-kernels.md`). `--group short`
   groups by `shortName`, which merges templated kernels (GELU and mul both become
-  `vectorized_elementwise_kernel`).
+  `vectorized_elementwise_kernel`). It counts kernels only, not the memcpys and memsets that `top_kernels.py`
+  includes. `--device` takes the CUDA ordinal the process saw (0 under `CUDA_VISIBLE_DEVICES=4`).
 
 ## Overhead and size (toy, one B300)
 
@@ -107,3 +108,16 @@ report with both ranks. Both showed `ncclDevKernel_AllReduce_Sum_bf16_RING_LL` i
 - `-t none -s none --python-sampling=true --python-sampling-frequency=1000` added about 6% to both arms equally,
   a usable low-overhead host check. `nsys export --type sqlite` does not export the Python stacks (samples become
   payload-free `NVTX_EVENTS` rows, eventType 34), so per-function host time needs the GUI.
+
+## Notes from an H200 cluster (2026-10-11, toy loop with known syncs)
+
+- Compute and login nodes have only 2025.1.3 and 2025.3.2 under `/opt/nvidia/nsight-systems`;
+  `/usr/local/cuda-13.0/bin/nsys` is also 2025.3.2. The three capture recipes and the per-rank torchrun recipe
+  reproduced with 2025.3.2 (exactly 10 instances per kernel for 10 captured iterations); the stop call blocked 6 s.
+- After re-capturing to the same `-o`, `nsys stats` refuses to run ("Existing SQLite export found ... older than
+  input file"). Add `--force-export=true`.
+- `-s cpu --cudabacktrace=sync:0` stores a native backtrace per sync call in the SQLite export
+  (`CUPTI_ACTIVITY_KIND_RUNTIME.callchainId` joined to `CUDA_CALLCHAINS`): C++ frames such as
+  `at::native::copy_kernel_cuda`, no Python lines. `--python-backtrace=cuda` adds Python frames, but they export as
+  payload-free `NVTX_EVENTS` rows (eventType 34) like the sampling stacks. For Python file:line of syncs without the
+  GUI, use `analysis/cuda-syncs.md`.
