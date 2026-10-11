@@ -16,17 +16,22 @@ The table is a CSV (gzipped if the name ends in `.gz`) with one row per recorded
 | payload | the event's integer or float payload, empty when it has none                             |
 
 Any recorder that can write these columns plugs into `intra_kernel_intervals.py` and
-`intra_kernel_ab_figure.py` unchanged. This script reads IKET (`run-iket ... --postprocess json`, CuTe DSL
-4.7.1): markers become `mark` rows, token and push/pop ranges become a `start` and an `end` row (each from
-the warp that emitted it), and `warpLifetimes` become `warp` rows. Timestamps keep IKET's 32 ns granularity.
+`intra_kernel_ab_figure.py` unchanged. `t_ns` must come from a GPU-wide clock such as `%globaltimer`, since SM
+gaps, spans and crowding compare warps on different SMs (`clock64` counts per SM), and `warp` rows are needed
+only for those three and for `warp.start` / `warp.end` references. This script reads IKET (`run-iket ...
+--postprocess json`, CuTe DSL 4.7.1): markers become `mark` rows, token and push/pop ranges become a `start`
+and an `end` row (each from the warp that emitted it), and `warpLifetimes` become `warp` rows. Timestamps keep
+IKET's 32 ns granularity.
 
 `--roles` maps warp ids to roles as `name:first-last` pairs, e.g. for a 384-thread kernel with two consumer
 warpgroups and a producer warpgroup: `consumer0:0-3,consumer1:4-7,producer:8-11`. `--launches` picks launches
-by index (default `-1`, the last one, since the first launch of a process often runs cold).
+by index (default `-1`, the last one, since the first launch of a process often runs cold). Indices count every
+instrumented kernel's launches in the trace, so when the process ran more than one, `--kernel` keeps only the
+launches whose kernel name contains the given text and indices count those.
 
 Usage:
   python3 intra_kernel_events.py iket_pid_0x1234.trace.json --variant p_tma \\
-      --roles consumer0:0-3,consumer1:4-7,producer:8-11 --out p_tma.events.csv.gz [--launches 1 2]
+      --roles consumer0:0-3,consumer1:4-7,producer:8-11 --out p_tma.events.csv.gz [--launches 1 2] [--kernel fwd]
 """
 
 import argparse
@@ -34,6 +39,7 @@ import csv
 import gzip
 import json
 import sys
+from collections import Counter
 
 COLUMNS = ("variant", "launch", "sm", "cta", "warp", "role", "event", "phase", "t_ns", "payload")
 
@@ -48,17 +54,20 @@ def parse_roles(spec: str) -> dict[int, str]:
     return roles
 
 
-def iket_launches(trace: dict) -> list[dict]:
+def iket_launches(trace: dict, kernel: str = "") -> list[dict]:
     launches = list(trace.get("launches", []))
     for graph_launches in trace.get("graphLaunches", {}).values():
         launches.extend(graph_launches)
-    return launches
+    return [launch for launch in launches if kernel in launch["kernelName"]]
 
 
-def iket_rows(trace: dict, launch_indices: list[int], variant: str, roles: dict[int, str]):
+def iket_rows(trace: dict, launch_indices: list[int], variant: str, roles: dict[int, str], kernel: str = ""):
     names = trace["stringTable"]
     locations = trace["locationTable"]
-    launches = iket_launches(trace)
+    launches = iket_launches(trace, kernel)
+    bad = [i for i in launch_indices if not -len(launches) <= i < len(launches)]
+    if bad:
+        raise SystemExit(f"--launches {bad} out of range: {len(launches)} launches match --kernel {kernel!r}")
     for launch_index in sorted({i % len(launches) for i in launch_indices}):
         launch = launches[launch_index]
         grid_x, grid_y = launch["gridDimX"], launch["gridDimY"]
@@ -100,6 +109,7 @@ def main() -> None:
     parser.add_argument("--variant", required=True)
     parser.add_argument("--roles", default="")
     parser.add_argument("--launches", type=int, nargs="+", default=[-1])
+    parser.add_argument("--kernel", default="", help="keep only launches whose kernel name contains this")
     parser.add_argument("--out", required=True, help="output CSV, gzipped if it ends in .gz")
     args = parser.parse_args()
 
@@ -110,10 +120,16 @@ def main() -> None:
     with opener(args.out, "wt", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(COLUMNS)
-        for row in iket_rows(trace, args.launches, args.variant, parse_roles(args.roles)):
+        for row in iket_rows(trace, args.launches, args.variant, parse_roles(args.roles), args.kernel):
             writer.writerow(row)
             n += 1
-    print(f"{args.out}: {n} events from {len(iket_launches(trace))} launches in the trace", file=sys.stderr)
+    kernels = Counter(launch["kernelName"] for launch in iket_launches(trace, args.kernel))
+    print(f"{args.out}: {n} events from {kernels.total()} launches in the trace", file=sys.stderr)
+    if len(kernels) > 1:
+        listing = ", ".join(f"{name} ({count})" for name, count in kernels.items())
+        print(
+            f"warning: launch indices count {len(kernels)} kernels, pick one with --kernel: {listing}", file=sys.stderr
+        )
 
 
 if __name__ == "__main__":
