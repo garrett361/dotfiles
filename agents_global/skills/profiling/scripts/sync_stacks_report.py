@@ -42,8 +42,11 @@ def site_key(rec):
 def load(path, steps=None):
     recs = [json.loads(line) for line in open(path)]
     all_steps = sorted({r["step"] for r in recs})
-    steps = steps or all_steps[2:-1]
-    return [r for r in recs if r["step"] in steps], steps
+    steps = steps or all_steps[2:-1] or all_steps
+    selected = [r for r in recs if r["step"] in steps]
+    if not selected:
+        raise SystemExit(f"{path}: no records in steps {steps}; steps present: {all_steps}")
+    return selected, steps
 
 
 def main():
