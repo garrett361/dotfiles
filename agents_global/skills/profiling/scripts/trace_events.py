@@ -142,7 +142,7 @@ def load_trace(path, extra_host_categories=()):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("trace")
-    parser.add_argument("--from-annotation", help="exact CPU user_annotation name opening the window")
+    parser.add_argument("--from-annotation", help="CPU user_annotation name (or name#<n>) opening the window")
     parser.add_argument(
         "--list-annotations", metavar="REGEX", help="list distinct CPU and GPU annotation names matching REGEX, then exit"
     )
@@ -170,14 +170,14 @@ def main():
     if args.from_annotation is None:
         parser.error("--from-annotation is required unless --list-annotations is given")
     opener = pick(
-        [e for e in trace.annotations("") if e["name"] == args.from_annotation],
+        [e for e in trace.annotations("") if is_marker(e["name"], args.from_annotation)],
         args.from_index,
         f"CPU-side user_annotation `{args.from_annotation}`",
     )
     lo = opener["ts"]
     hi = opener["ts"] + opener["dur"]
     if args.to_annotation:
-        closers = [e for e in trace.annotations("") if e["name"] == args.to_annotation and e["ts"] > lo]
+        closers = [e for e in trace.annotations("") if is_marker(e["name"], args.to_annotation) and e["ts"] > lo]
         closer = pick(closers, 0, f"CPU-side user_annotation `{args.to_annotation}` after the opening one")
         hi = closer["ts"] + closer["dur"]
     key = trace.busiest_thread(lo, hi)
