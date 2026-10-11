@@ -35,6 +35,15 @@ The working-tree docs may describe a newer release.
   `.compile_cache_pre`, `.compile_cache_post`), so their sizes count its compiles exactly. A second process
   on the same filled caches recompiled all 6 kernels (about 2.5 s per main-kernel key on H200), so
   "warm" runs of such a backend are not warmer.
+- Cross-process cache for a TVM-FFI executor (verified 2026-10-11, H200, DSL 4.7.1):
+  `compiled.export_to_c("k.o", function_name="k")` once, then in later processes
+  `getattr(cute.runtime.load_module("k.o", enable_tvm_ffi=True), "k")`. It loads the `.o` with JITLink (no gcc),
+  in 3-11 ms against 1.3-3.3 s of compile, gives bitwise-identical outputs, and costs no extra host time per call.
+  This TVM-FFI load path skips the DSL's version check, so key the file on the DSL version, the arch and the
+  kernel sources yourself. Prototype: `~/tmp/dsv4-sparse-attn-bench/compile-avoidance/proto/cute_aot_cache.py`.
+- A Python constant used only as a bound still shapes codegen: the cuDNN DSA backward's `max_topk` clamp at
+  640 or 16384 gave the same SASS (4 immediates differ), but at `2**31 - 1` it added 120 instructions and about
+  1% forward+backward time.
 
 ## Dumps and line info
 
