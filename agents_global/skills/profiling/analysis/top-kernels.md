@@ -7,22 +7,27 @@ drawing conclusions.
 
 ## torch.profiler route: `scripts/top_kernels.py`
 
-Works on any `torch.profiler` chrome trace (stdlib only, run with `python3`). The default window is the last
-step: from the last CPU-side `user_annotation` named `forward` to the last GPU event, as in
-`scripts/trim_last_step.py`. It takes about 10 to 15 s on a 28 MB trace.
+Works on any `torch.profiler` chrome trace, `.json` or `.json.gz` (stdlib only, run with `python3`). The default
+window is the last step: from the last CPU-side `user_annotation` named `forward` (prime-rl's step marker) to the
+last GPU event, as in `scripts/trim_last_step.py`. Load time scales with size: about 9 s for a 22 MB trace, 41 s
+for 83 MB.
 
 - `python3 top_kernels.py trace_0.json.gz`: tables by kernel name.
 - `--by site`: group by the launching op and its `Input Dims`; `--by both`: one row per site and kernel.
 - `--stream main`: only the stream with the most kernel time (or pass a stream id).
+- `--annotation NAME --annotation-index N` picks the step marker and which step (`-2` with
+  `--annotation-span 2` is the last step when each step has 2 micro-batches); a `torch.profiler.schedule` loop
+  has none of prime-rl's markers, so use `--launched-in ProfilerStep` (see `tools/torch-profiler.md`). `--from-annotation` /
+  `--to-annotation` window on GPU-side annotations, e.g. one layer.
 - `--csv out.csv` writes every row with raw kernel names; `--minmax` adds min/max columns; `--top N`,
-  `--min-calls N` (per-call ranking), `--name-width N`, `--annotation NAME`, `--whole-trace`.
+  `--min-calls N` (per-call ranking), `--name-width N`, `--whole-trace`.
 - `--category LABEL:REGEX` (repeatable, ordered, raw kernel names) adds a per-category time budget table;
   `--annotation-span N` widens an `--annotation` window to N annotations (one per micro-batch in prime-rl RL).
 
 Output: a header (window length, GPU busy time as the union of kernel intervals, NCCL vs non-NCCL sums,
 kernel time per stream), then three tables: non-NCCL by total, non-NCCL by mean time per call, and NCCL by
 total. Each row has total ms, % of GPU busy, % of window, calls, mean and median ms. Labels longer than the
-name column are listed in full under the table, by rank.
+name column are listed under the table by rank, up to 160 characters (the CSV has them whole).
 
 Call sites follow the kernel's `args["correlation"]` to its `cuda_runtime` / `cuda_driver` launch, then take
 the `cpu_op` events enclosing the launch on the same thread. A custom op is shown by itself
@@ -77,6 +82,9 @@ $N profile -t cuda,nvtx -s none --cpuctxsw=none -o <out> --force-overwrite true 
 ```bash
 python3 scripts/nsys_kernels.py <out>.sqlite --device 0 --step-boundary FusedAdamMathFunctor --top 20
 ```
+
+Boundary kernels less than `--cluster-gap-ms` (default 100) apart merge into one cluster, so for steps shorter
+than that, lower it (a 3 ms toy step needed `--cluster-gap-ms 1`).
 
 Agreement with torch.profiler (separate runs, same commit and config, rank 0, last step): the same 8410
 kernels, window 2343.9 vs 2340.8 ms, and every non-NCCL kernel among the top 20 within about 3% in total and
