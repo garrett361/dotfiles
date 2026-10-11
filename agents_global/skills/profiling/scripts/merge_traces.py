@@ -137,7 +137,7 @@ for e in merged:
     if e.get("ph") == "M":
         e.pop("ts", None)
 offset = -min((e["ts"] for e in merged if "ts" in e), default=0.0)
-offset = max(offset, 0.0)
+offset = max(0.0, offset)
 for e in merged:
     if "ts" in e:
         e["ts"] += offset
