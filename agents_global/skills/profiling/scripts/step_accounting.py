@@ -16,23 +16,29 @@ the next) is swept on one GPU. Every instant goes to exactly one row:
   the innermost user_annotation; nsys: the CUDA API call if any, else "host code"). Otherwise the kernel was
   already queued and waited on a device-side dependency ("idle, queued (stream wait)").
 
+`--step-boundary` must match kernels that run only at the end of each step, normally the optimizer's:
+`FusedAdamMathFunctor` for torch.optim Adam/AdamW with `fused=True`, `multi_tensor_apply_kernel` for
+`foreach=True` optimizers. The latter also matches every other `_foreach_*` kernel (grad clipping, FSDP copies),
+so it only works when none run mid-step: on a prime-rl trace it cut 4 real steps into 70 windows. Check with
+`--per-rank`, which prints each rank's window count and mean window; both should match the traced steps.
+
 Inputs, repeatable, one per arm: `--trace LABEL=GLOB` (torch.profiler chrome traces, one file per rank) or
 `--nsys LABEL=SQLITE` (one export with every rank; ranks are deviceIds). `--steps LO:HI` picks step windows by
-index (Python slice over the windows found; default the last two complete steps) and rows are averaged per step
-and over ranks. With two arms a delta column is added. `--untraced LABEL=SECONDS` adds the untraced median step
-time per arm, and the table then ends with a "tracing overhead / residual" row so the delta column sums to the
-untraced step delta. `--per-rank` prints each rank's window and partition, to check that one rank is
-representative. `--host-depth N` keeps N levels of cpu_op names in host-late labels.
+index (Python slice over each rank's windows; default the last two complete steps; write negative bounds as
+`--steps=-3:`) and rows are averaged per step, then over the ranks that have a selected window. With two arms a
+delta column is added. `--untraced LABEL=SECONDS` adds the untraced median step time per arm, and the table then
+ends with a "tracing overhead / residual" row so the delta column sums to the untraced step delta. `--per-rank`
+prints each rank's window and partition, to check that one rank is representative. `--host-depth N` keeps N levels of cpu_op names in host-late labels.
 
 The header also reports the number of GPU activities (kernels, memcpys, memsets) per step.
 
 Usage:
   uv run --script step_accounting.py --trace "bf16=traces/bf16/trace_*.json.gz" \\
-    --trace "fp8=traces/fp8/trace_*.json.gz" --step-boundary "multi_tensor_apply_kernel" \\
+    --trace "fp8=traces/fp8/trace_*.json.gz" --step-boundary "FusedAdamMathFunctor" \\
     --category "FP8 GEMM:sm90_fp8_gemm|fp8_gemm" --category "BF16 GEMM:nvjet|cutlass" \\
     --untraced bf16=0.652 --untraced fp8=0.696 [--per-rank] [--top-idle 12] [--csv out.csv]
   uv run --script step_accounting.py --nsys "bf16=nsys/bf16.sqlite" --nsys "fp8=nsys/fp8.sqlite" \\
-    --step-boundary "multi_tensor_apply_kernel" --steps 4:11 ...
+    --step-boundary "FusedAdamMathFunctor" --steps 4:11 ...
 """
 
 import argparse
