@@ -4,7 +4,9 @@ Runs `ncu --import <report> --page source --print-source cuda,sass --csv` and pr
 of the hottest high-level source lines: warp-stall samples, their share of the kernel's samples,
 instructions executed, and the dominant stall reasons. The "source" is whatever the kernel's line
 info points at: `.cu` files for CUDA C++, the Python file for CuTe DSL kernels compiled with
-`CUTE_DSL_LINEINFO=1`, Triton's `.py` for Triton kernels.
+`CUTE_DSL_LINEINFO=1`, Triton's `.py` for Triton kernels. "% of kernel" is the share of that launch's
+samples. ncu credits an inlined instruction to every line of its inline chain (header line and call site),
+so line shares can add up to more than 100%. Repeat launches of one kernel are ranked separately (`#2`, ...).
 
 The report must carry source counters: collect with `--section SourceCounters` (or `--set full`)
 and `--import-source yes`, on a kernel built with line info. Without line info the source page has
@@ -19,9 +21,9 @@ Usage:
 
 import argparse
 import csv
-import io
 import re
 import subprocess
+import sys
 from collections import defaultdict
 
 ALL_SAMPLES = "Warp Stall Sampling (All Samples)"
@@ -44,7 +46,8 @@ def parse_args():
 
 
 def read_source_csv(args):
-    command = [args.ncu, "--import", args.report, "--page", "source", "--print-source", "cuda,sass", "--csv"]
+    print_source = "cuda,sass" if args.view == "line" else "sass"
+    command = [args.ncu, "--import", args.report, "--page", "source", "--print-source", print_source, "--csv"]
     if args.kernel:
         command += ["--kernel-name", args.kernel]
     if args.resolve_source_file:
@@ -59,27 +62,42 @@ def to_number(value):
         return 0.0
 
 
+def split_row(line, first_metric, metric_count):
+    """Split a source-page row; ncu does not escape quotes inside the source text, so csv misaligns them."""
+    head, *metrics = line.strip()[1:-1].rsplit('","', metric_count)
+    if first_metric == 2:
+        return [*head.split('","', 1), *metrics]
+    line_no, rest = head.split('","', 1)
+    return [line_no, *rest.rsplit('","', 2), *metrics]
+
+
 def parse_rows(text):
     """Yield (launch, file, line_no, source, kind, metrics) per row; kind is "line" or "sass"."""
-    file_path, launch, header = "", "", None
+    file_path, launch, header, first_metric = "", "", None, 4
     files_seen, launches = defaultdict(set), defaultdict(int)
-    for row in csv.reader(io.StringIO(text)):
-        if not row:
+    for line in text.splitlines():
+        if not line.startswith('"'):
+            if line.strip():
+                print(line, file=sys.stderr)
             continue
+        row = next(csv.reader([line]))
         if row[0] == "File Path":
             file_path = row[1]
-        elif row[0] == "Function Name":
+        elif row[0] in ("Function Name", "Kernel Name"):
             function = row[1]
             if file_path in files_seen[function]:
                 files_seen[function] = set()
                 launches[function] += 1
             files_seen[function].add(file_path)
             launch = function if launches[function] == 0 else f"{function} #{launches[function] + 1}"
-        elif row[0] == "Line No":
-            header = row
+        elif row[0] in ("Line No", "Address"):
+            header, first_metric = row, 4 if row[0] == "Line No" else 2
         elif header is not None:
-            metrics = {name: to_number(value) for name, value in zip(header[4:], row[4:])}
-            if row[0]:
+            row = split_row(line, first_metric, len(header) - first_metric)
+            metrics = {name: to_number(value) for name, value in zip(header[first_metric:], row[first_metric:])}
+            if first_metric == 2:
+                yield launch, file_path, row[0], row[1].strip(), "sass", metrics
+            elif row[0]:
                 yield launch, file_path, row[0], row[1].strip(), "line", metrics
             else:
                 yield launch, file_path, row[2], row[3].strip(), "sass", metrics
@@ -97,12 +115,18 @@ def stall_summary(metrics, count):
 
 def main():
     args = parse_args()
-    rows = [row for row in parse_rows(read_source_csv(args)) if row[4] == args.view]
+    all_rows = list(parse_rows(read_source_csv(args)))
+    rows = [row for row in all_rows if row[4] == args.view]
     if not rows:
         raise SystemExit(f"no {args.view} rows in the source page; was the kernel built with line info?")
+    instruction_samples = {
+        (launch, address): metrics.get(ALL_SAMPLES, 0.0)
+        for launch, _, address, _, kind, metrics in all_rows
+        if kind == "sass"
+    }
     total_samples = defaultdict(float)
-    for launch, _, _, _, _, metrics in rows:
-        total_samples[launch] += metrics.get(ALL_SAMPLES, 0.0)
+    for (launch, _), samples in instruction_samples.items():
+        total_samples[launch] += samples
     rows.sort(key=lambda row: -row[5].get(ALL_SAMPLES, 0.0))
     location_header = "file:line" if args.view == "line" else "address"
     print(f"| kernel | {location_header} | source | samples | % of kernel | inst executed | top stalls |")
