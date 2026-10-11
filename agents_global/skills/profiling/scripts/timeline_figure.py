@@ -7,13 +7,14 @@
 One panel per arm shows the main GPU stream's kernels in a window around an anchor kernel (the Nth launch
 of that kernel inside the selected step), colored by category, with every arm aligned at the anchor. Without
 `--anchor`, arms align at the step start. With two arms, a bottom panel shows the per-category change in
-main-stream kernel time over the whole selected step (`--no-delta` omits it, e.g. when one rank's
+main-stream kernel time over the kernels launched in the selected step (`--no-delta` omits it, e.g. when one rank's
 kernel savings do not reach step time and the panel would mislead).
 
 Steps start at the CPU-side `user_annotation` events named `--step-marker`; `--step-index` picks one (default
--1, the last) and the step runs until the next marker or the end of the trace. The main stream is the stream
-with the most kernel time. Categories are `label:regex:color`, matched in order against kernel names;
-unmatched kernels fall into "other".
+-1, the last) and the step runs until the next marker or the end of the trace. A step's kernels are those
+launched inside it, so GPU work that lags the host still counts toward its own step; panels draw every
+main-stream kernel in the window. The main stream is the stream with the most kernel time. Categories are
+`label:regex:color`, matched in order against kernel names; unmatched kernels fall into "other".
 
 `--anchor-annotation NAME` aligns at the Nth (`--anchor-index`) GPU-side `record_function` annotation with
 exactly that name instead of a kernel, e.g. `FSDP::all_gather_copy_out (model.layers.2)`, which starts a
@@ -134,16 +135,17 @@ def categorize(name, categories):
 def load_step(path, step_marker, step_index, main_exclude=None):
     trace = load_trace(path)
     start, end = trace.window(step_marker, step_index, span="next")
-    kernels = [e for e in trace.kernels if start <= e["ts"] < end]
+    kernels = [e for e in trace.kernels if start <= (e["launch"] or e)["ts"] < end]
     main = trace.main_stream(kernels, main_exclude)
     stream = [e for e in kernels if (e["pid"], e["tid"]) == main]
-    device = [e for e in kernels if e["pid"] == main[0]]
+    device = [e for e in trace.kernels if e["pid"] == main[0]]
     annotations = [e for e in trace.gpu_annotations if start <= e["ts"] < end]
     return {
         "start": start,
         "end": end,
         "stream": stream,
         "device": device,
+        "main_all": [e for e in device if e["tid"] == main[1]],
         "host": trace.host,
         "annotations": annotations,
         "trace": trace,
@@ -268,7 +270,7 @@ def format_us(us):
 
 
 def annotate_gaps(ax, step, anchor_ts, lo, hi, min_ms, label, scope="device", style="full"):
-    kernels = step["device"] if scope == "device" else step["stream"]
+    kernels = step["device"] if scope == "device" else step["main_all"]
     gaps = idle_gaps(kernels, anchor_ts + lo * 1e3, anchor_ts + hi * 1e3, min_ms * 1e3)
     print(f"{label}: {len(gaps)} {'GPU' if scope == 'device' else 'main-stream'} idle gaps >= {min_ms:g} ms")
     for gap_start, gap_end in gaps:
@@ -320,7 +322,7 @@ def main():
         ax = fig.add_subplot(grid[row])
         stream = step["stream"]
         comm = comm_analysis(step, args) if args.comm_kernel else None
-        phases = assign_segments(stream, step["host"], segments) if segments else {}
+        phases = assign_segments(step["main_all"], step["host"], segments) if segments else {}
         launched = launched_in(step, args.launched_in) if args.launched_in else None
         if launched:
             anchor_ts = min(e["ts"] for e in launched)
@@ -332,7 +334,7 @@ def main():
             anchor_ts = [e for e in stream if e["name"] == args.anchor][args.anchor_index]["ts"]
         else:
             anchor_ts = step["start"]
-        for e in stream:
+        for e in step["main_all"]:
             t0 = (e["ts"] - anchor_ts) / 1e3
             if lo <= t0 + e["dur"] / 1e3 and t0 <= hi:
                 color = kernel_label(e, categories, phases)[1]
