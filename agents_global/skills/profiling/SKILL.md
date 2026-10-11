@@ -32,6 +32,7 @@ Op level:
 - How long does a region of my code take, per call? Copy `scripts/cuda_timer.py` into the project (the one script
   meant to be copied, not run).
 - Which kernels inside an op cost the time? `bench_ops.py --trace`, then `scripts/top_kernels.py --whole-trace`.
+- A CuTe DSL op: does it re-trace or pay host overhead on every call? `tools/cute-dsl.md`, before timing it.
 
 End to end, from traces:
 - Why doesn't an op win show up in step time? Capture both arms (`tools/torch-profiler.md`), then diff them with
@@ -59,8 +60,7 @@ Runs, host and compiler:
 Inside one kernel:
 - Why is it slow (bandwidth, occupancy), and which source lines do warps stall on? `tools/nsight-compute.md`
   (`scripts/ncu_source_lines.py`).
-- A CuTe DSL kernel: compile vs launch time, host overhead per call, JIT cache, dumps, registers, spills?
-  `tools/cute-dsl.md`.
+- A CuTe DSL kernel: JIT cache, PTX/SASS dumps, registers, spills? `tools/cute-dsl.md`.
 - Do two kernels (TileLang, CuTe DSL, Triton, CUDA) share a design: MMA, TMA vs `cp.async`, barriers,
   registers, spills by source line? `scripts/sass_inventory.py`.
 - When does each warp role issue, wait and finish, and which wait gates the next step? `tools/intra-kernel.md`
@@ -72,7 +72,9 @@ Showing results:
   `scripts/merge_traces.py`): `viewing/remote-perfetto.md`.
 
 Project-specific capture recipes live in `projects/` (e.g. `projects/prime-rl.md`). Read the one for the
-current repo before launching anything.
+current repo before launching anything. Without one, capture as in `tools/torch-profiler.md` and pass the
+repo's step annotation and optimizer kernel to the scripts' step flags (`--annotation`, `--step-marker`,
+`--step-boundary`), whose defaults follow prime-rl.
 
 ## Where artifacts go
 
@@ -108,7 +110,8 @@ An op-level win that disappears end to end is a finding, not noise: go to layer 
 
 - Freeze each arm's code in its own worktree or commit; never time against a tree you are editing.
 - Identical config, data, seed, step count, and rank for every arm. Change one thing.
-- Fresh compile caches per arm (Triton, Inductor, TileLang, CuTe DSL), or JIT warmth biases the comparison.
+- Fresh compile caches per arm (`TRITON_CACHE_DIR`, `TORCHINDUCTOR_CACHE_DIR`, `TILELANG_CACHE_DIR`,
+  `CUTE_DSL_CACHE_DIR`), or JIT warmth biases the comparison.
 - Time ops and regions with CUDA events (`bench_ops.py`, `cuda_timer.py`), never host clocks around
   `torch.cuda.synchronize()`. Step time comes from untraced runs (median over steady-state steps); traces are
   for attribution only, since profiler overhead changes step time.
