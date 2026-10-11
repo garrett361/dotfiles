@@ -96,3 +96,14 @@ report with both ranks. Both showed `ncclDevKernel_AllReduce_Sum_bf16_RING_LL` i
 - Real training runs: overhead and report size at full model scale, and `--cuda-graph-trace` for graphs.
 - `nvtx_gpu_proj_sum` (NVTX ranges projected onto GPU time) and `--gpu-metrics-devices` sampling.
 - Running the 2026.1.3 binary (not present on compute nodes).
+
+## Notes from an H200 cluster (2026-10-09, nsys 2025.3.2, DSv4 Flash 4L proxy)
+
+- `perf_event_paranoid` was 0 there, so CPU and Python sampling work (`nsys status -e` reports OK). Check it per cluster.
+- `-t cuda,nvtx -s none` is not overhead-free when the host is the bottleneck: steps went from 652 to 718 ms (bf16) and
+  698 to 806 ms (FP8, 13% more launches). Kernel durations matched torch.profiler within 3 ms per category, but idle
+  and exposed NCCL time did not, so take those from untraced step time minus kernel time
+  (`scripts/step_accounting.py --untraced`).
+- `-t none -s none --python-sampling=true --python-sampling-frequency=1000` added about 6% to both arms equally,
+  a usable low-overhead host check. `nsys export --type sqlite` does not export the Python stacks (samples become
+  payload-free `NVTX_EVENTS` rows, eventType 34), so per-function host time needs the GUI.
