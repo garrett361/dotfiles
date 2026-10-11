@@ -108,7 +108,7 @@ An op-level win that disappears end to end is a finding, not noise: go to layer 
 
 - Freeze each arm's code in its own worktree or commit; never time against a tree you are editing.
 - Identical config, data, seed, step count, and rank for every arm. Change one thing.
-- Fresh compile caches per arm (Triton, Inductor, TileLang, etc.), or JIT warmth biases the comparison.
+- Fresh compile caches per arm (Triton, Inductor, TileLang, CuTe DSL), or JIT warmth biases the comparison.
 - Time ops and regions with CUDA events (`bench_ops.py`, `cuda_timer.py`), never host clocks around
   `torch.cuda.synchronize()`. Step time comes from untraced runs (median over steady-state steps); traces are
   for attribution only, since profiler overhead changes step time.
