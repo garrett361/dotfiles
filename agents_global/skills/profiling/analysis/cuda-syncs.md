@@ -20,15 +20,19 @@ attribution); see `tools/nsight-systems.md` if you want it.
 ## 1. Trace pass
 
 `python3 scripts/find_syncs.py trace_0.json.gz [--steps N] [--list] [--dump rows.json]` on a `torch.profiler`
-chrome trace. The window is the last complete step, from one CPU-side `forward` annotation to the next, so
-optimizer and logging syncs count. What it treats as blocking, checked against the event names in real traces:
+chrome trace (plain `.json` or `.gz`). The window runs between the last two CPU-side `forward` annotations;
+`--steps N` widens it to the last N such intervals, and its "per step" counts are per interval. prime-rl SFT
+annotates every micro-batch, so with M micro-batches per step the default window is one micro-batch with no
+optimizer: `--steps M` covers M micro-batches plus one optimizer step, and `--to-end` covers the final
+micro-batch plus the optimizer. What it treats as blocking, checked against the event names in real traces:
 
 - `cudaStreamSynchronize`, `cudaDeviceSynchronize`, `cudaEventSynchronize`, synchronous `cudaMemcpy*` (runtime
   `cat == "cuda_runtime"` and driver `cuda_driver` names).
 - `cudaMemcpyAsync` whose host call returned after its GPU copy (matched by `args["correlation"]`) finished:
-  `Memcpy DtoH (Device -> Pageable)`. `.item()`, `.tolist()`, `.cpu()` copy through `memcpy_and_sync`
-  (`cudaMemcpyAsync` then `cudaStreamSynchronize`), and the wait lands in the memcpy. Grouping by innermost CPU op
-  makes that pair one sync point.
+  `Memcpy DtoH (Device -> Pageable)`. `.tolist()` and `.cpu()` copy through `memcpy_and_sync`
+  (`cudaMemcpyAsync` then `cudaStreamSynchronize`), and the wait lands in the memcpy. `.item()` and `nonzero`
+  copy into pinned memory (`Device -> Pinned`), so their wait lands in the `cudaStreamSynchronize`. Grouping by
+  innermost CPU op makes each pair one sync point.
 - Not blocking: `cudaEventQuery` (polling, mostly the NCCL watchdog thread), `cudaStreamWaitEvent` (device-side),
   D2H into pinned memory with `non_blocking=True`.
 
@@ -40,6 +44,8 @@ Costs per sync point:
   after the return that starts more than 50 us after its launch call). After a sync the queue is empty, so the
   launch-bound gaps that follow belong to it; idle@ret misses those (e.g. the forward-to-backward transition).
 - Check GPU busy % first. At 98% busy, syncs cannot buy much step time however many there are.
+- Exposed idle is an upper bound on what removing a sync saves, measured in a traced run. Claim step time only
+  from an untraced A/B (`scripts/step_accounting.py --untraced` reconciles traced idle with untraced step time).
 
 Attribution is the enclosing `cpu_op` chain on the calling thread plus the nearest `user_annotation`, found by
 walking a parent array (not a fixed lookback: step-level annotations start thousands of ops earlier). Backward
@@ -61,7 +67,12 @@ syncs run on the autograd thread, which has its own `tid` and no `forward`/`back
 `scripts/sync_stacks/sitecustomize.py` is imported by every Python process that has its directory on
 `PYTHONPATH`, so it reaches torchrun workers without touching the repo, venv, or launcher. It appends one JSON
 line per sync (full Python stack, native thread id, wall time, step, autograd node in the autograd thread). Env vars
-are in its docstring. Two sources, compared in a probe (`x` on GPU):
+are in its docstring. It does nothing unless `SYNC_STACKS_OUT` names an existing directory, the command line contains
+`SYNC_STACKS_MATCH` (default `prime_rl.trainer`) and `RANK` is in `SYNC_STACKS_RANKS` (default `0`; set `RANK=0` by
+hand for a single process). It starts recording at the first call of the step hook (default
+`torch.cuda.reset_peak_memory_stats`, which prime-rl calls once at the top of each SFT and RL training step), so a
+script of your own must call that once per step. Records are appended to `syncs_rank<RANK>.jsonl`, so give each run
+a fresh directory. Two sources, compared in a probe (`x` on GPU):
 
 | Case | `set_sync_debug_mode("warn")` | GPU-trace sync callbacks |
 |---|---|---|
@@ -86,8 +97,8 @@ are in its docstring. Two sources, compared in a probe (`x` on GPU):
   `[1, 32768]` is the backward of the `x[mask]` whose forward sync has the stack).
 - Hook cost: the first version (`traceback.extract_stack` plus a flushed write per sync) added about 0.35 ms per
   sync with spikes to 9 ms, and exposed GPU idle went from 29 to 95 ms per step. The current version walks frames
-  and flushes once per step: about 5 us per sync in a probe, not yet measured in a full run. Either way take costs
-  from an unhooked trace.
+  and flushes once per step: about 5 us per sync in a probe (8 us with callbacks too), not yet measured in a full
+  run. Either way take costs from an unhooked trace.
 
 ### prime-rl recipe
 
@@ -95,28 +106,36 @@ Dry-run to write the resolved config, then launch it the way the rendered sbatch
 `PYTHONPATH` and the output directory outside the run directory (compile caches as in `projects/prime-rl.md`):
 
 ```bash
-uv run sft @ cfg.toml --run.name $R --max-steps 5 --trace-path ~/tmp/profiling/<investigation>/traces/$R --dry-run
+T=~/tmp/profiling/<investigation>/traces
+uv run sft @ cfg.toml --run.name $R --max-steps 5 --trace-path $T/$R --dry-run
 RUN=$PRL_OUTPUT_DIR/$R
+mkdir -p $T/$R-stacks
 PRL_ATTEMPT_CONFIG_DIR=$RUN/configs/attempt_1/resolved PRL_ATTEMPT_LOG_DIR=$RUN/logs/attempt_1 \
-PYTHONPATH=<skill>/scripts/sync_stacks SYNC_STACKS_OUT=<existing dir> \
+PYTHONPATH=<skill>/scripts/sync_stacks SYNC_STACKS_OUT=$T/$R-stacks \
   uv run --no-sync sft @ $RUN/configs/attempt_1/resolved/sft.json --dry-run False
 ```
 
-The resolved config keeps `dry_run = true`, hence the override. The default step hook,
-`torch.cuda.reset_peak_memory_stats`, runs once at the top of each SFT and RL training step.
-
-Then, with an unhooked trace of the same config (`unhooked.json.gz`):
+The resolved config keeps `dry_run = true`, hence the override. For the unhooked trace that supplies the costs, run
+the same two commands with run name `$U` instead of `$R` and without `PYTHONPATH` and `SYNC_STACKS_OUT`. Then, with
+M micro-batches per step:
 
 ```bash
-python3 scripts/sync_stacks_report.py $SYNC_STACKS_OUT/syncs_rank0.jsonl
-python3 scripts/find_syncs.py $RUN/traces/trace_0.json.gz --stacks $SYNC_STACKS_OUT/syncs_rank0.jsonl --dump hooked.json
-python3 scripts/find_syncs.py unhooked.json.gz --dump unhooked.json
+python3 scripts/sync_stacks_report.py $T/$R-stacks/syncs_rank0.jsonl
+python3 scripts/find_syncs.py $T/$R/trace_0.json.gz --steps M --stacks $T/$R-stacks/syncs_rank0.jsonl --dump hooked.json
+python3 scripts/find_syncs.py $T/$U/trace_0.json.gz --steps M --dump unhooked.json
 python3 scripts/join_sync_dumps.py unhooked.json hooked.json
 ```
 
-`--stacks` matches records to trace sync points on the same thread in order (record wall time minus the trace's
-`baseTimeNanoseconds`); it prints the match rate and records with no blocking call. The join requires equal
-per-thread counts and reports op chain mismatches (0 of 121 here).
+`sync_stacks_report.py` numbers steps by step-hook calls (step 1 is the first training step), counts per training
+step, and by default skips steps 1, 2 and the last. `find_syncs.py` counts per `forward` interval, so multiply its
+counts by M to compare with a training step.
+
+`--stacks` matches records to trace sync points on the same thread (record wall time minus the trace's
+`baseTimeNanoseconds`): a callback record to the next sync point, a warn record to the latest one that returned
+before it, dropped as a duplicate when that point already has a callback record. It prints the match rate and
+records with no blocking call. Syncs on a `threading.Thread` the profiler records no ops for carry a different
+`tid` in the trace and stay unmatched; the autograd thread matches. The join requires equal per-thread counts and
+reports op chain mismatches (0 of 121 here).
 
 ## Pitfalls
 
