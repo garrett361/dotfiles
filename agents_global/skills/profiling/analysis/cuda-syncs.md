@@ -14,13 +14,14 @@ a count per step, and a cost. Verified 2026-09-24 on torch 2.13.0+cu130, 8xB300,
 | `scripts/join_sync_dumps.py` | Python sites (hooked run) on costs (unhooked trace) | Needs identical sequences |
 
 Start with the trace pass on an existing trace (no rerun). Rerun with the stack hooks only when you need lines,
-then join the two. nsys was not needed here (`cuda_api_sum` would count the same runtime calls without
-attribution); see `tools/nsight-systems.md` if you want it.
+then join the two. nsys was not needed here: `cuda_api_sum` counts the same runtime calls, and
+`--cudabacktrace=sync` attributes them only to C++ frames in its SQLite export (see `tools/nsight-systems.md`).
 
 ## 1. Trace pass
 
-`python3 scripts/find_syncs.py trace_0.json.gz [--steps N] [--list] [--dump rows.json]` on a `torch.profiler`
-chrome trace (plain `.json` or `.gz`). The window runs between the last two CPU-side `forward` annotations;
+`python3 scripts/find_syncs.py trace_0.json.gz [--steps N] [--anchor forward] [--list] [--dump rows.json]` on a
+`torch.profiler` chrome trace (plain `.json` or `.gz`). The window runs between the last two CPU-side `forward`
+annotations (`--anchor` names another `record_function` that opens each step in your loop);
 `--steps N` widens it to the last N such intervals, and its "per step" counts are per interval. prime-rl SFT
 annotates every micro-batch, so with M micro-batches per step the default window is one micro-batch with no
 optimizer: `--steps M` covers M micro-batches plus one optimizer step, and `--to-end` covers the final
