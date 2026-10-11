@@ -127,8 +127,5 @@ Notes:
 ## Not yet verified
 
 - Safari and Firefox on the laptop side.
-- Two servers at once: the UI's feature flag "Relax Content Security Policy for 127.0.0.1:*"
-  (`cspAllowAnyWebsocketPort`, found in the v58.3 UI source) plus `#!/?rpc_port=<port>` should admit a trace
-  processor on a laptop port other than 9001.
 - trace_processor memory use and load time on full-model (43-layer, 8-node) traces.
 - The size limit for the in-browser path: 405 MB of JSON loaded in tens of seconds; larger is untested.
