@@ -10,6 +10,9 @@ Library (imported by comm_waits.py and timeline_figure.py):
   thread that spans the launch and whose name matches `pattern`.
 - `Trace.window(marker, index)` returns the [start, end) of the `index`th CPU-side `user_annotation` named
   `marker`, from its start to its end (`span="event"`) or to the next marker of that name (`span="next"`).
+  A marker also matches `<marker>#<n>`, so `ProfilerStep` selects torch.profiler's per-step `ProfilerStep#<n>`.
+- `read_trace(path)` loads a `.json` or `.json.gz` chrome trace; `is_marker(name, marker)` is the marker match
+  above; `pick(events, index, what)` indexes a list or exits with a message naming what was missing.
 - `Trace.main_stream(kernels, exclude)` is the (pid, tid) with the most kernel time among `kernels`, ignoring
   kernels matching `exclude` (pass the NCCL pattern when communication can outweigh compute).
 
@@ -33,6 +36,7 @@ import bisect
 import gzip
 import json
 import re
+import sys
 from collections import defaultdict
 
 HOST_CATEGORIES = ("cpu_op", "user_annotation")
@@ -71,9 +75,9 @@ class Trace:
         )
 
     def window(self, marker, index=-1, span="event"):
-        starts = [e for e in self.host if e.get("cat") == "user_annotation" and e["name"] == marker]
+        starts = [e for e in self.host if e.get("cat") == "user_annotation" and is_marker(e["name"], marker)]
         starts.sort(key=lambda e: e["ts"])
-        event = starts[index]
+        event = pick(starts, index, f"CPU-side user_annotation `{marker}`")
         if span == "event":
             return event["ts"], event["ts"] + event["dur"]
         return event["ts"], next((e["ts"] for e in starts if e["ts"] > event["ts"]), float("inf"))
@@ -112,10 +116,27 @@ class Trace:
         return max(per_stream, key=per_stream.get)
 
 
-def load_trace(path, extra_host_categories=()):
+def read_trace(path):
     opener = gzip.open if str(path).endswith(".gz") else open
     with opener(path, "rt") as f:
-        return Trace(json.load(f)["traceEvents"], extra_host_categories)
+        return json.load(f)
+
+
+def is_marker(name, marker):
+    return name == marker or re.fullmatch(re.escape(marker) + r"#\d+", name) is not None
+
+
+def pick(events, index, what):
+    if not -len(events) <= index < len(events):
+        sys.exit(
+            f"index {index} is out of range: the trace has {len(events)} {what}"
+            " (list annotation names with `trace_events.py <trace> --list-annotations ''`)"
+        )
+    return events[index]
+
+
+def load_trace(path, extra_host_categories=()):
+    return Trace(read_trace(path)["traceEvents"], extra_host_categories)
 
 
 def main():
@@ -148,11 +169,17 @@ def main():
         return
     if args.from_annotation is None:
         parser.error("--from-annotation is required unless --list-annotations is given")
-    opener = [e for e in trace.annotations("") if e["name"] == args.from_annotation][args.from_index]
+    opener = pick(
+        [e for e in trace.annotations("") if e["name"] == args.from_annotation],
+        args.from_index,
+        f"CPU-side user_annotation `{args.from_annotation}`",
+    )
     lo = opener["ts"]
     hi = opener["ts"] + opener["dur"]
     if args.to_annotation:
-        hi = next(e["ts"] + e["dur"] for e in trace.annotations("") if e["name"] == args.to_annotation and e["ts"] > lo)
+        closers = [e for e in trace.annotations("") if e["name"] == args.to_annotation and e["ts"] > lo]
+        closer = pick(closers, 0, f"CPU-side user_annotation `{args.to_annotation}` after the opening one")
+        hi = closer["ts"] + closer["dur"]
     key = trace.busiest_thread(lo, hi)
     name_filter = re.compile(args.name_filter) if args.name_filter else None
     stack = []

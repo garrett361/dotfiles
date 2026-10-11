@@ -6,6 +6,10 @@ window are grouped by kernel name, by call site (innermost `cpu_op` with its `In
 enclosing non-aten op, found via `args["correlation"]` -> launch -> enclosing ops on the launch thread), or by
 both. Ranks by total time and by time per call; NCCL kernels get their own table.
 
+`--annotation NAME` also matches `NAME#<n>`: for a loop driven by `torch.profiler.schedule` and `prof.step()`, pass
+`--annotation ProfilerStep` to window on torch's per-step `ProfilerStep#<n>` ranges. The trace may be `.json` or
+`.json.gz`.
+
 `--annotation-index N` starts the window at the Nth such annotation instead (0-based, negative from the end); unless
 it is the last one, the window ends at the next one's start, so `--annotation-index -3` covers the third-to-last
 step. `--from-annotation NAME` instead windows on GPU-side `record_function` projections (`gpu_user_annotation`):
@@ -33,12 +37,14 @@ Usage: python3 top_kernels.py <trace.json.gz> [--by name|site|both] [--top 15] [
 
 import argparse
 import csv
-import gzip
 import json
 import re
 import statistics
+import sys
 import textwrap
 from collections import defaultdict
+
+from trace_events import is_marker, pick, read_trace
 
 GPU_CATS = ("kernel", "gpu_memcpy", "gpu_memset")
 LAUNCH_CATS = ("cuda_runtime", "cuda_driver")
@@ -307,9 +313,11 @@ def category_table(gpu, end, busy, window, specs):
 
 def main():
     args = parse_args()
-    events = json.load(gzip.open(args.trace))["traceEvents"]
+    events = read_trace(args.trace)["traceEvents"]
     xs = [e for e in events if e.get("ph") == "X"]
     gpu = [e for e in xs if e.get("cat") in GPU_CATS]
+    if not gpu:
+        sys.exit("no kernel, gpu_memcpy or gpu_memset events in the trace (captured without ProfilerActivity.CUDA?)")
     end = max(e["ts"] + e["dur"] for e in gpu)
     if args.whole_trace:
         start = min(e["ts"] for e in gpu)
@@ -317,24 +325,30 @@ def main():
     elif args.launched_in:
         ranges = sorted((e for e in xs if e.get("cat") == "user_annotation" and e["name"] == args.launched_in),
                         key=lambda e: e["ts"])
-        host = ranges[args.launched_in_index]
+        host = pick(ranges, args.launched_in_index, f"CPU-side user_annotation `{args.launched_in}`")
         launched = {e["args"]["correlation"] for e in xs if e.get("cat") in ("cuda_runtime", "cuda_driver")
                     and "correlation" in e.get("args", {}) and host["ts"] <= e["ts"] < host["ts"] + host["dur"]}
         gpu = [e for e in gpu if e.get("args", {}).get("correlation") in launched]
+        if not gpu:
+            sys.exit(f"no GPU events were launched inside CPU `{args.launched_in}` [{args.launched_in_index}]")
         start, end = min(e["ts"] for e in gpu), max(e["ts"] + e["dur"] for e in gpu)
         description = (f"kernels launched in CPU `{args.launched_in}` [{args.launched_in_index}],"
                        " from the first one's start to the last one's end")
     elif args.from_annotation:
         marks = sorted((e for e in xs if e.get("cat") == "gpu_user_annotation"), key=lambda e: e["ts"])
-        opener = [e for e in marks if e["name"] == args.from_annotation][args.from_index]
+        opener = pick([e for e in marks if e["name"] == args.from_annotation], args.from_index,
+                      f"GPU-side annotation `{args.from_annotation}`")
         start, end = opener["ts"], opener["ts"] + opener["dur"]
         if args.to_annotation:
-            end = next(e["ts"] for e in marks if e["name"] == args.to_annotation and e["ts"] > start)
+            closers = [e["ts"] for e in marks if e["name"] == args.to_annotation and e["ts"] > start]
+            end = pick(closers, 0, f"GPU-side annotation `{args.to_annotation}` after the opening one")
         description = f"GPU `{args.from_annotation}` [{args.from_index}] to " + (
             f"next GPU `{args.to_annotation}`" if args.to_annotation else "its end")
     else:
-        steps = sorted(e["ts"] for e in xs if e.get("cat") == "user_annotation" and e.get("name") == args.annotation)
-        start = steps[args.annotation_index]
+        steps = sorted(e["ts"] for e in xs
+                       if e.get("cat") == "user_annotation" and is_marker(e["name"], args.annotation))
+        start = pick(steps, args.annotation_index,
+                     f"CPU-side user_annotation `{args.annotation}` (or `{args.annotation}#<n>`)")
         later = [t for t in steps if t > start]
         if len(later) >= args.annotation_span:
             end = later[args.annotation_span - 1]
@@ -342,6 +356,8 @@ def main():
                        + (f"the {args.annotation_span}th later one" if len(later) >= args.annotation_span
                           else "last GPU event"))
     gpu = [e for e in gpu if start <= e["ts"] < end]
+    if not gpu:
+        sys.exit(f"no GPU events start in the window ({description})")
     stream_time = defaultdict(float)
     for e in gpu:
         stream_time[e["tid"]] += e["dur"]
