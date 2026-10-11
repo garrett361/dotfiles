@@ -9,11 +9,11 @@ Reads the tidy event tables of `intra_kernel_events.py` and uses the event-refer
 
 `timeline`: one panel per variant, stacked on a shared time axis in µs. Each panel shows one representative
 CTA and iteration: the sample whose `--rep` interval is that variant's median, within the `--iteration` class
-(`first` is iteration 0, `steady` the rest). Rows are the warps in `--rows` (`LABEL=wN`, top to bottom). Each
-`--span LABEL=START:END:COLOR` draws a bar on every row whose warp has both events in that iteration, and
-each `--mark LABEL=EVENT:COLOR` a tick. Time 0 is the `--anchor` event of that CTA and iteration, so the
-panels are left-aligned at the same point of the kernel. Each panel's subtitle gives the variant and its
-`--rep` length.
+(`first` is iteration 0, `steady` the rest). Rows are the warps in `--rows` (`LABEL=wN` or `LABEL=ROLE`, top to
+bottom). Each `--span LABEL=START:END:COLOR` draws a bar on every row whose warp has both events in that
+iteration, and each `--mark LABEL=EVENT:COLOR` a tick. Time 0 is the `--anchor` event of that CTA and
+iteration, so the panels are left-aligned at the same point of the kernel. Each panel's subtitle gives the
+variant and its `--rep` length.
 
 `dist`: one row per `--interval`, a box per variant (median line, p20-p80 box, p5-p95 whiskers), split by
 `--iteration`. Lower is better for every interval.
@@ -71,7 +71,7 @@ def timeline(args) -> None:
     events, roles, _ = read_events(args.events)
     variants = list(events)
     chosen = representative(events, roles, args.rep, args.iteration)
-    rows = [(label, int(sel[1:])) for label, sel in (r.rsplit("=", 1) for r in args.rows)]
+    rows = [r.rsplit("=", 1) for r in args.rows]
     spans = [(label, *body.rsplit(":", 2)) for label, body in (s.split("=", 1) for s in args.span)]
     marks = [(label, *body.rsplit(":", 1)) for label, body in (m.split("=", 1) for m in args.mark)]
     fig, axes = plt.subplots(
@@ -85,7 +85,8 @@ def timeline(args) -> None:
         t0 = event_time(warps, args.anchor, roles[variant], iteration)
         if t0 is None:
             raise SystemExit(f"{variant}: anchor {args.anchor} missing in CTA {cta} iteration {iteration}")
-        for y, (_, warp) in enumerate(rows):
+        for y, (_, selector) in enumerate(rows):
+            warp = resolve_warp(selector, roles[variant])
             for label, start, end, color in spans:
                 t_start = event_time(warps, start, roles[variant], iteration, warp)
                 t_end = event_time(warps, end, roles[variant], iteration, warp)
@@ -136,7 +137,7 @@ def dist(args) -> None:
             median = statistics.median(values) if values else float("nan")
             labels.append(f"{variant}  {median:.2f}")
         box = ax.boxplot(data, orientation="horizontal", whis=(5, 95), showfliers=False, widths=0.55, patch_artist=True)
-        for patch, color in zip(box["boxes"], colors):
+        for patch, color in zip(box["boxes"], colors * len(variants)):
             patch.set(facecolor=color, alpha=0.85, edgecolor="white")
         for median_line in box["medians"]:
             median_line.set(color=TEXT, linewidth=1.5)
@@ -172,7 +173,9 @@ def main() -> None:
     p_tl = sub.choices["timeline"]
     p_tl.add_argument("--rep", required=True, help="NAME=START:END whose median picks the representative CTA")
     p_tl.add_argument("--anchor", required=True, help="event reference at t = 0, e.g. init_done@w0")
-    p_tl.add_argument("--rows", action="append", required=True, help="LABEL=wN, repeatable, top to bottom")
+    p_tl.add_argument(
+        "--rows", action="append", required=True, help="LABEL=wN or LABEL=ROLE, repeatable, top to bottom"
+    )
     p_tl.add_argument("--span", action="append", default=[], help="LABEL=START:END:COLOR, repeatable")
     p_tl.add_argument("--mark", action="append", default=[], help="LABEL=EVENT:COLOR, repeatable")
     p_tl.add_argument("--xlim", type=float, nargs=2)
