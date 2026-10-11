@@ -22,13 +22,14 @@ which of the listed intervals (usually waits) was longest: the fraction of sampl
 its median length there. Samples where every listed interval is at most `--gate-floor-ns` (default 64 ns,
 two 32 ns ticks) count as `none`, since a wait that short only says the data had already arrived.
 `--sm-gaps` adds, per variant, the idle time on an SM between one CTA's last warp exit and the next CTA's
-first warp start (non-persistent grids). `--spans` adds each launch's span, first warp start to last warp
-exit, the traced counterpart of the kernel's duration. `--crowding NAME` asks whether an interval (usually a
-load's issue to its arrival) gets longer when many CTAs run it at once: for each sample it counts the samples
-of that interval, anywhere in the same launch, that have started and not yet ended at its start (itself
-included), then reports the median duration per count bucket (`--crowding-buckets`, default 20,40,60,100)
-and the median number of other starts within `--crowding-window-ns` (default 250) of each start. `--csv` also
-writes every sample.
+first warp start (non-persistent grids). When CTAs share an SM, only time with no CTA resident counts as a
+gap, and the last column gives the most CTAs seen on one SM at once. `--spans` adds each launch's span, first
+warp start to last warp exit, the traced counterpart of the kernel's duration. `--crowding NAME` asks whether
+an interval (usually a load's issue to its arrival) gets longer when many CTAs run it at once: for each sample
+it counts the samples of that interval, anywhere in the same launch, that have started and not yet ended at its
+start (itself included), then reports the median duration per count bucket (`--crowding-buckets`, default
+20,40,60,100) and the median number of other starts within `--crowding-window-ns` (default 250) of each start.
+`--csv` also writes every sample.
 
 Usage:
   python3 intra_kernel_intervals.py np_tma.events.csv.gz p_tma.events.csv.gz \\
@@ -50,12 +51,18 @@ def read_events(paths: list[str]):
     events = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(list))))
     roles = defaultdict(dict)
     placement = defaultdict(dict)
+    source = {}
     for path in paths:
         opener = gzip.open if path.endswith(".gz") else open
         with opener(path, "rt", newline="") as f:
             for row in csv.DictReader(f):
                 ref = row["event"] if row["phase"] == "mark" else f"{row['event']}.{row['phase']}"
                 key = (int(row["launch"]), int(row["cta"]))
+                if source.setdefault((row["variant"], key[0]), path) != path:
+                    raise SystemExit(
+                        f"{path} and {source[row['variant'], key[0]]} both hold variant {row['variant']!r}"
+                        f" launch {key[0]}; give each run its own --variant"
+                    )
                 warp = int(row["warp"])
                 events[row["variant"]][key][warp][ref].append(int(row["t_ns"]))
                 roles[row["variant"]][warp] = row["role"]
@@ -90,6 +97,7 @@ def interval_samples(events, roles, spec: str):
     start_text, end_text = body.split(":")
     (start_ref, start_sel), (end_ref, end_sel) = parse_ref(start_text), parse_ref(end_text)
     samples = []
+    unpaired = negative = 0
     for variant, ctas in events.items():
         start_warp, end_warp = resolve_warp(start_sel, roles[variant]), resolve_warp(end_sel, roles[variant])
         for (launch, cta), warps in ctas.items():
@@ -101,8 +109,22 @@ def interval_samples(events, roles, spec: str):
                 ew = end_warp if end_warp is not None else start_warp
                 pairs = [(sw, warps.get(sw, {}).get(start_ref, []), warps.get(ew, {}).get(end_ref, []))]
             for warp, starts, ends in pairs:
+                unpaired += len(starts) != len(ends)
                 for iteration, (t_start, t_end) in enumerate(zip(starts, ends)):
+                    negative += t_end < t_start
                     samples.append((variant, launch, cta, warp, iteration, t_end - t_start, t_start))
+    if unpaired:
+        print(
+            f"note: interval {name}: START and END counts differ in {unpaired} warps or CTAs, which pair only their"
+            " first occurrences, in order: expected for a one-off event such as an init, otherwise a missing event"
+            " shifts every later pair",
+            file=sys.stderr,
+        )
+    if negative:
+        print(
+            f"warning: interval {name}: {negative} samples end before they start (mispaired or wrapped clock)",
+            file=sys.stderr,
+        )
     return name, samples
 
 
@@ -156,8 +178,8 @@ def print_gate_table(spec: str, results: dict[str, list], floor_ns: int) -> None
 
 def print_sm_gaps(events, placement) -> None:
     print("\nidle time on an SM between consecutive CTAs, µs (lower is better)\n")
-    print("| variant | n gaps | median | p20 | p80 | CTAs per SM (median) |")
-    print("|---|---|---|---|---|---|")
+    print("| variant | n gaps | median | p20 | p80 | CTAs per SM (median) | CTAs at once (max) |")
+    print("|---|---|---|---|---|---|---|")
     for variant, ctas in sorted(events.items()):
         spans = defaultdict(list)
         for key, warps in ctas.items():
@@ -165,15 +187,21 @@ def print_sm_gaps(events, placement) -> None:
             ends = [t for refs in warps.values() for t in refs.get("warp.end", [])]
             if starts and ends:
                 spans[(key[0], placement[variant][key])].append((min(starts), max(ends)))
-        gaps, counts = [], []
+        gaps, counts, resident = [], [], 1
         for intervals in spans.values():
             intervals.sort()
             counts.append(len(intervals))
-            gaps.extend((b[0] - a[1]) / 1e3 for a, b in zip(intervals, intervals[1:]))
-        if gaps:
-            median, p20, p80 = quantiles(gaps)
+            busy_until, ends = intervals[0][1], []
+            for start, end in intervals:
+                ends = [e for e in ends if e > start] + [end]
+                resident = max(resident, len(ends))
+                if start > busy_until:
+                    gaps.append((start - busy_until) / 1e3)
+                busy_until = max(busy_until, end)
+        if counts:
+            median, p20, p80 = (f"{q:.3f}" for q in quantiles(gaps)) if gaps else ("-", "-", "-")
             print(
-                f"| {variant} | {len(gaps)} | {median:.3f} | {p20:.3f} | {p80:.3f} | {statistics.median(counts):.0f} |"
+                f"| {variant} | {len(gaps)} | {median} | {p20} | {p80} | {statistics.median(counts):.0f} | {resident} |"
             )
 
 
