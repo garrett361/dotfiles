@@ -14,8 +14,8 @@ Perfetto's JSON importer silently drops events with negative timestamps, so afte
 anchor, all arms are shifted by one common offset that puts the earliest event at t = 0. Arms stay aligned
 with each other; the anchor lands at the printed offset instead of 0. (Plain-`id` async events would also
 be global, grouped by name across processes, which is why markers use a thread track.) torch projects `backward` onto the GPU with
-zero duration (autograd launches from its own thread), so an empty GPU marker is extended to the last kernel
-end in that GPU process.
+zero duration (autograd launches from its own thread), so a GPU marker shorter than 10 us is extended to the
+next step marker's start in that GPU process, or to its last kernel end if no marker follows.
 
 The anchor is the Nth event (0-based, negative counts from the end) whose name equals the anchor name. A
 prefix restricts the event category: `kernel:` GPU kernels, `gpu:` GPU-side `record_function` annotations
@@ -37,6 +37,7 @@ import json
 from trace_events import is_marker, pick, read_trace
 
 STEP_MARKERS = {"forward", "backward"}
+EMPTY_MARKER_US = 10.0
 ANNOTATION_TID_BASE, STEP_MARKER_TID = 800_000_000, 1
 
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -102,8 +103,9 @@ for arm, spec in enumerate(args.trace):
         merged.append(e)
     for e in step_markers:
         end = e["ts"] + e.get("dur", 0)
-        if end - e["ts"] < 1000.0:
-            end = last_kernel_end.get(e["pid"], end)
+        if end - e["ts"] < EMPTY_MARKER_US:
+            later = [m["ts"] for m in step_markers if m["pid"] == e["pid"] and m["ts"] > e["ts"]]
+            end = min(later, default=last_kernel_end.get(e["pid"], end))
         merged.append({"ph": "X", "cat": "step", "name": e["name"], "pid": e["pid"], "tid": STEP_MARKER_TID, "ts": e["ts"], "dur": end - e["ts"]})
         step_marker_pids.add(e["pid"])
     for pid in step_marker_pids:
