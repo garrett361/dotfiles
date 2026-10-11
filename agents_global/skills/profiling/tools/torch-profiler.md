@@ -19,8 +19,8 @@ truncates kernel names, so templated elementwise kernels all look alike there.
   end of every step. Each step becomes a CPU-side `ProfilerStep#<n>` range: pass `--launched-in ProfilerStep` to
   `top_kernels.py` (see the window pitfall below), `--annotation ProfilerStep` to `trim_last_step.py`, and
   `--step-marker ProfilerStep` to `timeline_figure.py`. Without `repeat=1` the schedule cycles and each
-  cycle's export overwrites the last. Projects with their own step annotation use it instead (prime-rl:
-  `forward`, the scripts' default; see `projects/prime-rl.md`).
+  cycle's export overwrites the last. Projects with their own annotation use it instead (prime-rl: `forward`,
+  the scripts' default, once per micro-batch; see `projects/prime-rl.md`).
 - `record_shapes` puts `Input Dims` on CPU ops, which identifies call sites and shapes. `with_stack=True` adds
   Python frames, for `trace_events.py --include-python`.
 - Keep captures short (a handful of steps) and analyze only a steady-state step: early steps include
