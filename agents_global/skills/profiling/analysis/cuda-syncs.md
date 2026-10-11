@@ -2,7 +2,9 @@
 
 Goal: every point in a steady-state step where the host blocks on the GPU, each with an op, a Python file:line,
 a count per step, and a cost. Verified 2026-09-24 on torch 2.13.0+cu130, 8xB300, prime-rl SFT (DeepSeek V4 Flash
-6-layer proxy: 121 syncs per step, identical on every step and rank).
+6-layer proxy: 121 syncs per step, identical on every step and rank). Rechecked 2026-10-11 on H200 against toy loops
+with known syncs (forward, backward, a worker thread, a `torch.compile` graph break): both passes found each at its
+line, with no false positive on a sync-free control.
 
 ## Which method answers what
 
