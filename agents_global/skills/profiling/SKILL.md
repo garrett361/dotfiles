@@ -32,7 +32,8 @@ Op level:
   (`--cudagraph` for ops under ~20 us); `tools/do-bench.md`.
 - How long does a region of my code take, per call? Copy `scripts/cuda_timer.py` into the project (the one script
   meant to be copied, not run).
-- Which kernels inside an op cost the time? `bench_ops.py --trace`, then `scripts/top_kernels.py --whole-trace`.
+- Which kernels inside an op cost the time? `bench_ops.py --trace`, then `scripts/top_kernels.py --whole-trace
+  --decimals 3` and `scripts/kernel_diff.py --decimals 3`.
 - A CuTe DSL op: does it re-trace or pay host overhead on every call? `tools/cute-dsl.md`, before timing it.
 
 End to end, from traces:
@@ -77,7 +78,9 @@ Showing results:
 Project-specific capture recipes live in `projects/` (e.g. `projects/prime-rl.md`). Read the one for the
 current repo before launching anything. Without one, capture as in `tools/torch-profiler.md` and pass the
 repo's step annotation and optimizer kernel to the scripts' step flags (`--annotation`, `--step-marker`,
-`--step-boundary`), whose defaults, where they have one, follow prime-rl.
+`--step-boundary`), whose defaults, where they have one, follow prime-rl. A `torch.profiler.schedule` capture
+names each step `ProfilerStep#<n>`, which the scripts match as `ProfilerStep`; for `top_kernels.py` prefer
+`--launched-in ProfilerStep`, since CPU-timed windows misplace kernels when the GPU lags the host.
 
 ## Where artifacts go
 
