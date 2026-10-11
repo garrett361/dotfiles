@@ -8,6 +8,8 @@ per-category before/after/delta table; unmatched kernels fall into "other".
 `--key label` joins on the `label` column instead, which for `top_kernels.py --by site` or `--by both` CSVs is the
 launching op (with dims) plus the kernel, so the same kernel launched from different ops (forward vs backward, or a
 cast inside a custom op vs one in a compiled graph) gets its own row; categories then match the label too.
+Labels that `top_kernels.py` numbered `#2`, `#3` (distinct kernels that shorten alike) are joined on the label without
+the number plus the raw kernel name, since the numbering depends on which kernels each file contains.
 `--filter REGEX` keeps only rows whose key matches (e.g. one kernel family across all its call sites).
 
 Usage: python3 kernel_diff.py before.csv after.csv [--top 30] [--name-width 90] [--group compute]
@@ -18,19 +20,31 @@ import argparse
 import csv
 import re
 
+NUMBERED_LABEL = re.compile(r" #\d+$")
 
-def load(path, group, column="kernel_names", keep=None):
-    rows = {}
+
+def read_rows(path, group):
     with open(path, newline="") as f:
-        for row in csv.DictReader(f):
-            if group != "all" and row["group"] != group:
-                continue
-            if keep is not None and not keep.search(row[column]):
-                continue
-            key = (row["group"], row[column])
-            total, calls = rows.get(key, (0.0, 0))
-            rows[key] = (total + float(row["total_us"]) / 1000.0, calls + int(row["calls"]))
-    return rows
+        return [row for row in csv.DictReader(f) if group == "all" or row["group"] == group]
+
+
+def join_key(row, column, numbered):
+    if column != "label":
+        return row[column]
+    label = NUMBERED_LABEL.sub("", row["label"])
+    return f"{label} [{row['kernel_names']}]" if label in numbered else label
+
+
+def load(rows, column, numbered, keep=None):
+    totals = {}
+    for row in rows:
+        name = join_key(row, column, numbered)
+        if keep is not None and not keep.search(name):
+            continue
+        key = (row["group"], name)
+        total, calls = totals.get(key, (0.0, 0))
+        totals[key] = (total + float(row["total_us"]) / 1000.0, calls + int(row["calls"]))
+    return totals
 
 
 def shorten(name, width):
@@ -53,7 +67,11 @@ def main():
 
     column = "kernel_names" if args.key == "kernel" else "label"
     keep = re.compile(args.filter) if args.filter else None
-    before, after = load(args.before, args.group, column, keep), load(args.after, args.group, column, keep)
+    before_rows, after_rows = read_rows(args.before, args.group), read_rows(args.after, args.group)
+    numbered = {
+        NUMBERED_LABEL.sub("", r["label"]) for r in before_rows + after_rows if NUMBERED_LABEL.search(r["label"])
+    }
+    before, after = load(before_rows, column, numbered, keep), load(after_rows, column, numbered, keep)
     keys = set(before) | set(after)
     rows = []
     for key in keys:
