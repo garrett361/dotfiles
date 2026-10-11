@@ -20,16 +20,21 @@ end in that GPU process.
 The anchor is the Nth event (0-based, negative counts from the end) whose name equals the anchor name. A
 prefix restricts the event category: `kernel:` GPU kernels, `gpu:` GPU-side `record_function` annotations
 (e.g. `gpu:FSDP::all_gather_copy_out (model.layers.2)`, which starts that layer's forward, matching
-`timeline_figure.py --anchor-annotation`), `cpu:` CPU ops and annotations. No prefix matches any event.
+`timeline_figure.py --anchor-annotation`), `cpu:` CPU ops and annotations. No prefix matches any event, so a
+`record_function` name matches both its CPU range and its GPU projection. The name also matches `<name>#<n>`:
+`--anchor cpu:ProfilerStep --anchor-index -1` is the start of the last `ProfilerStep#<n>`. Inputs may be `.json`
+or `.json.gz`.
 
 Usage: python3 merge_traces.py <out.json.gz> --anchor <name> [--anchor-index N] --trace "<label>=<trace.json.gz>" ...
-  e.g. `--anchor forward --anchor-index -2` (last SFT step start), `--anchor kernel:main_kernel --anchor-index 2`,
+  e.g. `--anchor cpu:forward --anchor-index -1` (last SFT step start), `--anchor kernel:main_kernel --anchor-index 2`,
   or `--anchor "gpu:FSDP::all_gather_copy_out (model.layers.2)"` (start of layer 2's forward).
 """
 
 import argparse
 import gzip
 import json
+
+from trace_events import is_marker, pick, read_trace
 
 STEP_MARKERS = {"forward", "backward"}
 ANNOTATION_TID_BASE, STEP_MARKER_TID = 800_000_000, 1
@@ -50,12 +55,15 @@ else:
 merged = []
 for arm, spec in enumerate(args.trace):
     label, path = spec.split("=", 1)
-    events = json.load(gzip.open(path))["traceEvents"]
-    t0 = sorted(
+    events = read_trace(path)["traceEvents"]
+    anchors = sorted(
         e["ts"]
         for e in events
-        if e.get("ph") == "X" and e.get("name") == anchor_name and (anchor_cats is None or e.get("cat") in anchor_cats)
-    )[nth]
+        if e.get("ph") == "X"
+        and is_marker(e.get("name", ""), anchor_name)
+        and (anchor_cats is None or e.get("cat") in anchor_cats)
+    )
+    t0 = pick(anchors, nth, f"events named `{anchor}` in {path}")
     device_labels = {
         e["pid"]: e["args"]["labels"]
         for e in events
