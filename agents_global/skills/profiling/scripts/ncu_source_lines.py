@@ -60,8 +60,9 @@ def to_number(value):
 
 
 def parse_rows(text):
-    """Yield (function, file, line_no, source, kind, metrics) per row; kind is "line" or "sass"."""
-    file_path, function, header = "", "", None
+    """Yield (launch, file, line_no, source, kind, metrics) per row; kind is "line" or "sass"."""
+    file_path, launch, header = "", "", None
+    files_seen, launches = defaultdict(set), defaultdict(int)
     for row in csv.reader(io.StringIO(text)):
         if not row:
             continue
@@ -69,14 +70,19 @@ def parse_rows(text):
             file_path = row[1]
         elif row[0] == "Function Name":
             function = row[1]
+            if file_path in files_seen[function]:
+                files_seen[function] = set()
+                launches[function] += 1
+            files_seen[function].add(file_path)
+            launch = function if launches[function] == 0 else f"{function} #{launches[function] + 1}"
         elif row[0] == "Line No":
             header = row
         elif header is not None:
             metrics = {name: to_number(value) for name, value in zip(header[4:], row[4:])}
             if row[0]:
-                yield function, file_path, row[0], row[1].strip(), "line", metrics
+                yield launch, file_path, row[0], row[1].strip(), "line", metrics
             else:
-                yield function, file_path, row[2], row[3].strip(), "sass", metrics
+                yield launch, file_path, row[2], row[3].strip(), "sass", metrics
 
 
 def stall_summary(metrics, count):
@@ -95,19 +101,19 @@ def main():
     if not rows:
         raise SystemExit(f"no {args.view} rows in the source page; was the kernel built with line info?")
     total_samples = defaultdict(float)
-    for function, _, _, _, _, metrics in rows:
-        total_samples[function] += metrics.get(ALL_SAMPLES, 0.0)
+    for launch, _, _, _, _, metrics in rows:
+        total_samples[launch] += metrics.get(ALL_SAMPLES, 0.0)
     rows.sort(key=lambda row: -row[5].get(ALL_SAMPLES, 0.0))
     location_header = "file:line" if args.view == "line" else "address"
     print(f"| kernel | {location_header} | source | samples | % of kernel | inst executed | top stalls |")
     print("|---|---|---|---:|---:|---:|---|")
-    for function, file_path, location, source, _, metrics in rows[: args.top]:
+    for launch, file_path, location, source, _, metrics in rows[: args.top]:
         samples = metrics.get(ALL_SAMPLES, 0.0)
-        share = 100.0 * samples / total_samples[function] if total_samples[function] else 0.0
+        share = 100.0 * samples / total_samples[launch] if total_samples[launch] else 0.0
         where = f"{file_path.rsplit('/', 1)[-1]}:{location}" if args.view == "line" else location
         text = re.sub(r"\s+", " ", source)[: args.source_width].replace("|", "\\|")
         print(
-            f"| {function[:40]} | {where} | `{text}` | {int(samples)} | {share:.1f} | "
+            f"| {launch[:40]} | {where} | `{text}` | {int(samples)} | {share:.1f} | "
             f"{int(metrics.get(INST_EXECUTED, 0.0))} | {stall_summary(metrics, args.stalls)} |"
         )
 
