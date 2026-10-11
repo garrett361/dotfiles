@@ -134,6 +134,7 @@ def categorize(name, categories):
 
 def load_step(path, step_marker, step_index, main_exclude=None):
     trace = load_trace(path)
+    nth(trace.annotations(f"^{re.escape(step_marker)}$"), step_index, f"{path}: CPU user_annotation {step_marker!r}")
     start, end = trace.window(step_marker, step_index, span="next")
     kernels = [e for e in trace.kernels if start <= (e["launch"] or e)["ts"] < end]
     main = trace.main_stream(kernels, main_exclude)
@@ -144,8 +145,8 @@ def load_step(path, step_marker, step_index, main_exclude=None):
         "start": start,
         "end": end,
         "stream": stream,
-        "device": device,
         "main_all": [e for e in device if e["tid"] == main[1]],
+        "device": device,
         "host": trace.host,
         "annotations": annotations,
         "trace": trace,
@@ -158,6 +159,12 @@ def launched_in(step, name):
                 and step["start"] <= e["ts"] < step["end"])
     return [k for k in step["device"] if k.get("launch") is not None
             and host["ts"] <= k["launch"]["ts"] < host["ts"] + host["dur"]]
+
+
+def nth(items, index, what):
+    if not -len(items) <= index < len(items):
+        raise SystemExit(f"{what} occurs {len(items)} times, so index {index} is out of range")
+    return items[index]
 
 
 def parse_segments(specs):
@@ -329,9 +336,13 @@ def main():
         elif args.anchor_comm_owner:
             anchor_ts = next(c["start"] for c in comm["comms"] if c["owner"] == args.anchor_comm_owner)
         elif args.anchor_annotation:
-            anchor_ts = [e for e in step["annotations"] if e["name"] == args.anchor_annotation][args.anchor_index]["ts"]
+            matches = [e for e in step["annotations"] if e["name"] == args.anchor_annotation]
+            what = f"{label}: GPU-side annotation {args.anchor_annotation!r} in the step"
+            anchor_ts = nth(matches, args.anchor_index, what)["ts"]
         elif args.anchor:
-            anchor_ts = [e for e in stream if e["name"] == args.anchor][args.anchor_index]["ts"]
+            matches = [e for e in stream if e["name"] == args.anchor]
+            what = f"{label}: main-stream kernel {args.anchor!r} in the step"
+            anchor_ts = nth(matches, args.anchor_index, what)["ts"]
         else:
             anchor_ts = step["start"]
         for e in step["main_all"]:

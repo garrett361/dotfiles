@@ -93,12 +93,18 @@ def label_for(name, rules):
 
 def analyze_trace(trace, args, rules):
     """Waits and labeled comm kernels in one trace; `args` carries the CLI options (see parse_args)."""
+    markers = trace.annotations(f"^{re.escape(args.step_marker)}$")
+    if not -len(markers) <= args.step_index < len(markers):
+        raise SystemExit(f"--step-marker {args.step_marker!r} occurs {len(markers)} times as a CPU user_annotation, "
+                         f"so --step-index {args.step_index} is out of range")
     lo, hi = trace.window(args.step_marker, args.step_index, span="event")
     launched = [k for k in trace.kernels if k["launch"] is not None and lo <= k["launch"]["ts"] < hi]
+    exclude = re.compile(args.exclude_compute)
+    if not any(not exclude.search(k["name"]) for k in launched):
+        raise SystemExit(f"no kernels outside --exclude-compute were launched in {args.step_marker!r}")
     main = trace.main_stream(launched, args.exclude_compute)
     stream = [k for k in launched if (k["pid"], k["tid"]) == main]
     stream.sort(key=lambda k: k["launch"]["ts"])
-    exclude = re.compile(args.exclude_compute)
     compute = merge([(k["ts"], k["ts"] + k["dur"]) for k in stream if not exclude.search(k["name"])])
 
     comm_pattern = re.compile(args.comm_kernel)
@@ -154,6 +160,7 @@ def analyze_trace(trace, args, rules):
     tail = max((c["end"] for c in comms), default=last_compute_end) - last_compute_end
     return {
         "window_ms": (hi - lo) / 1e3,
+        "step_marker": args.step_marker,
         "main_stream": main[1],
         "waits": waits,
         "comms": comms,
@@ -173,7 +180,7 @@ def summarize(label, result):
     per_comm = defaultdict(list)
     for c in result["comms"]:
         per_comm[c["label"]].append(c)
-    print(f"\n{label}: backward window {result['window_ms']:.1f} ms, main stream {result['main_stream']}")
+    print(f"\n{label}: {result['step_marker']} window {result['window_ms']:.1f} ms, main stream {result['main_stream']}")
     print(
         f"  waits {len(waits)}, matched {len(matched)}, stall on popped comm {stall:.2f} ms "
         f"(+{sum(w['stall_ms'] for w in waits if not w['matched']):.2f} ms unmatched gaps), "
