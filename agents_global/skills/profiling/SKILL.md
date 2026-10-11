@@ -1,65 +1,78 @@
 ---
 name: profiling
-description: Measure and explain GPU/PyTorch performance with the right tool for the question (triton do_bench, torch.profiler traces, Nsight Systems, Nsight Compute), A/B a change fairly, and report hard evidence (numbers plus trace figures). Use when benchmarking a kernel or PR, asking why a speedup does or does not show up end to end, profiling a training run, or producing perf evidence for a PR description.
+description: Measure and explain GPU/PyTorch performance and A/B a change fairly, with hard evidence (numbers plus trace figures). Use when benchmarking a kernel, op or PR; asking why a speedup misses end to end or where step time goes; profiling a training run (torch.profiler, Nsight Systems, Nsight Compute); finding host syncs or torch.compile recompiles; inspecting kernel stalls, SASS or spills; viewing a trace in Perfetto; or producing perf evidence for a PR.
 ---
 
 # Profiling
 
 ## Rule: everything goes through this skill's scripts
 
-Every analysis, table, merged trace, and figure is produced by running a script in this skill's `scripts/`
-with explicit arguments. No ad hoc code: no inline `python -c`, no heredoc analysis, no scratch scripts in
-`~/tmp`, no hand-edited trace files or figures. The goal is that every number and figure can be regenerated
-later, by anyone, from the recorded commands and the raw traces.
+Every analysis, table, merged trace, and figure comes from running a script in this skill's `scripts/` with
+explicit arguments: no inline `python -c`, no heredoc analysis, no scratch scripts in `~/tmp`, no hand-edited
+traces or figures. Every number and figure must be regenerable from the raw traces and the investigation's
+`commands.sh`, which records each command that produced a result, in order, with all arguments. Files a
+script takes as input (a `bench_ops.py` cases file, a toy repro) are not analysis; keep them in the
+investigation's `inputs/`.
 
-The scripts are meant to grow: when one can't do what's needed, extend it (or add a new script) as part of
-the investigation, then run it. Agents are expected to do this, and to update this file and the docs it links
-when they add a capability. Keep extensions general and maintainable: a new flag or option with a sensible
-default, documented in the script's usage docstring, not hardcoded to one model, run, or kernel name.
-Project-specific knowledge goes in arguments or in `projects/<repo>.md`, not in the script. Keep extensions
-backward compatible so earlier recorded commands still reproduce.
-
-Record every command that produced a result in the investigation's `commands.sh` (see below), in order,
-with the script's path and all arguments. Capture harnesses that must run inside a project (e.g. a
-`sitecustomize.py` hook) also live in this skill's `scripts/`, not in the investigation directory.
+When a script can't do what's needed, extend it (or add one), run it, and route to it from this file or the doc
+that covers its question. Keep extensions general and backward compatible: a flag with a sensible default,
+documented in the script's usage docstring, never hardcoded to one model, run, or kernel. Project-specific
+knowledge goes in arguments or `projects/<repo>.md`. Capture harnesses that run inside a project (e.g. a
+`sitecustomize.py` hook) also live in `scripts/`.
 
 ## 1. Pick the tool by the question
 
-| Question | Tool | Details |
-|---|---|---|
-| Is this kernel/op faster, and by how much? | `triton.testing.do_bench` or CUDA events | `tools/do-bench.md` |
-| Which of several implementations of an op is faster (median, p20, p80), and its peak memory (`--memory`)? | `scripts/bench_ops.py` with a cases file | its usage docstring |
-| How long does a region of my code take (per call, aggregated)? | `scripts/cuda_timer.py`, copied in | `tools/do-bench.md` |
-| Which kernels inside an op cost the time? | `torch.profiler` over a few op iterations | `tools/torch-profiler.md` |
-| Why doesn't an op win show up in step time? | Diff of two end-to-end `torch.profiler` traces | `tools/torch-profiler.md` |
-| What annotations and host ranges does this trace have? | `scripts/trace_events.py` | its usage docstring |
-| Where does one op's host time go, down to Python frames and launch calls? | `with_stack=True` trace, then `scripts/trace_events.py --include-python` | its usage docstring |
-| Does a prime-rl model change move per-token logprobs, step time or peak memory, on real weights and text? Which class did a module become after the replacement passes? | `scripts/prime_rl_logprob_ab.py` (`dump` per arm under torchrun, then `compare`, `--module-types`) | its usage docstring |
-| What keeps `torch.compile` recompiling, at which step? | `scripts/recompile_reasons.py` on a `TORCH_LOGS=recompiles` log | its usage docstring |
-| Where should I optimize? Which kernels cost most? | `scripts/top_kernels.py` or nsys | `analysis/top-kernels.md` |
-| Which kernels changed between two traces, per kernel and per category? | `scripts/kernel_diff.py` on two `top_kernels.py --csv` files | its usage docstring; `--key label` on `--by both` CSVs splits by launching op |
-| Where does the step time go, as rows that sum to the step (compute by category, exposed comm by collective, idle by cause)? Why is arm B slower than arm A, reconciled with the untraced delta? | `scripts/step_accounting.py` on torch traces or nsys SQLite, then `scripts/accounting_figure.py` | its usage docstring |
-| How much host work (launches, thread busy time, time in named ops) does each arm issue per step? | `scripts/host_ops.py` | its usage docstring |
-| How do arms compare on step time, memory, loss? | `scripts/run_metrics.py` (`--summarize`, `--lines`, bars) | its usage docstring |
-| Where are host gaps, syncs, stream overlap? | Nsight Systems | `tools/nsight-systems.md` |
-| Where does the host block on the GPU (syncs), from which line? | `scripts/find_syncs.py` | `analysis/cuda-syncs.md` |
-| Why is one kernel slow (bandwidth, occupancy)? | Nsight Compute | `tools/nsight-compute.md` |
-| Which source lines (CUDA, CuTe DSL, Triton) of one kernel do warps stall on, and why? | ncu `SourceCounters` on a line-info build, then `scripts/ncu_source_lines.py` | `tools/nsight-compute.md` |
-| A CuTe DSL kernel: compile vs launch time, JIT cache, PTX/SASS dumps, registers and spills? Which MMA instruction did a compiler emit? | DSL env vars, `cuobjdump` | `tools/cute-dsl.md` |
-| Do two kernels (TileLang, CuTe DSL, Triton, CUDA) share a design: MMA flavor and shapes, `cp.async` vs TMA, `stmatrix`, barriers, registers, spills (and from which source lines)? | `scripts/sass_inventory.py` (`--by-line LDL STL`) on cubins, `.so` files or cache dirs | its usage docstring; `tools/cute-dsl.md` |
-| Inside one kernel, when does each warp role issue, wait and finish, which wait gates the next step, do loads bunch up across the GPU? | Intra-kernel tracing (IKET for CuTe DSL) | `tools/intra-kernel.md` |
-| Turn an intra-kernel trace into a recorder-agnostic event table | `scripts/intra_kernel_events.py` | its usage docstring |
-| Named intervals per CTA and iteration, the gating wait, SM gaps, launch spans, load crowding | `scripts/intra_kernel_intervals.py` | its usage docstring |
-| A/B figures from intra-kernel events: per-warp timelines, interval distributions | `scripts/intra_kernel_ab_figure.py` | its usage docstring |
-| How does the user see a remote trace locally? | Perfetto UI + ssh forward (`serve_cors.py`; big traces: `serve_trace_processor.py`) | `viewing/remote-perfetto.md` |
+Read only what the matching line names. A script named without a doc is documented by its module docstring at
+the top of the file. Run each script as its docstring says: `python3` for stdlib-only scripts, `uv run --script`
+when the file's header declares dependencies, the project's interpreter (`uv run --no-sync python`) when it
+imports torch or the project.
+
+Op level:
+- Is this op faster, and by how much (median, p20, p80, peak memory)? `scripts/bench_ops.py`; `tools/do-bench.md`.
+- How long does a region of my code take, per call? Copy `scripts/cuda_timer.py` into the project (the one script
+  meant to be copied, not run).
+- Which kernels inside an op cost the time? `bench_ops.py --trace`, then `scripts/top_kernels.py --whole-trace`.
+
+End to end, from traces:
+- Why doesn't an op win show up in step time? Capture both arms (`tools/torch-profiler.md`), then diff them with
+  the scripts below.
+- Where should I optimize, which kernels cost most and which op launched them? `scripts/top_kernels.py` (torch
+  trace) or `scripts/nsys_kernels.py` (nsys SQLite); `analysis/top-kernels.md`.
+- Which kernels changed between two traces, per kernel, category or launching op? `scripts/kernel_diff.py`.
+- Where does the step time go (compute by category, exposed comm, idle by cause), and why is arm B slower,
+  reconciled with untraced step time? `scripts/step_accounting.py`, then `scripts/accounting_figure.py`.
+- How much host work (launches, thread busy time, named ops) does each arm issue per step? `scripts/host_ops.py`.
+- Do host-side stream waits (e.g. FSDP's reduce-scatter cap) stall the GPU, and how much does labeled
+  communication overlap compute? `scripts/comm_waits.py`.
+- What annotations and host ranges does a trace have; where does one op's host time go, down to Python frames?
+  `scripts/trace_events.py` (`--include-python` on a `with_stack=True` trace).
+- Host gaps, stream overlap and NCCL across a whole step, with no code change? `tools/nsight-systems.md`.
+
+Runs, host and compiler:
+- How do arms compare on step time, memory, loss? `scripts/run_metrics.py`.
+- Where does the host block on the GPU (syncs), from which Python line? `scripts/find_syncs.py`, then
+  `scripts/sync_stacks/`, `sync_stacks_report.py` and `join_sync_dumps.py`; `analysis/cuda-syncs.md`.
+- What keeps `torch.compile` recompiling, at which step? `scripts/recompile_reasons.py`.
+- Does a prime-rl model change move logprobs, step time or peak memory on real weights, and which class did a
+  module become? `scripts/prime_rl_logprob_ab.py`.
+
+Inside one kernel:
+- Why is it slow (bandwidth, occupancy), and which source lines do warps stall on? `tools/nsight-compute.md`
+  (`scripts/ncu_source_lines.py`).
+- A CuTe DSL kernel: compile vs launch time, host overhead per call, JIT cache, dumps, registers, spills?
+  `tools/cute-dsl.md`.
+- Do two kernels (TileLang, CuTe DSL, Triton, CUDA) share a design: MMA, TMA vs `cp.async`, barriers,
+  registers, spills by source line? `scripts/sass_inventory.py`.
+- When does each warp role issue, wait and finish, and which wait gates the next step? `tools/intra-kernel.md`
+  (`intra_kernel_events.py`, `intra_kernel_intervals.py`, `intra_kernel_ab_figure.py`).
+
+Showing results:
+- A before/after timeline figure: `scripts/timeline_figure.py`; `reporting/figures.md`.
+- The user views a remote trace locally (one step via `scripts/trim_last_step.py`, or arms side by side via
+  `scripts/merge_traces.py`): `viewing/remote-perfetto.md`.
 
 Project-specific capture recipes live in `projects/` (e.g. `projects/prime-rl.md`). Read the one for the
 current repo before launching anything.
-
-Always time GPU work with CUDA events, never host clocks around `torch.cuda.synchronize()`: events measure the
-stream without stalling the host. For timing a region inside a project, copy `scripts/cuda_timer.py` (one file,
-no dependencies beyond torch) into it rather than hand-rolling event pairs; it is the one script meant to be copied
-instead of run.
 
 ## Where artifacts go
 
@@ -70,6 +83,7 @@ One root per investigation, `~/tmp/profiling/<investigation>/` (e.g. `ds-v4-rope
 | `traces/<run>/` | Raw per-rank traces; point the capture here (e.g. prime-rl `--trace-path`) |
 | `derived/` | Trimmed and merged traces, kernel tables, CSVs, nsys reports and exports |
 | `figures/` | Rendered figures |
+| `inputs/` | Files scripts take as input: cases files, toy repros |
 | `serve/` | Symlinks to what the user views in Perfetto; the CORS server is rooted here |
 | `commands.sh` | Every skill-script invocation that produced a result, in order, with all arguments |
 | `NOTES.md` | Index: each run's name, job, commit, config, and what each file is |
@@ -77,11 +91,10 @@ One root per investigation, `~/tmp/profiling/<investigation>/` (e.g. `ds-v4-rope
 Per-run compile caches go in `~/tmp/profiling/caches/<run>/` (node-local ones in `/tmp/$USER/<run>/`). Timing
 metrics stay where the tool writes them (e.g. the prime-rl run dir); don't move or delete those.
 
-Cleanup, when the user says an investigation is done or disk use grows: report `du -sh` per path and propose
-deletions, but delete only with the user's approval. Usually safe to drop: raw traces of ranks other than the
-analyzed ones, nsys `.sqlite` exports (regenerable from `.nsys-rep`), decompressed copies of `.json.gz`,
-and compile caches (after confirming they filled). Keep rank-0 raw traces, `derived/`, `figures/`, and
-`NOTES.md` until the PR merges. Stop any server by its saved PID.
+Cleanup, when the user says an investigation is done: report `du -sh` per path and propose deletions; delete
+only with approval. Usually safe: other ranks' raw traces, nsys `.sqlite` exports (regenerable from
+`.nsys-rep`), decompressed copies of `.json.gz`, filled compile caches. Keep rank-0 raw traces, `derived/`,
+`figures/` and `NOTES.md` until the PR merges.
 
 ## 2. Work in layers, diff arms at every layer
 
@@ -96,8 +109,9 @@ An op-level win that disappears end to end is a finding, not noise: go to layer 
 - Freeze each arm's code in its own worktree or commit; never time against a tree you are editing.
 - Identical config, data, seed, step count, and rank for every arm. Change one thing.
 - Fresh compile caches per arm (Triton, Inductor, TileLang, etc.), or JIT warmth biases the comparison.
-- Timing comes from untraced runs (median over steady-state steps). Traces are for attribution only:
-  profiler overhead changes step time.
+- Time ops and regions with CUDA events (`bench_ops.py`, `cuda_timer.py`), never host clocks around
+  `torch.cuda.synchronize()`. Step time comes from untraced runs (median over steady-state steps); traces are
+  for attribution only, since profiler overhead changes step time.
 - Validate numerics before timing: bitwise (`torch.equal`, fp8 via `.view(torch.uint8)`) when the change
   should be exact, otherwise loss/grad-norm curves that track step by step.
 - Run arms on the same hardware class, serially or in parallel as the user asks (ask if unclear); never
@@ -106,13 +120,7 @@ An op-level win that disappears end to end is a finding, not noise: go to layer 
 ## 4. Report hard evidence
 
 - A results table with medians, spread (min/max), and the exact configs and commits of both arms.
-- An ASCII diagram of what differs between the arms, shown once in chat with the first result, and in a
-  PR only when the mechanism is in the weeds. See `reporting/ascii-diagrams.md`.
-- A figure from the traces when the mechanism is visual (a removed gap, new overlap): left-aligned
-  before/after timelines of the changed region plus a per-category delta panel, with a short `**Figure:**`
-  caption (one or two plain sentences: what it shows and the takeaway) and embedded by a pinned raw GitHub
-  URL. See `reporting/figures.md`.
-- Delta panel: keep the per-category delta panel by default; if it could mislead (e.g. a per-rank saving that does not
-  reach step time), say so in the caption, and drop it only when it is really non-representative.
+- An ASCII diagram of what differs between the arms: `reporting/ascii-diagrams.md`.
+- A trace figure when the mechanism is visual (a removed gap, new overlap): `reporting/figures.md`.
 - Say what was measured where: scaled-down proxy vs full model, traced vs untraced, which rank and step.
 - Single runs are single runs; say so rather than implying statistics you did not collect.
