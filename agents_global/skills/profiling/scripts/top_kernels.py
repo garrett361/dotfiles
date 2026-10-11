@@ -148,6 +148,8 @@ def mangled_identifiers(name):
 
 
 def short_name(name):
+    if name.startswith(("Memcpy ", "Memset ")):
+        return name
     if name.startswith("_Z"):
         return mangled_identifiers(name)
     name = strip_params(re.sub(r"\(anonymous namespace\)::", "", name.removeprefix("void ")))
