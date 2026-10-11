@@ -25,9 +25,11 @@ Usage:
 """
 
 import argparse
+import glob
 import os
 import re
 import subprocess
+import tempfile
 from collections import Counter
 
 DEFAULT_OPCODES = (
@@ -74,38 +76,58 @@ def find_binaries(paths: list[str]) -> list[str]:
     return found
 
 
-def split_functions(sass: str) -> dict[str, list[str]]:
-    functions, current = {}, None
+def split_functions(sass: str) -> dict[tuple[str, str], list[str]]:
+    functions, current, arch = {}, None, ""
     for line in sass.splitlines():
+        code_for = re.match(r"\s*code for (sm_\d+)", line)
+        if code_for:
+            arch = code_for.group(1)
         header = re.match(r"\s*Function : (\S+)", line)
         if header:
-            current = header.group(1)
+            current = (arch, header.group(1))
             functions[current] = []
         elif current is not None and re.match(r"\s*/\*[0-9a-f]{4,}\*/", line):
             functions[current].append(line)
     return functions
 
 
-def resource_usage(cuobjdump: str, path: str) -> dict[str, str]:
-    text = subprocess.run([cuobjdump, "--dump-resource-usage", path], capture_output=True, text=True).stdout
-    usage, current = {}, None
+def resource_usage(cuobjdump: str, path: str) -> dict[tuple[str, str], str]:
+    text = subprocess.run(
+        [cuobjdump, "--dump-resource-usage", path], capture_output=True, text=True, check=False
+    ).stdout
+    usage, current, arch = {}, None, ""
     for line in text.splitlines():
+        arch_line = re.match(r"\s*arch = (sm_\d+)", line)
+        if arch_line:
+            arch = arch_line.group(1)
         header = re.match(r"\s*Function (\S+):", line)
         if header:
-            current = header.group(1)
+            current = (arch, header.group(1))
         elif current and "REG:" in line:
             fields = dict(re.findall(r"(REG|STACK|SHARED|LOCAL):(\d+)", line))
             usage[current] = f"REG {fields.get('REG')}, STACK {fields.get('STACK')}, LOCAL {fields.get('LOCAL')}"
     return usage
 
 
-def lines_by_source(nvdisasm: str, path: str, opcodes: list[str]) -> dict[str, Counter]:
-    text = subprocess.run([nvdisasm, "--print-line-info", path], capture_output=True, text=True).stdout
+def lines_by_source(cuobjdump: str, nvdisasm: str, path: str, opcodes: list[str]) -> dict[tuple[str, str], Counter]:
+    per_function = {}
+    with tempfile.TemporaryDirectory() as elf_dir:
+        subprocess.run(
+            [cuobjdump, "-xelf", "all", os.path.abspath(path)], cwd=elf_dir, capture_output=True, check=False
+        )
+        for cubin in sorted(glob.glob(os.path.join(elf_dir, "*.cubin"))) or [path]:
+            arch = re.search(r"\.(sm_\d+)\w*\.cubin$", cubin)
+            per_function.update(cubin_lines_by_source(nvdisasm, cubin, opcodes, arch.group(1) if arch else ""))
+    return per_function
+
+
+def cubin_lines_by_source(nvdisasm: str, path: str, opcodes: list[str], arch: str) -> dict[tuple[str, str], Counter]:
+    text = subprocess.run([nvdisasm, "--print-line-info", path], capture_output=True, text=True, check=False).stdout
     per_function, function, source = {}, None, "unknown"
     for line in text.splitlines():
         header = re.match(r"\s*\.text\.(\S+):", line)
         if header:
-            function, source = header.group(1), "unknown"
+            function, source = (arch, header.group(1)), "unknown"
             per_function[function] = Counter()
             continue
         located = re.match(r'\s*//## File "(.+)", line (\d+)', line)
@@ -138,17 +160,20 @@ def main():
     args = parse_args()
     opcodes = list(dict.fromkeys(list(DEFAULT_OPCODES) + list(args.extra)))
     for path in find_binaries(args.paths):
-        sass = subprocess.run([args.cuobjdump, "-sass", path], capture_output=True, text=True).stdout
+        sass = subprocess.run([args.cuobjdump, "-sass", path], capture_output=True, text=True, check=False).stdout
         functions = split_functions(sass)
         if args.kernel:
-            functions = {name: lines for name, lines in functions.items() if re.search(args.kernel, name)}
+            functions = {key: lines for key, lines in functions.items() if re.search(args.kernel, key[1])}
         if not functions:
             continue
         usage = resource_usage(args.cuobjdump, path)
-        by_line = lines_by_source(args.nvdisasm, path, args.by_line) if args.by_line else {}
-        for name, lines in functions.items():
+        by_line = lines_by_source(args.cuobjdump, args.nvdisasm, path, args.by_line) if args.by_line else {}
+        several_archs = len({arch for arch, _ in functions}) > 1
+        for (arch, name), lines in functions.items():
             counts = count_opcodes(lines, opcodes)
-            print(f"### {name}\n\n`{path}`\n\n{usage.get(name, 'resource usage not found')}, {len(lines)} instructions\n")
+            title = f"{name} ({arch})" if several_archs else name
+            resources = usage.get((arch, name)) or usage.get(("", name), "resource usage not found")
+            print(f"### {title}\n\n`{path}`\n\n{resources}, {len(lines)} instructions\n")
             print("| opcode | count |\n|---|---|")
             for opcode in sorted(k for k in counts if k.startswith("HGMMA")) + opcodes:
                 if counts.get(opcode):
@@ -156,7 +181,8 @@ def main():
             print()
             if args.by_line:
                 print(f"| source line | {' / '.join(args.by_line)} |\n|---|---|")
-                for source, count in by_line.get(name, Counter()).most_common():
+                lines_counter = by_line.get((arch, name)) or by_line.get(("", name), Counter())
+                for source, count in lines_counter.most_common():
                     print(f"| `{source}` | {count} |")
                 print()
 
