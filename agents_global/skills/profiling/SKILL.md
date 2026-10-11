@@ -28,7 +28,8 @@ when the file's header declares dependencies, the project's interpreter (`uv run
 imports torch or the project.
 
 Op level:
-- Is this op faster, and by how much (median, p20, p80, peak memory)? `scripts/bench_ops.py`; `tools/do-bench.md`.
+- Is this op faster, and by how much (median, p20, p80, peak memory, output check)? `scripts/bench_ops.py`
+  (`--cudagraph` for ops under ~20 us); `tools/do-bench.md`.
 - How long does a region of my code take, per call? Copy `scripts/cuda_timer.py` into the project (the one script
   meant to be copied, not run).
 - Which kernels inside an op cost the time? `bench_ops.py --trace`, then `scripts/top_kernels.py --whole-trace`.
@@ -44,25 +45,27 @@ End to end, from traces:
   reconciled with untraced step time? `scripts/step_accounting.py`, then `scripts/accounting_figure.py`.
 - How much host work (launches, thread busy time, named ops) does each arm issue per step? `scripts/host_ops.py`.
 - Do host-side stream waits (e.g. FSDP's reduce-scatter cap) stall the GPU, and how much does labeled
-  communication overlap compute? `scripts/comm_waits.py`.
+  communication overlap compute? `scripts/comm_waits.py`, figure via `scripts/timeline_figure.py --comm-kernel`.
 - What annotations and host ranges does a trace have; where does one op's host time go, down to Python frames?
   `scripts/trace_events.py` (`--include-python` on a `with_stack=True` trace).
 - Host gaps, stream overlap and NCCL across a whole step, with no code change? `tools/nsight-systems.md`.
 
 Runs, host and compiler:
-- How do arms compare on step time, memory, loss? `scripts/run_metrics.py`.
-- Where does the host block on the GPU (syncs), from which Python line? `scripts/find_syncs.py`, then
-  `scripts/sync_stacks/`, `sync_stacks_report.py` and `join_sync_dumps.py`; `analysis/cuda-syncs.md`.
+- How do arms compare on step time, memory, loss (prime-rl run dirs or any `.jsonl` with a step key)?
+  `scripts/run_metrics.py`.
+- Where does the host block on the GPU (syncs), from which Python line? `scripts/find_syncs.py` (costs), then
+  `scripts/sync_stacks/`, `sync_stacks_report.py` (file:line) and `join_sync_dumps.py`; `analysis/cuda-syncs.md`.
 - What keeps `torch.compile` recompiling, at which step? `scripts/recompile_reasons.py`.
 - Does a prime-rl model change move logprobs, step time or peak memory on real weights, and which class did a
   module become? `scripts/prime_rl_logprob_ab.py`.
 
 Inside one kernel:
-- Why is it slow (bandwidth, occupancy), and which source lines do warps stall on? `tools/nsight-compute.md`
-  (`scripts/ncu_source_lines.py`).
+- Why is it slow (bandwidth, latency stalls, occupancy), and which source lines do warps stall on?
+  `tools/nsight-compute.md` (`scripts/ncu_source_lines.py`).
 - A CuTe DSL kernel: JIT cache, PTX/SASS dumps, registers, spills? `tools/cute-dsl.md`.
 - Do two kernels (TileLang, CuTe DSL, Triton, CUDA) share a design: MMA, TMA vs `cp.async`, barriers,
-  registers, spills by source line? `scripts/sass_inventory.py`.
+  registers, spills by source line? `scripts/sass_inventory.py` (multi-arch `.so` tables are per SASS arch; pass
+  `--kernel` on large caches).
 - When does each warp role issue, wait and finish, and which wait gates the next step? `tools/intra-kernel.md`
   (`intra_kernel_events.py`, `intra_kernel_intervals.py`, `intra_kernel_ab_figure.py`).
 
@@ -74,7 +77,7 @@ Showing results:
 Project-specific capture recipes live in `projects/` (e.g. `projects/prime-rl.md`). Read the one for the
 current repo before launching anything. Without one, capture as in `tools/torch-profiler.md` and pass the
 repo's step annotation and optimizer kernel to the scripts' step flags (`--annotation`, `--step-marker`,
-`--step-boundary`), whose defaults follow prime-rl.
+`--step-boundary`), whose defaults, where they have one, follow prime-rl.
 
 ## Where artifacts go
 
@@ -113,9 +116,10 @@ An op-level win that disappears end to end is a finding, not noise: go to layer 
 - Fresh compile caches per arm (`TRITON_CACHE_DIR`, `TORCHINDUCTOR_CACHE_DIR`, `TILELANG_CACHE_DIR`,
   `CUTE_DSL_CACHE_DIR`), or JIT warmth biases the comparison.
 - Time ops and regions with CUDA events (`bench_ops.py`, `cuda_timer.py`), never host clocks around
-  `torch.cuda.synchronize()`. Step time comes from untraced runs (median over steady-state steps); traces are
+  `torch.cuda.synchronize()`. Events also count idle gaps while the host is still launching, so a host-bound
+  region reads as host time. Step time comes from untraced runs (median over steady-state steps); traces are
   for attribution only, since profiler overhead changes step time.
-- Validate numerics before timing: bitwise (`torch.equal`, fp8 via `.view(torch.uint8)`) when the change
+- Validate numerics before timing: bitwise (`torch.equal`, which compares fp8 directly in torch 2.13) when the change
   should be exact, otherwise loss/grad-norm curves that track step by step.
 - Run arms on the same hardware class, serially or in parallel as the user asks (ask if unclear); never
   share GPUs between a timing run and anything else.
