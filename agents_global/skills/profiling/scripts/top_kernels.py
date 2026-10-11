@@ -6,9 +6,11 @@ window are grouped by kernel name, by call site (innermost `cpu_op` with its `In
 enclosing non-aten op, found via `args["correlation"]` -> launch -> enclosing ops on the launch thread), or by
 both. Ranks by total time and by time per call; NCCL kernels get their own table.
 
-`--annotation NAME` also matches `NAME#<n>`: for a loop driven by `torch.profiler.schedule` and `prof.step()`, pass
-`--annotation ProfilerStep` to window on torch's per-step `ProfilerStep#<n>` ranges. The trace may be `.json` or
-`.json.gz`.
+Every annotation name also matches `NAME#<n>`: for a loop driven by `torch.profiler.schedule` and `prof.step()`, pass
+`ProfilerStep` to window on torch's per-step `ProfilerStep#<n>` ranges. CPU-side windows select kernels by GPU start
+time, so when the host runs ahead of the GPU they misplace kernels; there, `--from-annotation ProfilerStep
+--from-index -2 --to-annotation ProfilerStep` (GPU-side) or `--launched-in ProfilerStep` gives the real step. The
+trace may be `.json` or `.json.gz`.
 
 `--annotation-index N` starts the window at the Nth such annotation instead (0-based, negative from the end); unless
 it is the last one, the window ends at the next one's start, so `--annotation-index -3` covers the third-to-last
@@ -325,7 +327,7 @@ def main():
         start = min(e["ts"] for e in gpu)
         description = "whole trace"
     elif args.launched_in:
-        ranges = sorted((e for e in xs if e.get("cat") == "user_annotation" and e["name"] == args.launched_in),
+        ranges = sorted((e for e in xs if e.get("cat") == "user_annotation" and is_marker(e["name"], args.launched_in)),
                         key=lambda e: e["ts"])
         host = pick(ranges, args.launched_in_index, f"CPU-side user_annotation `{args.launched_in}`")
         launched = {e["args"]["correlation"] for e in xs if e.get("cat") in ("cuda_runtime", "cuda_driver")
@@ -338,11 +340,11 @@ def main():
                        " from the first one's start to the last one's end")
     elif args.from_annotation:
         marks = sorted((e for e in xs if e.get("cat") == "gpu_user_annotation"), key=lambda e: e["ts"])
-        opener = pick([e for e in marks if e["name"] == args.from_annotation], args.from_index,
+        opener = pick([e for e in marks if is_marker(e["name"], args.from_annotation)], args.from_index,
                       f"GPU-side annotation `{args.from_annotation}`")
         start, end = opener["ts"], opener["ts"] + opener["dur"]
         if args.to_annotation:
-            closers = [e["ts"] for e in marks if e["name"] == args.to_annotation and e["ts"] > start]
+            closers = [e["ts"] for e in marks if is_marker(e["name"], args.to_annotation) and e["ts"] > start]
             end = pick(closers, 0, f"GPU-side annotation `{args.to_annotation}` after the opening one")
         description = f"GPU `{args.from_annotation}` [{args.from_index}] to " + (
             f"next GPU `{args.to_annotation}`" if args.to_annotation else "its end")
