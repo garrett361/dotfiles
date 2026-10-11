@@ -94,6 +94,8 @@ def resolve_warp(selector: str | None, roles: dict[int, str]) -> int | None:
 def interval_samples(events, roles, spec: str):
     """[(variant, launch, cta, warp, iteration, duration_ns, start_ns)] for one `NAME=START:END` spec."""
     name, _, body = spec.partition("=")
+    if body.count(":") != 1:
+        raise SystemExit(f"interval {spec!r} is not NAME=START:END")
     start_text, end_text = body.split(":")
     (start_ref, start_sel), (end_ref, end_sel) = parse_ref(start_text), parse_ref(end_text)
     samples = []
