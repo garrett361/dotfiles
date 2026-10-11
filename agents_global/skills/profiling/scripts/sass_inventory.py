@@ -161,10 +161,18 @@ def count_opcodes(lines: list[str], opcodes: list[str]) -> Counter:
     return counts
 
 
+def names_in_cubin_match(path: str, pattern: str) -> bool:
+    with open(path, "rb") as cubin:
+        strings = cubin.read().decode("latin-1").split("\0")
+    return any(re.search(pattern, string) for string in strings)
+
+
 def main():
     args = parse_args()
     opcodes = list(dict.fromkeys(list(DEFAULT_OPCODES) + list(args.extra)))
     for path in find_binaries(args.paths):
+        if args.kernel and path.endswith(".cubin") and not names_in_cubin_match(path, args.kernel):
+            continue
         sass = subprocess.run([args.cuobjdump, "-sass", path], capture_output=True, text=True, check=False).stdout
         functions = split_functions(sass)
         if args.kernel:
