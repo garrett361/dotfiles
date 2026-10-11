@@ -129,23 +129,23 @@ def load_nsys(path):
     ):
         name = names.get(name_id, "")
         api[tid].append((start / 1e3, end / 1e3, name))
-        launch_by_corr[corr] = (end / 1e3, tid)
+        launch_by_corr[(tid >> 24, corr)] = (end / 1e3, tid)
     for tid in api:
         api[tid].sort()
     api_starts = {tid: [a[0] for a in rows] for tid, rows in api.items()}
     per_device = defaultdict(list)
     queries = [
-        ("CUPTI_ACTIVITY_KIND_KERNEL", "select k.start, k.end, k.deviceId, k.correlationId, k.demangledName from CUPTI_ACTIVITY_KIND_KERNEL k"),
-        ("CUPTI_ACTIVITY_KIND_MEMCPY", "select start, end, deviceId, correlationId, null from CUPTI_ACTIVITY_KIND_MEMCPY"),
-        ("CUPTI_ACTIVITY_KIND_MEMSET", "select start, end, deviceId, correlationId, null from CUPTI_ACTIVITY_KIND_MEMSET"),
+        ("CUPTI_ACTIVITY_KIND_KERNEL", "select k.start, k.end, k.deviceId, k.globalPid, k.correlationId, k.demangledName from CUPTI_ACTIVITY_KIND_KERNEL k"),
+        ("CUPTI_ACTIVITY_KIND_MEMCPY", "select start, end, deviceId, globalPid, correlationId, null from CUPTI_ACTIVITY_KIND_MEMCPY"),
+        ("CUPTI_ACTIVITY_KIND_MEMSET", "select start, end, deviceId, globalPid, correlationId, null from CUPTI_ACTIVITY_KIND_MEMSET"),
     ]
     tables = {row[0] for row in db.execute("select name from sqlite_master where type='table'")}
     for table, query in queries:
         if table not in tables:
             continue
-        for start, end, device, corr, name_id in db.execute(query):
+        for start, end, device, pid, corr, name_id in db.execute(query):
             name = names.get(name_id, "") if name_id is not None else table.rsplit("_", 1)[-1].lower()
-            launch_end, tid = launch_by_corr.get(corr, (None, None))
+            launch_end, tid = launch_by_corr.get((pid >> 24, corr), (None, None))
             per_device[device].append((start / 1e3, end / 1e3, name, launch_end, tid))
 
     def host_at(tid, t):
