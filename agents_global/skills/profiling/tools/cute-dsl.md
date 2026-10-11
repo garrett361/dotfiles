@@ -1,0 +1,105 @@
+# CuTe DSL kernels (`cutlass.cute`): compile vs launch, dumps, registers
+
+Status: verified 2026-10-10 on an H200 (sm90a) with `nvidia-cutlass-dsl` 4.7.1 (prime-rl venv), SLURM
+job 3569. Read the docs at the installed version: `git -C ~/github/NVIDIA/cutlass show v4.7.1:media/docs/pythonDSL/...`.
+The working-tree docs may describe a newer release.
+
+## Time compile and launch separately
+
+- `cute.compile(fn, *args)` returns an executor and always compiles: it neither reads nor fills the
+  DSL's cache. Cache the executor yourself, keyed by whatever is static.
+- Calling the `@cute.jit` function directly re-traces the Python on every call to compute the cache key
+  (a hash of the traced IR): about 7 ms per call for a trivial kernel, before the in-memory cache hit.
+  Never time, or ship, the implicit call path.
+- Host overhead per call, trivial kernel: TVM-FFI executor (`options="--enable-tvm-ffi"`, `torch.Tensor`
+  arguments, `make_fake_stream(use_tvm_ffi_env_stream=True)`) 4.0 us, classic executor with pre-converted
+  `cute.Tensor` arguments 9.5 us, classic with `from_dlpack` per call 23.5 us. Benchmark the TVM-FFI
+  executor, or report which path was timed.
+- Compile cost: `import cutlass.cute` 3 to 4 s (15.6 s on the first process on a node), a trivial kernel
+  0.1 s, a kernel with 4096 unrolled FMAs 7 s. `CUTE_DSL_JIT_TIME_PROFILING=1 CUTE_DSL_LOG_TO_CONSOLE=1
+  CUTE_DSL_LOG_LEVEL=20` logs the split: tracing (`build_ir_module`), lowering plus ptxas
+  (`compile_and_jit`), module load (`lookup`).
+- To check that a kernel does not recompile per shape, compile once against fake tensors with symbolic
+  sizes (`cute.sym_int()`, `make_fake_compact_tensor`) and call the one executor with several shapes.
+- `make_fake_compact_tensor` defaults to mode 0 innermost (column-major). For torch's row-major tensors
+  pass `stride_order=(rank-1, ..., 0)`. The TVM-FFI call checks only the static strides: dynamic ones are
+  taken from the tensor at call time, so a wrong order surfaced only when a size-1 batch became 2
+  ("Mismatched ...strides[0] ..., expected to be 1") and ran silently before.
+- A real kernel for scale: the DSv4 sparse attention forward (2 WGMMA GEMMs, 36 `HGMMA`, 196 registers)
+  compiles in 1.3 s (2.4 s with line info and dumps). `cute.compile` writes no file cache, so every new
+  process pays that again.
+- File cache: node-local `/tmp/$USER/cutlass_python_cache` (override `CUTE_DSL_CACHE_DIR`), used by the
+  implicit path only. Use a fresh `CUTE_DSL_CACHE_DIR` per A/B arm when the implicit path is involved.
+- Libraries that wrap `cute.compile` inherit this. The cuDNN frontend's DSA backward
+  (`flash_attn_bwd_sm90`, cuDNN frontend 1.30) keeps executors in in-process dicts (`.compile_cache`,
+  `.compile_cache_pre`, `.compile_cache_post`), so their sizes count its compiles exactly. A second process
+  on the same filled caches recompiled all 6 kernels (about 2.5 s per main-kernel key on H200), so
+  "warm" runs of such a backend are not warmer.
+
+## Dumps and line info
+
+- `CUTE_DSL_KEEP=ir,ptx,cubin,sass CUTE_DSL_DUMP_DIR=<dir>` writes the clean IR, PTX, cubin and SASS per
+  compiled host function (SASS via the `nvdisasm` bundled in the venv). Any `CUTE_DSL_KEEP` disables the
+  JIT cache, so implicit calls then pay a full compile each time.
+- `CUTE_DSL_LINEINFO=1` maps PTX/SASS to Python `file:line` (`//## File "...py", line 37` in the SASS
+  dump), and is what ncu source correlation needs (`nsight-compute.md`). The DSL docs advise validating performance with it off.
+- `compiled.__ptx__` is `None` unless the compile passed `options="--keep-ptx"` (checked with and
+  without `--enable-tvm-ffi`); `--keep-ptx` also writes the `.ptx` into `CUTE_DSL_DUMP_DIR`, which
+  defaults to the working directory at import time, so it litters the repo when run from there.
+  `compiled.__cubin__` is likewise `None` unless the compile kept it (`options="--keep-cubin"`).
+- `kernel.set_name_prefix("name", remove_cutlass_symbol=True, keep_mangled_name=False)` inside the
+  `@cute.jit` function gives the GPU function the stable name `name_0`, convenient for `ncu -k regex:name`.
+
+## Registers and spills
+
+- Register count: `cuobjdump --dump-resource-usage <cubin>` (`REG:`, `STACK:`, `LOCAL:`), or ncu Launch
+  Statistics (allocation-rounded). The DSL does not print it.
+- `CUTE_DSL_COMPILER_OPT='remarks{ptx}'` (or `options="remarks{ptx}"`) prints "ptxas detected register
+  spills" or "ptxas detected local memory usage" with the Python source frame, and nothing for a clean
+  kernel. Spill byte counts are in `cuobjdump`'s `STACK:` (8376 bytes for a forced spill).
+- Register cap: `options="--ptxas-options '--maxrregcount=N --override-directive-values'"` in
+  `cute.compile`. Without `--override-directive-values` the cap was silently ignored. `ptxas` flags in
+  `CUTE_DSL_COMPILER_OPT` failed with an internal compiler error.
+- The spill remark's source frame marks a register-pressure region, not the spilling instructions: on
+  the warp-specialized DSv4 forward it pointed at a prologue line while every `LDL`/`STL` was on the
+  producer's copy lines. `scripts/sass_inventory.py <cubin> --by-line LDL STL` lists the real lines
+  (needs `CUTE_DSL_LINEINFO=1`).
+- Warp-specialized kernels: `cute.arch.setmaxregister_decrease(n)` / `setmaxregister_increase(n)`
+  appear in SASS as `USETMAXREG.DEALLOC.CTAPOOL` / `USETMAXREG.TRY_ALLOC.CTAPOOL`. `cuobjdump`'s
+  `REG:` (and ncu's Registers Per Thread) stays at the launch-time count, `65536 / threads` rounded
+  down to a multiple of 8 (168 at 384 threads), so judge each role's pressure by spills, not `REG:`.
+- `CUTE_DSL_DUMP_DIR` must exist: with a missing directory and `CUTE_DSL_KEEP=...,sass` the compile
+  died with an internal error, "Cannot dump SASS: CUBIN file does not exist".
+
+## Inspecting another compiler's kernel (TileLang)
+
+- `kernel.get_kernel_source()` on a `tilelang.jit` kernel returns the generated CUDA.
+- The cubin lands in `$TILELANG_CACHE_DIR/<version>/cuda-binaries/*.cubin` (default `~/.tilelang/cache`).
+  Set a fresh `TILELANG_CACHE_DIR` and `cuobjdump -sass` the cubin there. In TileLang 0.1.12 the
+  `TVMFFIKernelAdapter` has no `libpath`.
+- MMA flavor from SASS: `HGMMA` is WGMMA (sm90a), `HMMA` is `mma.sync`. `WARPGROUP.DEPBAR.LE gsb0, 0x0`
+  right after the `HGMMA`s means the WGMMA is waited on immediately (synchronous).
+- `scripts/sass_inventory.py <cache dir or cubin> ...` prints, per kernel, registers/stack/local plus
+  static counts of `HGMMA` by shape, `HMMA`, `LDGSTS`, TMA, `LDSM`/`STSM`, barriers and `MUFU`. Verified
+  on the TileLang DSv4 forward's cubin and its CuTe port's (`CUTE_DSL_KEEP=cubin`), side by side.
+
+## Copies and swizzled shared memory (verified on the DSv4 port)
+
+- A swizzle from `layout.inner` passed to `allocate_tensor(..., swizzle=...)` lives in the pointer type and
+  is applied on dereference. Turning that pointer into a raw address (`tensor.iterator` into
+  `cute.arch.cp_async_shared_global`, `.toint()`, `recast_ptr(p, None, ...)`) drops it: a 128-byte-swizzled
+  tile came out with chunk `c` of row 1 at chunk `c ^ 1`. `cute.crd2idx(coord, composed_layout)` returns the
+  unswizzled offset too. Copy through tensors (`cute.copy`, `autovec_copy`, indexing) instead.
+- `cute.copy(CopyG2SOp atom, src, dst, pred=p)` with `p = cute.make_fragment_like(src, Boolean)` lowers a false
+  predicate to `cp.async.cg.shared.global [d], [s], 16, %r` with source size 0, which zero-fills the
+  destination (SASS `LDGSTS.E.BYPASS.128`). The predicate must have the source's full shape; a `(1,)`
+  predicate fails IR verification.
+- In a register-starved role (a 72-register producer warpgroup) that predicated `cute.copy` spilled; raw
+  `cute.arch.cp_async_shared_global(dst, src, 16, "cg", cp_size=16 or 0)` with a hand-swizzled destination
+  (`chunk ^ (row % 8)` for the 128-byte swizzle of 16-bit data) did not, and was 6-16% faster.
+- A TMA `cute.copy` (`CopyBulkTensorTile*Op`) elects its issuing lane itself (`elect.sync` with a full
+  mask in the PTX), so it must be called by all 32 lanes of a warp. Called from `if tidx == 0:` the kernel
+  hung with no error. Keep only `mbarrier_arrive_and_expect_tx` behind the single-thread guard.
+- To find a hang like that: `cute.printf` before and after each suspect call, then read the PTX
+  (`options="--keep-ptx"` or `CUTE_DSL_KEEP=ptx`); printf output from a hung kernel appeared when
+  `timeout` killed the process.
