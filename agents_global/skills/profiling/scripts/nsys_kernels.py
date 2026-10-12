@@ -38,6 +38,7 @@ def parse_args():
     parser.add_argument("--top", type=int, default=20)
     parser.add_argument("--name-width", type=int, default=80)
     parser.add_argument("--csv", default=None, help="also write every kernel to this CSV path")
+    parser.add_argument("--decimals", type=int, default=1, help="decimals for ms totals")
     return parser.parse_args()
 
 
@@ -66,7 +67,10 @@ def step_window(kernels, boundary, gap_ns, index):
         raise SystemExit(f"no kernel matches --step-boundary {boundary!r}")
     cluster_ends = [end for (_, end), (next_start, _) in zip(marks, marks[1:] + [(float("inf"), 0)]) if next_start - end > gap_ns]
     if len(cluster_ends) < 2:
-        raise SystemExit(f"found {len(cluster_ends)} boundary cluster(s); need at least 2 to form a step")
+        raise SystemExit(
+            f"found {len(cluster_ends)} boundary cluster(s); need at least 2 to form a step (steps shorter than "
+            f"--cluster-gap-ms {gap_ns / 1e6:g} merge into one cluster: lower it, e.g. --cluster-gap-ms 1)"
+        )
     starts, ends = cluster_ends[:-1], cluster_ends[1:]
     if not -len(starts) <= index < len(starts):
         raise SystemExit(f"--step-index {index} out of range: found {len(starts)} step(s)")
@@ -79,7 +83,7 @@ def main():
     if args.step_boundary:
         lo, hi = step_window(kernels, args.step_boundary, args.cluster_gap_ms * 1e6, args.step_index)
         kernels = [k for k in kernels if k[1] > lo and k[2] <= hi]
-        print(f"step window {(hi - lo) / 1e6:.1f} ms ({len(kernels)} kernels)")
+        print(f"step window {(hi - lo) / 1e6:.{args.decimals}f} ms ({len(kernels)} kernels)")
     durations = defaultdict(list)
     for name, start, end in kernels:
         durations[name].append((end - start) / 1e6)
@@ -92,8 +96,8 @@ def main():
     print(f"|{'-' * (args.name_width + 2)}|---------:|------:|------:|--------:|----------:|")
     for name, tot, count, mean, median in rows[: args.top]:
         short = name if len(name) <= args.name_width else name[: args.name_width - 3] + "..."
-        print(f"| {short:<{args.name_width}} | {tot:8.1f} | {100 * tot / total:4.1f}% | {count:5d} | {mean:7.3f} | {median:9.3f} |")
-    print(f"total kernel time {total:.1f} ms")
+        print(f"| {short:<{args.name_width}} | {tot:8.{args.decimals}f} | {100 * tot / total:4.1f}% | {count:5d} | {mean:7.3f} | {median:9.3f} |")
+    print(f"total kernel time {total:.{args.decimals}f} ms")
     if args.csv:
         with open(args.csv, "w", newline="") as f:
             writer = csv.writer(f)

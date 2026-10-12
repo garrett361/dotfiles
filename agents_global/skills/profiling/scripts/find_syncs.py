@@ -282,7 +282,8 @@ for s in sorted(sites.values(), key=lambda s: (-s["exposed"], -s["idle"], -s["ho
           f"{s['max_host'] / 1e3:9.2f}  {','.join(sorted(s['phases'])):8} {s['pt']['label']}")
     if s["pt"]["rec"]:
         print(f"  {'':55}ops: {s['pt']['ops']}")
-    print(f"  {'':55}dims={str(s['dims'])[:150]}")
+    if s["dims"] is not None:
+        print(f"  {'':55}dims={str(s['dims'])[:150]}")
 if args.list:
     print("  time order (ms from window start):")
     for pt in ordered:
