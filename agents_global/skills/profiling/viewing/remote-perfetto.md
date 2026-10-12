@@ -23,9 +23,10 @@ forward maps laptop 9001 to it.
 0. Trim first. In-browser parsing runs at roughly 8 to 9 MB of JSON per second, so keep only the step being
    analyzed:
    `uv run --script <skill dir>/scripts/trim_last_step.py trace_0.json.gz trace_0_laststep.json.gz`
-   (gzipped output loads fine by URL; no need to decompress). To compare arms side by side, trim each arm,
-   then serve one file merged from the trimmed ones by `scripts/merge_traces.py`, e.g. `--anchor cpu:forward
-   --anchor-index -1` to align the step starts.
+   (gzipped output loads fine by URL; no need to decompress). With K micro-batches per step (prime-rl), add
+   `--annotation-span K` to keep the whole step. To compare arms side by side, trim each arm (merging untrimmed
+   75 MB traces took 5.5 min), then serve one file merged from the trimmed ones by `scripts/merge_traces.py`,
+   e.g. `--anchor cpu:forward --anchor-index -1` to align the step starts.
 
 1. The server is `scripts/serve_cors.py` (stdlib only). Set `INV=~/tmp/profiling/<investigation>` and put
    symlinks to the files to view in `$INV/serve/`. It is a static file server bound to `127.0.0.1`
