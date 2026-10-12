@@ -1,3 +1,6 @@
+# /// script
+# requires-python = ">=3.10"
+# ///
 """Convert an intra-kernel trace into the recorder-agnostic tidy event table the other `intra_kernel_*` scripts read.
 
 The table is a CSV (gzipped if the name ends in `.gz`) with one row per recorded event:
@@ -30,7 +33,7 @@ instrumented kernel's launches in the trace, so when the process ran more than o
 launches whose kernel name contains the given text and indices count those.
 
 Usage:
-  python3 intra_kernel_events.py iket_pid_0x1234.trace.json --variant p_tma \\
+  uv run --script intra_kernel_events.py iket_pid_0x1234.trace.json --variant p_tma \\
       --roles consumer0:0-3,consumer1:4-7,producer:8-11 --out p_tma.events.csv.gz [--launches 1 2] [--kernel fwd]
 """
 

@@ -1,3 +1,6 @@
+# /// script
+# requires-python = ">=3.10"
+# ///
 """Named intervals between intra-kernel events, per CTA and iteration, as narrow markdown tables.
 
 Reads one or more tidy event tables from `intra_kernel_events.py` (concatenated, keyed by their `variant`
@@ -32,7 +35,7 @@ start (itself included), then reports the median duration per count bucket (`--c
 `--csv` also writes every sample.
 
 Usage:
-  python3 intra_kernel_intervals.py np_tma.events.csv.gz p_tma.events.csv.gz \\
+  uv run --script intra_kernel_intervals.py np_tma.events.csv.gz p_tma.events.csv.gz \\
       --interval q_wait=c_wait_q@w0:c_q_ready@w0 --interval k_wait=c_wait_k@w0:c_k_ready@w0 \\
       --gate first_gemm=q_wait,k_wait --sm-gaps
 """

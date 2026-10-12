@@ -107,9 +107,9 @@ marker names, with consumer warpgroups on warps 0-7 and the producer on warps 8-
 
 ```
 S=<skill>/scripts
-python3 $S/intra_kernel_events.py RUN/iket_pid_*.trace.json --variant np_tma \
+uv run --script $S/intra_kernel_events.py RUN/iket_pid_*.trace.json --variant np_tma \
     --roles consumer0:0-3,consumer1:4-7,producer:8-11 --launches 1 2 --out ev/np_tma.csv.gz
-python3 $S/intra_kernel_intervals.py ev/np_tma.csv.gz ev/np_tma_tcfirst.csv.gz \
+uv run --script $S/intra_kernel_intervals.py ev/np_tma.csv.gz ev/np_tma_tcfirst.csv.gz \
     --interval q_wait=c_wait_q@w0:c_q_ready@w0 --interval k_wait=c_wait_k@w0:c_k_ready@w0 \
     --interval q_flight=q_issued@w0:c_q_ready@w0 --gate first_gemm=q_wait,k_wait \
     --sm-gaps --spans --crowding q_flight
