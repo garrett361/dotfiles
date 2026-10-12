@@ -1,3 +1,6 @@
+# /// script
+# requires-python = ">=3.10"
+# ///
 """Print a markdown table of per-kernel time changes between two `top_kernels.py --csv` files.
 
 Rows are joined on the raw kernel name (`kernel_names` column) within each group (`compute` / `nccl`), so labels
@@ -12,7 +15,7 @@ Labels that `top_kernels.py` numbered `#2`, `#3` (distinct kernels that shorten 
 the number plus the raw kernel name, since the numbering depends on which kernels each file contains.
 `--filter REGEX` keeps only rows whose key matches (e.g. one kernel family across all its call sites).
 
-Usage: python3 kernel_diff.py before.csv after.csv [--top 30] [--name-width 90] [--group compute]
+Usage: uv run --script kernel_diff.py before.csv after.csv [--top 30] [--name-width 90] [--group compute]
        [--category "expert GEMM:sm90_fp8_gemm_1d"] [--before-label A] [--after-label B] [--key label] [--filter REGEX]
        [--decimals 1]
 """

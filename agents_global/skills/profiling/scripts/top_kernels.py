@@ -1,3 +1,6 @@
+# /// script
+# requires-python = ">=3.10"
+# ///
 """Print markdown tables of the most expensive GPU kernels in a window of a torch.profiler chrome trace.
 
 The default window runs from the last CPU-side `user_annotation` named `forward` (as in `trim_last_step.py`) to the
@@ -30,7 +33,7 @@ kernel name, unmatched kernels go to "other") adds a per-category table with sum
 The header reports GPU busy time (union of kernel intervals on all selected streams, clipped to the window end), idle time (window minus busy),
 and exposed NCCL time (when an NCCL kernel runs and no non-NCCL kernel does, i.e. busy minus non-NCCL busy).
 
-Usage: python3 top_kernels.py <trace.json.gz> [--by name|site|both] [--top 15] [--stream main|<tid>]
+Usage: uv run --script top_kernels.py <trace.json.gz> [--by name|site|both] [--top 15] [--stream main|<tid>]
          [--annotation forward [--annotation-index -1] | --whole-trace | --from-annotation NAME [--from-index -1]
           [--to-annotation NAME] | --launched-in NAME [--launched-in-index -1]] [--min-calls 1] [--minmax] [--name-width 55] [--csv out.csv]
          [--decimals 1]

@@ -1,3 +1,6 @@
+# /// script
+# requires-python = ">=3.10"
+# ///
 """Write a copy of a torch.profiler chrome trace keeping metadata and events overlapping the last step.
 
 Events that start before the window but overlap it are clipped to start at the window, so the copy doesn't
@@ -9,7 +12,7 @@ step. The name also matches `<name>#<n>`, so `--annotation ProfilerStep` keeps t
 per-step `ProfilerStep#<n>` ranges. Input and output may each be `.json` or `.json.gz` (gzipped when the output
 name ends in `.gz`).
 
-Usage: python3 trim_last_step.py <trace.json.gz> <out.json.gz> [--annotation forward] [--annotation-span 1]
+Usage: uv run --script trim_last_step.py <trace.json.gz> <out.json.gz> [--annotation forward] [--annotation-span 1]
 """
 
 import argparse

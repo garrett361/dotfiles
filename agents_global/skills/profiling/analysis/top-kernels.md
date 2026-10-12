@@ -14,7 +14,7 @@ default is only the last micro-batch: pass `--annotation-index -K --annotation-s
 2-micro-batch SFT step: 500 ms default window, 720 ms with `-2`/`2`, matching `time/step`). Load time scales
 with size: about 9 s for a 22 MB trace, 41 s for 83 MB.
 
-- `python3 top_kernels.py trace_0.json.gz`: tables by kernel name.
+- `uv run --script top_kernels.py trace_0.json.gz`: tables by kernel name.
 - `--by site`: group by the launching op and its `Input Dims`; `--by both`: one row per site and kernel.
 - `--stream main`: only the stream with the most kernel time (or pass a stream id).
 - `--annotation NAME --annotation-index N` picks the marker and which occurrence opens the window; a
@@ -83,7 +83,7 @@ $N profile -t cuda,nvtx -s none --cpuctxsw=none -o <out> --force-overwrite true 
   cluster to the end of the last one:
 
 ```bash
-python3 scripts/nsys_kernels.py <out>.sqlite --device 0 --step-boundary FusedAdamMathFunctor --top 20
+uv run --script scripts/nsys_kernels.py <out>.sqlite --device 0 --step-boundary FusedAdamMathFunctor --top 20
 ```
 
 Boundary kernels less than `--cluster-gap-ms` (default 100) apart merge into one cluster, so for steps shorter

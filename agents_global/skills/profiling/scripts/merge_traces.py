@@ -1,3 +1,6 @@
+# /// script
+# requires-python = ">=3.10"
+# ///
 """Merge torch.profiler chrome traces into one file for side-by-side viewing in Perfetto, aligned at an anchor.
 
 Each input's timestamps are shifted so its anchor lands at t = 0. Its CPU and GPU processes get small pids
@@ -26,7 +29,7 @@ prefix restricts the event category: `kernel:` GPU kernels, `gpu:` GPU-side `rec
 `--anchor cpu:ProfilerStep --anchor-index -1` is the start of the last `ProfilerStep#<n>`. Inputs may be `.json`
 or `.json.gz`.
 
-Usage: python3 merge_traces.py <out.json.gz> --anchor <name> [--anchor-index N] --trace "<label>=<trace.json.gz>" ...
+Usage: uv run --script merge_traces.py <out.json.gz> --anchor <name> [--anchor-index N] --trace "<label>=<trace.json.gz>" ...
   e.g. `--anchor cpu:forward --anchor-index -1` (last SFT step start), `--anchor kernel:main_kernel --anchor-index 2`,
   or `--anchor "gpu:FSDP::all_gather_copy_out (model.layers.2)"` (start of layer 2's forward).
 """
