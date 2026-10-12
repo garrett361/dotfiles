@@ -1,9 +1,7 @@
 # Nsight Compute (ncu)
 
-Status: checked on 2026-09-24 with ncu 2025.3.1 on a B300 SXM6 node (driver 580.173.02, CUDA 13.0).
-Performance counters are blocked for non-admin users, so no kernel metrics have been collected yet.
-Nothing under "Not yet verified" has produced a report on this cluster.
-On the H200 nodes counters do work. See "Verified on H200 (sm90)" below.
+Verified on H200 (sm90, 2026-10-10 and 2026-10-11) with ncu 2025.3.1. On the B300 cluster performance counters are
+admin-only, so ncu collects nothing there; see "Cluster notes" at the end.
 
 ## When to use
 
@@ -16,20 +14,16 @@ On the H200 nodes counters do work. See "Verified on H200 (sm90)" below.
 - Binaries: `ncu` on `PATH` is `/usr/local/cuda-12.9/bin/ncu`, a shell wrapper (as is
   `/usr/local/cuda-13.0/bin/ncu`) that runs the newest install under `/opt/nvidia/nsight-compute/`
   (2025.2.1 and 2025.3.1 exist; both wrappers report 2025.3.1). Same layout on login and compute nodes.
-- GPU support: on a compute node, `ncu --query-metrics --devices 0` prints
-  `Device NVIDIA B300 SXM6 PC (GB110)`, and `gb110` is in `ncu --list-chips`, so 2025.3.1 recognizes the
-  chip. It then fails with the permission error below.
 - Check counter permissions on a compute node before planning any ncu work:
   `grep RmProfilingAdminOnly /proc/driver/nvidia/params`. A value of `1` means only admins can profile.
 - `ncu --list-sections` works without counters and maps each display name to the identifier `--section`
   takes: `SpeedOfLight`, `MemoryWorkloadAnalysis`, `Occupancy`, `LaunchStats`, `WarpStateStats` (Warp
   State Statistics), `SourceCounters`, `ComputeWorkloadAnalysis`, `SchedulerStats`, `SpeedOfLight_RooflineChart`.
-- Run under Slurm on one GPU, wrapping `uv run` directly; ncu attaches to the Python child process:
-  `srun -p all -N1 --gpus=1 --time=00:20:00 bash -lc 'ncu ... uv run python script.py'` (B300 cluster).
-  Inside an existing allocation (H200 nodes), add a step to it instead:
-  `srun --jobid=<job> --overlap bash -lc 'export CUDA_VISIBLE_DEVICES=<gpu>; ncu ... python script.py'`.
+- Run on one GPU, wrapping `uv run` directly; ncu attaches to the Python child process. Inside an existing
+  allocation, add a step: `srun --jobid=<job> --overlap bash -lc 'export CUDA_VISIBLE_DEVICES=<gpu>; ncu ... uv run
+  --no-sync python script.py'`. Without one: `srun -p <partition> -N1 --gpus=1 --time=00:20:00 bash -lc 'ncu ...'`.
 
-## Verified on H200 (sm90), 2026-10-10
+## Collecting and reading counters
 
 Counters work for normal users on the `prime-nebius-puku-h200-gpu-*` nodes (ncu 2025.3.1 via
 `/usr/local/cuda-13.0/bin/ncu`, SLURM job 3569).
@@ -62,6 +56,8 @@ Counters work for normal users on the `prime-nebius-puku-h200-gpu-*` nodes (ncu 
   `torch.cuda.nvtx.range_push("steady")` / `range_pop()` and select with
   `--nvtx --nvtx-include "steady]" -k regex:<name> -c 1` (the `]` marks a push/pop range). Do not profile
   every launch (`-c` large): profiling the tuning launches changed the chosen config (BLOCK 4096 vs 256).
+
+### TileLang kernels
 
 - Full set on a TileLang kernel at a production shape (DSv4 sparse attention forward):
   `ncu --target-processes all -k regex:^main_kernel$ -c 1 --set full --import-source yes -o out -f uv run --no-sync python bench.py ...`.
@@ -100,11 +96,9 @@ Counters work for normal users on the `prime-nebius-puku-h200-gpu-*` nodes (ncu 
 
 ## Gotchas
 
-- `ERR_NVGPUCTRPERM` on every collection: the driver has `RmProfilingAdminOnly: 1`. The fix is admin-side:
-  set the `nvidia` module option `NVreg_RestrictProfilingToAdminUsers=0` (modprobe config, then reload the
-  module or reboot), or grant sudo for `ncu`. Until then, use `torch.profiler` or `do_bench`.
-- On the permission error the target still runs to completion, but ncu exits with code 1, so the script's
-  own success output does not mean profiling worked.
+- `ERR_NVGPUCTRPERM` on every collection means counters are admin-only (`RmProfilingAdminOnly: 1`); see the
+  B300 cluster notes for the fix. The target still runs to completion, but ncu exits with code 1, so the
+  script's own success output does not mean profiling worked.
 - `--launch-skip` counts only launches that match the `--kernel-name` filter;
   `--launch-skip-before-match` counts all launches (from `ncu --help`).
 
@@ -114,3 +108,14 @@ Counters work for normal users on the `prime-nebius-puku-h200-gpu-*` nodes (ncu 
 
 Verified on H200 2026-10-11: `ncu -i out.ncu-rep --print-summary per-kernel` (min/max/average per kernel
 over launches), and NVTX push/pop filtering as above.
+
+## Cluster notes
+
+### B300 (2026-09-24, ncu 2025.3.1, driver 580.173.02, CUDA 13.0)
+
+- `ncu --query-metrics --devices 0` prints `Device NVIDIA B300 SXM6 PC (GB110)`, and `gb110` is in
+  `ncu --list-chips`, so 2025.3.1 recognizes the chip, but every collection fails with `ERR_NVGPUCTRPERM`:
+  the driver has `RmProfilingAdminOnly: 1`. No kernel metrics have been collected there.
+- The fix is admin-side: set the `nvidia` module option `NVreg_RestrictProfilingToAdminUsers=0` (modprobe config,
+  then reload the module or reboot), or grant sudo for `ncu`. Until then, use `torch.profiler` or `do_bench`.
+- Slurm there: `srun -p all -N1 --gpus=1 --time=00:20:00 bash -lc 'ncu ... uv run python script.py'`.
