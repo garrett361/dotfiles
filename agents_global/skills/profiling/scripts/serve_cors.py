@@ -1,4 +1,7 @@
-"""Serve a directory on 127.0.0.1 with a CORS header for https://ui.perfetto.dev. Usage: python3 serve_cors.py <port> <dir>"""
+# /// script
+# requires-python = ">=3.10"
+# ///
+"""Serve a directory on 127.0.0.1 with a CORS header for https://ui.perfetto.dev. Usage: uv run --script serve_cors.py <port> <dir>"""
 
 import functools
 import http.server

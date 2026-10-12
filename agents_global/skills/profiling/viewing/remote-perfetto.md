@@ -22,7 +22,7 @@ forward maps laptop 9001 to it.
 
 0. Trim first. In-browser parsing runs at roughly 8 to 9 MB of JSON per second, so keep only the step being
    analyzed:
-   `python3 <skill dir>/scripts/trim_last_step.py trace_0.json.gz trace_0_laststep.json.gz`
+   `uv run --script <skill dir>/scripts/trim_last_step.py trace_0.json.gz trace_0_laststep.json.gz`
    (gzipped output loads fine by URL; no need to decompress). To compare arms side by side, trim each arm,
    then serve one file merged from the trimmed ones by `scripts/merge_traces.py`, e.g. `--anchor cpu:forward
    --anchor-index -1` to align the step starts.
@@ -37,7 +37,7 @@ forward maps laptop 9001 to it.
 3. Start it in the background next to the trace directory, recording the PID:
 
    ```bash
-   nohup python3 <skill dir>/scripts/serve_cors.py "$PORT" "$INV/serve" > "$INV/server.log" 2>&1 &
+   nohup uv run --script <skill dir>/scripts/serve_cors.py "$PORT" "$INV/serve" > "$INV/server.log" 2>&1 &
    echo $! > "$INV/server.pid"
    ```
 
