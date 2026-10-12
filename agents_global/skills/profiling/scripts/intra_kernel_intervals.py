@@ -285,7 +285,7 @@ def main() -> None:
         print_crowding(name, results[name], buckets, args.crowding_window_ns)
     if args.csv:
         with open(args.csv, "w", newline="") as f:
-            writer = csv.writer(f)
+            writer = csv.writer(f, lineterminator="\n")
             writer.writerow(("interval", "variant", "launch", "cta", "warp", "iteration", "duration_ns", "start_ns"))
             for name, samples in results.items():
                 writer.writerows((name, *sample) for sample in samples)

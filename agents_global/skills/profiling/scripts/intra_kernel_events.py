@@ -121,7 +121,7 @@ def main() -> None:
     opener = gzip.open if args.out.endswith(".gz") else open
     n = 0
     with opener(args.out, "wt", newline="") as f:
-        writer = csv.writer(f)
+        writer = csv.writer(f, lineterminator="\n")
         writer.writerow(COLUMNS)
         for row in iket_rows(trace, args.launches, args.variant, parse_roles(args.roles), args.kernel):
             writer.writerow(row)
