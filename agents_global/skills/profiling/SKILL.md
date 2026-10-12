@@ -65,8 +65,7 @@ Inside one kernel:
   `tools/nsight-compute.md` (`scripts/ncu_source_lines.py`).
 - A CuTe DSL kernel: JIT cache, PTX/SASS dumps, registers, spills? `tools/cute-dsl.md`.
 - Do two kernels (TileLang, CuTe DSL, Triton, CUDA) share a design: MMA, TMA vs `cp.async`, barriers,
-  registers, spills by source line? `scripts/sass_inventory.py` (multi-arch `.so` tables are per SASS arch; pass
-  `--kernel` on large caches).
+  registers, spills by source line? `tools/sass.md` (`scripts/sass_inventory.py`).
 - When does each warp role issue, wait and finish, and which wait gates the next step? `tools/intra-kernel.md`
   (`intra_kernel_events.py`, `intra_kernel_intervals.py`, `intra_kernel_ab_figure.py`).
 
