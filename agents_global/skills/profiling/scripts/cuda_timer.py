@@ -21,8 +21,8 @@ Usage:
   timer.reset_after_warmup(2)  # optional: drop the first 2 entries of every region
   print(timer.table())         # count, total, mean, median, min, max in ms per region
 
-Self-test on one GPU:
-  uv run --script cuda_timer.py
+Self-test on one GPU, from a project that has torch (`uv run --script` would download torch into a throwaway env):
+  uv run --no-sync python cuda_timer.py
 """
 
 import statistics
