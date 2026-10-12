@@ -1,8 +1,7 @@
 # Nsight Systems (nsys)
 
-Status: verified 2026-09-24 with `/opt/nvidia/nsight-systems/2025.3.2/bin/nsys` (2025.3.2.474) on an 8xB300
-Slurm compute node (driver 580.173.02, CUDA 13.0), torch 2.13.0+cu130, NCCL 2.29.7. Toy workloads only
-(bf16 4096 matmul + GELU; 2-rank all_reduce), not a real training run.
+Recipes verified with nsys 2025.3.2 on 8xB300 (2026-09-24, toy workloads) and H200 (2026-10-09 DSv4 proxy,
+2026-10-11 toy loops), torch 2.13.0+cu130. Facts that differ per cluster are under "Cluster notes" at the end.
 
 ## When to use
 
@@ -13,11 +12,11 @@ Slurm compute node (driver 580.173.02, CUDA 13.0), torch 2.13.0+cu130, NCCL 2.29
 
 ## Binary
 
-- Use `N=/opt/nvidia/nsight-systems/2025.3.2/bin/nsys` (same version as the CUDA 13.0 toolkit's nsys).
-- `nsys` on `PATH` is `/usr/local/cuda-12.9/bin/nsys` (2025.1.3). It also captured fine but warns that
+- Use 2025.3.2 by absolute path: `N=/opt/nvidia/nsight-systems/2025.3.2/bin/nsys` (the same version as the CUDA
+  13.0 toolkit's `nsys`).
+- `nsys` on `PATH` may be older (`/usr/local/cuda-12.9/bin/nsys`, 2025.1.3). It captures, but warns that
   device-side CUDA event trace is on (disable with `--cuda-event-trace=false`).
-- `/opt/nvidia/nsight-systems/2026.1.3` exists on the login node only, not on compute nodes.
-- `nsys stats` and `nsys export` run fine on the login node (no GPU needed).
+- `nsys stats` and `nsys export` need no GPU; run them on the login node.
 
 ## Verified recipes
 
@@ -70,35 +69,47 @@ report with both ranks. Both showed `ncclDevKernel_AllReduce_Sum_bf16_RING_LL` i
   `vectorized_elementwise_kernel`). It counts kernels only, not the memcpys and memsets that `top_kernels.py`
   includes. `--device` takes the CUDA ordinal the process saw (0 under `CUDA_VISIBLE_DEVICES=4`).
 
-## Overhead and size (toy, one B300)
-
-- Steady-state per-iteration time: 0.1126 ms untraced vs 0.1145 ms traced (about +2%).
-- First-iteration cost grows (loop 0.39 s to 0.63 s), and whole-command wall time went from about 6.5 s
-  to 26 to 30 s, mostly nsys startup and report generation after the app exits.
-- Report size about 0.7 MB for both 20 and 200 iterations (startup dominates); 0.1 MB with a capture range.
-
 ## Gotchas
 
-- `-s none --cpuctxsw=none` is needed: `perf_event_paranoid` is 4 and there is no root, so CPU sampling
-  and context-switch tracing are unavailable (`nsys status -e` reports Fail).
+- CPU sampling and context-switch tracing need `perf_event_paranoid` at 2 or below. Check with `nsys status -e`;
+  where it reports Fail, add `-s none --cpuctxsw=none` (the recipes above include them).
 - NVTX capture range with `torch.cuda.nvtx` silently produced "No reports were generated" until
   `NSYS_NVTX_PROFILER_REGISTER_ONLY=0` was set: torch pushes unregistered NVTX strings.
-- With `--capture-range-end=stop`, the app blocks inside the stop call (about 12 s here) while nsys
-  flushes. Don't time across the stop point.
+- With `--capture-range-end=stop`, the app blocks inside the stop call (6 to 12 s) while nsys flushes. Don't time
+  across the stop point.
 - `osrt` on the rank that hosts the TCPStore (rank 0) traced about 900k `accept` calls: 12 MB report vs
   1.2 MB for rank 1. Drop `osrt` from `-t` if OS runtime calls aren't the question.
 - `nvtx_sum` reports CPU-side range durations: `iter0` included cuBLAS init (628 ms vs about 30 us for
   later iterations). Skip warmup iterations when reading it.
-- No `/usr/bin/time` on compute nodes; use the bash `time` builtin.
+- After re-capturing to the same `-o`, `nsys stats` refuses to run ("Existing SQLite export found ... older than
+  input file"). Add `--force-export=true`.
+- Tracing is not free when the host is the bottleneck: kernel durations match `torch.profiler`, but take idle and
+  exposed NCCL time from untraced step time minus kernel time (`scripts/step_accounting.py --untraced`). Numbers
+  are under the H200 cluster notes.
+- Python stacks (`--python-sampling`, `--python-backtrace=cuda`) export to SQLite only as payload-free
+  `NVTX_EVENTS` rows (eventType 34), so per-function host time needs the GUI. For Python file:line of syncs, use
+  `analysis/cuda-syncs.md`.
 
 ## Not yet verified
 
 - Per-rank capture under `srun` (multi-node) rather than torchrun, e.g. `%q{SLURM_PROCID}` in `-o`.
 - Real training runs: overhead and report size at full model scale, and `--cuda-graph-trace` for graphs.
 - `nvtx_gpu_proj_sum` (NVTX ranges projected onto GPU time) and `--gpu-metrics-devices` sampling.
-- Running the 2026.1.3 binary (not present on compute nodes).
 
-## Notes from an H200 cluster (2026-10-09, nsys 2025.3.2, DSv4 Flash 4L proxy)
+## Cluster notes
+
+### B300 (2026-09-24, driver 580.173.02, CUDA 13.0, NCCL 2.29.7, toy workloads)
+
+- `perf_event_paranoid` is 4 and there is no root, so `-s none --cpuctxsw=none` is required.
+- `/opt/nvidia/nsight-systems/2026.1.3` exists on the login node only, not on compute nodes.
+- No `/usr/bin/time` on compute nodes; use the bash `time` builtin.
+- Overhead on one B300 (bf16 4096 matmul + GELU): steady-state per-iteration time 0.1126 ms untraced vs
+  0.1145 ms traced (about +2%). First-iteration cost grows (loop 0.39 s to 0.63 s), and whole-command wall time
+  went from about 6.5 s to 26 to 30 s, mostly nsys startup and report generation after the app exits.
+- Report size about 0.7 MB for both 20 and 200 iterations (startup dominates); 0.1 MB with a capture range.
+- The stop call of `--capture-range-end=stop` blocked about 12 s.
+
+### H200 (2026-10-09, nsys 2025.3.2, DSv4 Flash 4L proxy)
 
 - `perf_event_paranoid` was 0 there, so CPU and Python sampling work (`nsys status -e` reports OK). Check it per cluster.
 - `-t cuda,nvtx -s none` is not overhead-free when the host is the bottleneck: steps went from 652 to 718 ms (bf16) and
@@ -106,18 +117,13 @@ report with both ranks. Both showed `ncclDevKernel_AllReduce_Sum_bf16_RING_LL` i
   and exposed NCCL time did not, so take those from untraced step time minus kernel time
   (`scripts/step_accounting.py --untraced`).
 - `-t none -s none --python-sampling=true --python-sampling-frequency=1000` added about 6% to both arms equally,
-  a usable low-overhead host check. `nsys export --type sqlite` does not export the Python stacks (samples become
-  payload-free `NVTX_EVENTS` rows, eventType 34), so per-function host time needs the GUI.
+  a usable low-overhead host check.
 
-## Notes from an H200 cluster (2026-10-11, toy loop with known syncs)
+### H200 (2026-10-11, toy loop with known syncs)
 
 - Compute and login nodes have only 2025.1.3 and 2025.3.2 under `/opt/nvidia/nsight-systems`;
   `/usr/local/cuda-13.0/bin/nsys` is also 2025.3.2. The three capture recipes and the per-rank torchrun recipe
   reproduced with 2025.3.2 (exactly 10 instances per kernel for 10 captured iterations); the stop call blocked 6 s.
-- After re-capturing to the same `-o`, `nsys stats` refuses to run ("Existing SQLite export found ... older than
-  input file"). Add `--force-export=true`.
 - `-s cpu --cudabacktrace=sync:0` stores a native backtrace per sync call in the SQLite export
   (`CUPTI_ACTIVITY_KIND_RUNTIME.callchainId` joined to `CUDA_CALLCHAINS`): C++ frames such as
-  `at::native::copy_kernel_cuda`, no Python lines. `--python-backtrace=cuda` adds Python frames, but they export as
-  payload-free `NVTX_EVENTS` rows (eventType 34) like the sampling stacks. For Python file:line of syncs without the
-  GUI, use `analysis/cuda-syncs.md`.
+  `at::native::copy_kernel_cuda`, no Python lines.
