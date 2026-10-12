@@ -1,3 +1,6 @@
+# /// script
+# requires-python = ">=3.10"
+# ///
 """Inventory the SASS a compiler emitted: MMA flavor and shapes, async copies, and registers per kernel.
 
 Finds every `.cubin` and `.so` under the given paths (files or directories, e.g. a fresh
@@ -25,8 +28,8 @@ For CuTe DSL kernels this is more precise than the `remarks{ptx}` spill remark, 
 register-pressure region rather than the spilling instructions.
 
 Usage:
-  python3 sass_inventory.py <path> [<path> ...] [--kernel REGEX] [--extra OPCODE ...] [--by-line OPCODE ...]
-  python3 sass_inventory.py $TILELANG_CACHE_DIR ~/run/cute_dump/k.sm_90a.cubin --kernel 'attn|main_kernel'
+  uv run --script sass_inventory.py <path> [<path> ...] [--kernel REGEX] [--extra OPCODE ...] [--by-line OPCODE ...]
+  uv run --script sass_inventory.py $TILELANG_CACHE_DIR ~/run/cute_dump/k.sm_90a.cubin --kernel 'attn|main_kernel'
 """
 
 import argparse

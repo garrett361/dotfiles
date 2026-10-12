@@ -1,3 +1,6 @@
+# /// script
+# requires-python = ">=3.10"
+# ///
 """Rank a kernel's source lines (or SASS instructions) by warp-stall samples from an ncu report.
 
 Runs `ncu --import <report> --page source --print-source cuda,sass --csv` (`sass` alone for `--view sass`)
@@ -14,9 +17,9 @@ no line rows, and only `--view sass` works. If the source file was a temporary t
 (TileLang compiles from `/tmp/tmp*/tvm_kernels.cu`), pass a saved copy with `--resolve-source-file`.
 
 Usage:
-  python3 ncu_source_lines.py report.ncu-rep --top 15
-  python3 ncu_source_lines.py report.ncu-rep --kernel regex:my_kernel --view sass --top 30
-  python3 ncu_source_lines.py report.ncu-rep --resolve-source-file /path/to/device_kernel_copy.cu
+  uv run --script ncu_source_lines.py report.ncu-rep --top 15
+  uv run --script ncu_source_lines.py report.ncu-rep --kernel regex:my_kernel --view sass --top 30
+  uv run --script ncu_source_lines.py report.ncu-rep --resolve-source-file /path/to/device_kernel_copy.cu
 """
 
 import argparse
