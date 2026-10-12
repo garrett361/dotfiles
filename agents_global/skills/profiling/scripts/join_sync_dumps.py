@@ -1,10 +1,13 @@
+# /// script
+# requires-python = ">=3.10"
+# ///
 """Put Python sites from a hooked run onto costs from an unhooked trace, joining `find_syncs.py --dump` rows by position.
 
 The sync sequence of a steady-state step repeats run to run, so the k-th sync point on the main thread (and on the
 other threads) of one dump is the k-th of the other. The join refuses to run if the per-thread counts differ and
 reports how many rows disagree on the op chain, which should be zero. Sites print sorted by unhooked exposed GPU idle.
 
-Usage: python3 join_sync_dumps.py <unhooked_dump.json> <hooked_dump.json>
+Usage: uv run --script join_sync_dumps.py <unhooked_dump.json> <hooked_dump.json>
 """
 
 import argparse

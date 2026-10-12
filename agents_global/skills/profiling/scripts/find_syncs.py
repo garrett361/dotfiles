@@ -1,3 +1,6 @@
+# /// script
+# requires-python = ">=3.10"
+# ///
 """List every host-blocking CUDA call in the last full step(s) of a torch.profiler chrome trace, with cost and call site.
 
 A step window runs from one CPU-side `user_annotation` named ANCHOR to the next, so it covers forward, backward,
@@ -30,7 +33,7 @@ already has a callback record.
 
 `--to-end` windows from the last anchor to the last GPU event instead (e.g. the final micro-batch plus optimizer).
 
-Usage: python3 find_syncs.py <trace.json.gz> [--steps N | --to-end] [--anchor forward] [--stacks syncs.jsonl] [--list] [--dump f]
+Usage: uv run --script find_syncs.py <trace.json.gz> [--steps N | --to-end] [--anchor forward] [--stacks syncs.jsonl] [--list] [--dump f]
 """
 
 import argparse

@@ -1,3 +1,6 @@
+# /// script
+# requires-python = ">=3.10"
+# ///
 """Per-kernel GPU time from an nsys SQLite export, optionally for one device and one step window.
 
 Reads `CUPTI_ACTIVITY_KIND_KERNEL` joined to `StringIds` (export with `nsys export --type sqlite`, or use the
@@ -11,8 +14,8 @@ kernels that end each training step): clusters are split where consecutive match
 picks the step (default -1, the last).
 
 Usage:
-  python3 nsys_kernels.py report.sqlite --device 0 --step-boundary FusedAdamMathFunctor --top 20
-  python3 nsys_kernels.py report.sqlite --group short --csv kernels.csv
+  uv run --script nsys_kernels.py report.sqlite --device 0 --step-boundary FusedAdamMathFunctor --top 20
+  uv run --script nsys_kernels.py report.sqlite --group short --csv kernels.csv
 """
 
 import argparse

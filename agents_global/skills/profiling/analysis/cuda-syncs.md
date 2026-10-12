@@ -21,7 +21,7 @@ then join the two. nsys was not needed here: `cuda_api_sum` counts the same runt
 
 ## 1. Trace pass
 
-`python3 scripts/find_syncs.py trace_0.json.gz [--steps N] [--anchor forward] [--list] [--dump rows.json]` on a
+`uv run --script scripts/find_syncs.py trace_0.json.gz [--steps N] [--anchor forward] [--list] [--dump rows.json]` on a
 `torch.profiler` chrome trace (plain `.json` or `.gz`). The window runs between the last two CPU-side `forward`
 annotations (`--anchor` names another `record_function` that opens each step in your loop);
 `--steps N` widens it to the last N such intervals, and its "per step" counts are per interval. prime-rl SFT
@@ -122,10 +122,10 @@ the same two commands with run name `$U` instead of `$R` and without `PYTHONPATH
 M micro-batches per step:
 
 ```bash
-python3 scripts/sync_stacks_report.py $T/$R-stacks/syncs_rank0.jsonl
-python3 scripts/find_syncs.py $T/$R/trace_0.json.gz --steps M --stacks $T/$R-stacks/syncs_rank0.jsonl --dump hooked.json
-python3 scripts/find_syncs.py $T/$U/trace_0.json.gz --steps M --dump unhooked.json
-python3 scripts/join_sync_dumps.py unhooked.json hooked.json
+uv run --script scripts/sync_stacks_report.py $T/$R-stacks/syncs_rank0.jsonl
+uv run --script scripts/find_syncs.py $T/$R/trace_0.json.gz --steps M --stacks $T/$R-stacks/syncs_rank0.jsonl --dump hooked.json
+uv run --script scripts/find_syncs.py $T/$U/trace_0.json.gz --steps M --dump unhooked.json
+uv run --script scripts/join_sync_dumps.py unhooked.json hooked.json
 ```
 
 `sync_stacks_report.py` numbers steps by step-hook calls (step 1 is the first training step), counts per training

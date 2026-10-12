@@ -1,3 +1,6 @@
+# /// script
+# requires-python = ">=3.10"
+# ///
 """Deduplicate the per-sync Python stacks written by sync_stacks/sitecustomize.py into call sites with counts per step.
 
 Default steps: all but the first two (compile, warmup) and the last (it also covers post-loop work). A site is the
@@ -5,7 +8,7 @@ full stack plus the autograd node; it prints the innermost frame, the innermost 
 site-packages and the stdlib), and how many syncs each source saw. "stream"/"event"/"device" rows are the complete
 count; "warn" (sync debug mode) duplicates stream syncs and misses event and device syncs.
 
-Usage: python3 sync_stacks_report.py <syncs_rank0.jsonl> [--steps 3,4] [--depth 3] [--full]
+Usage: uv run --script sync_stacks_report.py <syncs_rank0.jsonl> [--steps 3,4] [--depth 3] [--full]
 """
 
 import argparse
