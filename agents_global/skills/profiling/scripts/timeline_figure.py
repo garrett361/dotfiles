@@ -15,7 +15,8 @@ Steps start at the CPU-side `user_annotation` events named `--step-marker`; `--s
 launched inside it, so GPU work that lags the host still counts toward its own step; panels draw every
 main-stream kernel in the window. When the host runs ahead of the GPU (no per-step sync), the step start
 precedes the step's first kernel and the panel opens on the previous step's GPU work; align with an anchor
-then. The main stream is the stream with the most kernel time. Categories are `label:regex:color`, matched in
+then. `--step-marker ProfilerStep` selects torch.profiler's `ProfilerStep#<n>` steps. The main stream is the
+stream with the most kernel time. Categories are `label:regex:color`, matched in
 order against kernel names; unmatched kernels fall into "other".
 
 `--anchor-annotation NAME` aligns at the Nth (`--anchor-index`) GPU-side `record_function` annotation with
@@ -66,6 +67,7 @@ Usage:
 
 import argparse
 import re
+import sys
 from collections import defaultdict
 from types import SimpleNamespace
 
@@ -402,7 +404,13 @@ def main():
             step_label = "last step" if args.step_index == -1 else f"step index {args.step_index}"
             ax.set_xlabel(f"ms relative to {anchor_label} ({step_label}, main GPU stream)")
 
-    if len(region_ends) == 2:
+    region_in_view = len(region_ends) == 2 and all(
+        axes[1].get_xlim()[0] <= end <= axes[1].get_xlim()[1] for end in region_ends
+    )
+    if len(region_ends) == 2 and not region_in_view:
+        print(f"region ends {region_ends[0]:.1f} and {region_ends[1]:.1f} ms fall outside --window; widen it to draw "
+              "the region arrow", file=sys.stderr)
+    if region_in_view:
         (before_end, after_end), ax = region_ends, axes[1]
         ax.axvline(before_end, color="#cc0000", linestyle=":", linewidth=1)
         ax.annotate("", xy=(after_end, 0.5), xytext=(before_end, 0.5), arrowprops=dict(arrowstyle="<->", color="#cc0000"))
@@ -421,21 +429,26 @@ def main():
         deltas = [after.get(k, 0.0) - before.get(k, 0.0) for k in labels]
         ax.barh(labels, deltas, color=[dict(legend_entries)[label] for label in labels])
         span = max(abs(d) for d in deltas) or 1.0
+        total_before, total_after = sum(before.values()), sum(after.values())
+        largest = max(total_before, total_after)
+        decimals = 1 if largest >= 10 else 2 if largest >= 1 else 3
         for y, d in enumerate(deltas):
             offset = 0.02 * span if d >= 0 else -0.02 * span
-            ax.text(d + offset, y, f"{d:+.1f} ms", va="center", ha="left" if d >= 0 else "right", fontsize=9)
+            ax.text(d + offset, y, f"{d:+.{decimals}f} ms", va="center", ha="left" if d >= 0 else "right", fontsize=9)
         ax.axvline(0, color="black", linewidth=0.8)
         ax.invert_yaxis()
         ax.set_xlim(-1.35 * span, 1.35 * span)
-        total_before, total_after = sum(before.values()), sum(after.values())
+        ax.set_xlabel("change in main-stream kernel ms per step")
         ax.set_title(
             f"Main-stream kernel time per step, {arms[1][0].split(':')[0]} minus {arms[0][0].split(':')[0]}: "
-            f"{total_after - total_before:+.1f} ms ({total_before:.0f} -> {total_after:.0f} ms)",
+            f"{total_after - total_before:+.{decimals}f} ms "
+            f"({total_before:.{decimals - 1}f} -> {total_after:.{decimals - 1}f} ms)",
             loc="left",
             fontsize=11,
         )
         for label, d in zip(labels, deltas):
-            print(f"{label:24s} {before.get(label, 0.0):9.1f} -> {after.get(label, 0.0):9.1f} ms  ({d:+.1f})")
+            print(f"{label:24s} {before.get(label, 0.0):9.{decimals}f} -> {after.get(label, 0.0):9.{decimals}f} ms  "
+                  f"({d:+.{decimals}f})")
 
     handles = [Patch(color=color, label=label) for label, color in legend_entries]
     fig.legend(handles=handles, loc="upper center", ncol=min(len(handles), 6), frameon=False,
