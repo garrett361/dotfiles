@@ -10,9 +10,10 @@ description: Measure and explain GPU/PyTorch performance and A/B a change fairly
 Every analysis, table, merged trace, and figure comes from running a script in this skill's `scripts/` with
 explicit arguments: no inline `python -c`, no heredoc analysis, no scratch scripts in `~/tmp`, no hand-edited
 traces or figures. Every number and figure must be regenerable from the raw traces and the investigation's
-`commands.sh`, which records each command that produced a result, in order, with all arguments. Files a
-script takes as input (a `bench_ops.py` cases file, a toy repro) are not analysis; keep them in the
-investigation's `inputs/`.
+`commands.sh`, which records each command that produced a result, in order, with all arguments. The rule covers
+analysis. Code that defines what runs is not analysis: inputs a script takes (a `bench_ops.py` cases file, a toy
+repro) go in the investigation's `inputs/`, and kernel variants and instrumented copies are project code, committed
+in the project branch however they were generated.
 
 When a script can't do what's needed, extend it (or add one), run it, and route to it from this file or the doc
 that covers its question. Keep extensions general and backward compatible: a flag with a sensible default,
