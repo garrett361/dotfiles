@@ -7,12 +7,12 @@ kernels inside the op changed, see `torch-profiler.md`.
 
 ## Comparing implementations: `scripts/bench_ops.py`
 
-1. Write `cases.py` in the investigation root, with the reference implementation as the first label of every case.
+1. Write `inputs/cases.py` in the investigation, with the reference implementation as the first label of every case.
    Use the model's real shapes and dtypes (a trace's `Input Dims`, captured with `record_shapes=True`, lists them).
    The script's docstring has an example that times forward and backward together; do that when the change
    touches autograd, since a faster forward can hide a slower backward.
 2. Run it with the project's interpreter from the investigation root, e.g.
-   `uv run --no-sync python <skill>/scripts/bench_ops.py cases.py --check --memory --csv derived/op_bench.csv`.
+   `uv run --no-sync python <skill>/scripts/bench_ops.py inputs/cases.py --check --memory --csv derived/op_bench.csv`.
 3. Read the table. `check vs first label` must say `ok` (or the change is not a pure speedup). `first label /
    this` is the speedup over the reference (median over median; above 1x is faster). Trust it only when the two
    rows' p20 to p80 ranges do not overlap.
