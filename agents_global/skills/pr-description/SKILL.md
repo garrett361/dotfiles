@@ -43,6 +43,10 @@ anything the prose already said, anything the diff shows plainly, and
 file-by-file inventories. A detail that needs a paragraph belongs in the
 code or in the PR conversation, not here.
 
+Never mention that the PR is stacked, its parent PR, or its position in a
+stack: GitHub's stack UI shows all of that, and the text would drift whenever
+the stack changes.
+
 Write each paragraph and each bullet as one unwrapped line, with no hard line
 breaks inside it: GitHub renders long lines fine, and hard wraps make the text
 painful to edit.
