@@ -14,7 +14,7 @@ With two arms a delta column is added. Tracing inflates host time (every op and 
 host times as relative costs between arms, and the launch counts as exact.
 
 Usage:
-  python3 host_ops.py --trace "bf16=traces/bf16/trace_*.json.gz" --trace "fp8=traces/fp8/trace_*.json.gz" \\
+  uv run --script host_ops.py --trace "bf16=traces/bf16/trace_*.json.gz" --trace "fp8=traces/fp8/trace_*.json.gz" \\
     --step-boundary FusedAdamMathFunctor --steps=-2: --op "FP8 expert GEMM:^prime_rl::grouped_fp8_gemm" \\
     --op "bf16 grouped mm:^aten::_grouped_mm" [--ranks 0,4]
 """
