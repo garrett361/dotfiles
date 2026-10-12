@@ -22,10 +22,10 @@ knowledge goes in arguments or `projects/<repo>.md`. Capture harnesses that run 
 
 ## 1. Pick the tool by the question
 
-Read only what the matching line names. A script named without a doc is documented by its module docstring at
-the top of the file. Run each script as its docstring says: `python3` for stdlib-only scripts, `uv run --script`
-when the file's header declares dependencies, the project's interpreter (`uv run --no-sync python`) when it
-imports torch or the project.
+Read only what the matching line names. A script named without a doc is documented by its module docstring at the top of
+the file. Run each script as its docstring says: `uv run --script` by default (each file's header declares its
+dependencies), and the project's interpreter (`uv run --no-sync python`) for the few that import torch or the project
+(`bench_ops.py`, `prime_rl_logprob_ab.py`).
 
 Op level:
 - Is this op faster, and by how much (median, p20, p80, peak memory, output check)? `scripts/bench_ops.py`
