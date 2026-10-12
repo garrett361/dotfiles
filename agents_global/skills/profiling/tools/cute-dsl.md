@@ -1,4 +1,4 @@
-# CuTe DSL kernels (`cutlass.cute`): compile vs launch, dumps, registers
+# CuTe DSL kernels (`cutlass.cute`): compile vs launch, dumps, registers, copies
 
 Status: verified 2026-10-10 on an H200 (sm90a) with `nvidia-cutlass-dsl` 4.7.1 (prime-rl venv), SLURM
 job 3569. Read the docs at the installed version: `git -C ~/github/NVIDIA/cutlass show v4.7.1:media/docs/pythonDSL/...`.
@@ -82,21 +82,6 @@ The working-tree docs may describe a newer release.
   down to a multiple of 8 (168 at 384 threads), so judge each role's pressure by spills, not `REG:`.
 - `CUTE_DSL_DUMP_DIR` must exist: with a missing directory and `CUTE_DSL_KEEP=...,sass` the compile
   died with an internal error, "Cannot dump SASS: CUBIN file does not exist".
-
-## Inspecting another compiler's kernel (TileLang)
-
-- `kernel.get_kernel_source()` on a `tilelang.jit` kernel returns the generated CUDA.
-- The cubin lands in `$TILELANG_CACHE_DIR/<version>/cuda-binaries/*.cubin` (default `~/.tilelang/cache`).
-  Set a fresh `TILELANG_CACHE_DIR` and `cuobjdump -sass` the cubin there. In TileLang 0.1.12 the
-  `TVMFFIKernelAdapter` has no `libpath`.
-- MMA flavor from SASS: `HGMMA` is WGMMA (sm90a), `HMMA` is `mma.sync`. `WARPGROUP.DEPBAR.LE gsb0, 0x0`
-  right after the `HGMMA`s means the WGMMA is waited on immediately (synchronous).
-- `scripts/sass_inventory.py <cache dir, cubin or .so> ...` prints, per kernel (and per SASS arch in a
-  multi-arch `.so`), registers/stack/local plus static counts of `HGMMA` by shape, `HMMA`, `UTCHMMA`
-  (sm100), `LDGSTS`, TMA, `LDSM`/`STSM`, barriers (`BAR.*`, mbarrier `SYNCS`) and `MUFU`. Verified on the
-  TileLang DSv4 forward's cubin and its CuTe port's (`CUTE_DSL_KEEP=cubin`), on flash_mla's `.so`, and on a
-  Triton cache, against `cuobjdump -sass | grep`. Pass `--kernel` on a large cache: it skips non-matching
-  cubins before disassembly (3 s instead of 5.5 min on a 983-cubin Triton cache).
 
 ## Copies and swizzled shared memory (verified on the DSv4 port)
 
