@@ -51,6 +51,7 @@ Entries describe the current state, not the order things happened in. That histo
   before `BufWriteCmd` fires; `bufhidden` is `wipe` and `BufWipeout` is the one teardown funnel.
   `q`, `<Esc>` and `<C-c>` are deliberately unbound, the last because it is the habitual way out
   of insert mode; `:q` cancels. `on_done` fires on every exit path, with `nil` on a cancel.
+  `textwidth` is 0 so typed text is never hard-wrapped; the float soft-wraps instead.
 - `init.comment_range` anchors the comment when the editor opens, not when it is written:
   `comments.add(bufnr, start, end, nil)` records a draft, and the callback either edits the text in
   or deletes the draft. The editor can be left with `<C-w>w` to go read the code, so the window

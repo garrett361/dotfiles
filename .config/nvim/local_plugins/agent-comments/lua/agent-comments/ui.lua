@@ -77,6 +77,7 @@ function M.input_comment(on_done, opts)
 	vim.bo[buf].bufhidden = "wipe"
 	-- Deliberately not the list's "agent-comments": an editor float must not read as a list.
 	vim.bo[buf].filetype = "agent-comment-edit"
+	vim.bo[buf].textwidth = 0
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
 	vim.bo[buf].modified = false
 
