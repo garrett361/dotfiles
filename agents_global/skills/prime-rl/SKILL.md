@@ -1,6 +1,6 @@
 ---
 name: prime-rl
-description: Personal conventions for prime-rl work that the repo's own skills don't cover. Use when the user asks for end-to-end tests, A/B comparisons, parity checks, benchmarks, or any other measurement of a prime-rl change.
+description: Personal conventions for prime-rl work that the repo's own skills don't cover. Use when the user asks for end-to-end tests, A/B comparisons, parity checks, benchmarks, or any other measurement of a prime-rl change. Also use when reviewing a prime-rl PR or branch, or asked for an independent review of one.
 ---
 
 # prime-rl conventions
@@ -13,3 +13,5 @@ description: Personal conventions for prime-rl work that the repo's own skills d
   description where the results are discussed.
 - `e2e.md`: workloads, run hygiene, and reporting for end-to-end A/B tests of trainer changes. Read it when the
   user asks for end-to-end tests.
+- `review.md`: how to review a prime-rl PR branch, including a follow-up on the user's earlier comments. Read it
+  when the user asks for a review of a PR or the checked-out branch.
