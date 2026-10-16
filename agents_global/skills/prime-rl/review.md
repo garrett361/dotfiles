@@ -45,7 +45,7 @@ before weighing in on the user's points, and do not fold their views into it.
 - Lead with the verdict, then critical and borderline findings, each with a recommendation.
 - Supporting links are permalinks: prime-rl at the PR head SHA, libraries at the pinned tag. Say which links
   were not opened on GitHub.
-- Draft review comments in conversation or `~/tmp/`. Never post to GitHub without explicit approval.
+- Draft review comments in conversation. Write them to `~/tmp/` only when the user asks. Never post to GitHub without explicit approval.
 
 ## Follow-up review: tracking the user's earlier comments
 
