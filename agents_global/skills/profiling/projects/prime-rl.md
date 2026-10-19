@@ -18,6 +18,13 @@
   `<run dir>/logs/attempt_<N>/trainer.log`; every rank's own stdout/stderr is under `trainer/torchrun/` there. The
   launch environment reaches the trainer, so `TORCH_LOGS=recompiles uv run sft ...` works with
   `scripts/recompile_reasons.py <log> --rank 0 --step-regex 'Step (\d+) \|'`.
+- One rank compiling mid-step stalls every other rank in the next collective, so attribute slow steps across all ranks:
+  `scripts/compile_events.py <run dir>` reads every rank's `TORCH_LOGS=recompiles` lines and DeepGEMM cache listings
+  (`deep_gemm_cache_<host>.txt` under `logs/attempt_N/`, written after training with `find $DG_JIT_CACHE_DIR/cache
+  -mindepth 1 -maxdepth 1 -printf "%T@ %f\n"`; DeepGEMM's `DG_JIT_PRINT_COMPILER_COMMAND=1` lines carry no time).
+- Throughput across arms that pad differently: `perf/throughput` and `perf/mfu` count pad tokens. Use real tokens from
+  an arm without padding on the same samples: `run_metrics.py --summarize "tok_s_gpu=delta(progress/num_tokens)@<arm A>
+  / time/step * <1/GPUs>"`.
 - Without `[slurm]`, `uv run sft` runs single-node locally under torchrun, so it can run inside an `srun`/`sbatch`
   allocation. To inject code into the trainer processes without editing the repo (e.g. the sync-stack hooks), put
   a `sitecustomize.py` directory on `PYTHONPATH`; `analysis/cuda-syncs.md` has the tested recipe.

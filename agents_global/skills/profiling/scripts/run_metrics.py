@@ -15,12 +15,16 @@ path to a `.jsonl` file is read directly, so any repo can log one JSON object pe
 metric keys (records of the same step are merged).
 
 Summary: `--summarize COLUMN=METRIC` (repeatable) writes the per-run summary CSV that the bar mode reads: one row per
-`--run GROUP:VARIANT=RUN_DIR` with the median of METRIC over the `--steady` steps (all steps without it) in COLUMN,
-plus COLUMN_min and COLUMN_max. It also prints the rows as a markdown table. Non-finite values (NaN, inf) are
+`--run GROUP:VARIANT=RUN_DIR` with the median (`--stat mean` for the mean) of METRIC over the `--steady` steps (all
+steps without it) in COLUMN, plus COLUMN_min and COLUMN_max. The mean suits all-step views, where one-time stalls
+count. It also prints the rows as a markdown table. Non-finite values (NaN, inf) are
 dropped, and a metric with no values in a run is reported on stderr. `--run` can replace `--csv` in lines mode
 too; bars need the summary CSV. METRIC may also be a per-step ratio 'NUM / DEN' or 'NUM / DEN * SCALE' (spaces
 around `/` and `*` required, since metric names contain slashes), e.g.
 "s_per_mtok=time/forward_backward / progress/num_tokens * 1e6" to normalize a time by a varying per-step workload.
+Each term of METRIC may be `delta(NAME)`, the per-step increase of a cumulative counter, and may end in `@RUN_DIR` to
+read it from another run. E.g. when arm B pads rows that arm A does not, on the same samples, B's non-padding
+tokens/s/GPU on 64 GPUs is "tok_s_gpu=delta(progress/num_tokens)@runs/a / time/step * 0.015625".
 
 Usage:
   uv run --script run_metrics.py --csv summary.csv --out bars.png --noise fp32-cap2,fp32-cap2-r2,fp32-main \\
@@ -57,6 +61,7 @@ def parse_args():
     parser.add_argument("--noise", default=None, help="comma-separated same-code variants for the noise band")
     parser.add_argument("--lines", action="append", default=[], help="per-step metric name in metrics.jsonl")
     parser.add_argument("--steady", type=int, nargs=2, default=None, metavar=("LO", "HI"))
+    parser.add_argument("--stat", choices=("median", "mean"), default="median", help="summary statistic per run")
     parser.add_argument("--title", default="")
     return parser.parse_args()
 
@@ -87,14 +92,14 @@ def write_summary(rows, args):
             ]
             if not values:
                 print(f"warning: no finite '{metric}' values in {row['run_dir']} for the steps asked", file=sys.stderr)
-            row[column] = statistics.median(values) if values else ""
+            row[column] = getattr(statistics, args.stat)(values) if values else ""
             row[f"{column}_min"] = min(values) if values else ""
             row[f"{column}_max"] = max(values) if values else ""
     with open(args.out, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(rows)
-    print("| group | variant | " + " | ".join(f"{c} (median, min-max)" for c, _ in columns) + " |")
+    print("| group | variant | " + " | ".join(f"{c} ({args.stat}, min-max)" for c, _ in columns) + " |")
     print("|---|---|" + "---|" * len(columns))
     for row in rows:
         cells = [f"{row[c]:.4g} ({row[c + '_min']:.4g}-{row[c + '_max']:.4g})" if row[c] != "" else "" for c, _ in columns]
@@ -163,17 +168,31 @@ def load_steps(run_dir, metric):
     return sorted((step, values[metric]) for step, values in by_step.items() if metric in values)
 
 
+def load_term(run_dir, term):
+    """Per-step values of one term: NAME or delta(NAME), optionally suffixed @RUN_DIR to read another run."""
+    if "@" in term:
+        term, run_dir = term.rsplit("@", 1)
+    if term.startswith("delta(") and term.endswith(")"):
+        previous = 0.0
+        deltas = []
+        for step, value in load_steps(run_dir, term[len("delta(") : -1]):
+            deltas.append((step, value - previous))
+            previous = value
+        return deltas
+    return load_steps(run_dir, term)
+
+
 def load_metric(run_dir, spec):
-    """Per-step values of METRIC, or of the per-step ratio for a spec of the form 'NUM / DEN [* SCALE]'."""
+    """Per-step values of a term (see load_term), or of the per-step ratio for a spec 'NUM / DEN [* SCALE]'."""
     if " / " not in spec:
-        return load_steps(run_dir, spec)
+        return load_term(run_dir, spec)
     numerator, denominator = spec.split(" / ", 1)
     scale = 1.0
     if " * " in denominator:
         denominator, scale_text = denominator.split(" * ", 1)
         scale = float(scale_text)
-    den_by_step = dict(load_steps(run_dir, denominator.strip()))
-    return [(s, v / den_by_step[s] * scale) for s, v in load_steps(run_dir, numerator.strip()) if den_by_step.get(s)]
+    den_by_step = dict(load_term(run_dir, denominator.strip()))
+    return [(s, v / den_by_step[s] * scale) for s, v in load_term(run_dir, numerator.strip()) if den_by_step.get(s)]
 
 
 def draw_lines(rows, args):
