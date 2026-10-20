@@ -29,10 +29,18 @@ correct it early if it's wrong.
 
 ## 2. Draft
 
-1-2 sentences on the goal, motivation, and what changed and why. A single
+1-2 sentences: first what the PR changes, then what that improves over the
+current code. Open with the change itself, not background or motivation, so
+the first sentence alone tells a reviewer what the PR does. A single
 sentence is the ideal when it alone can carry the point. Then a plain bullet
 list, only if there are necessary PR details the prose didn't cover. Never
 use section headers like `## Summary` for this part.
+
+Write in a direct, active voice with the PR as the subject: "This PR gives RL
+the same `pad_to_seq_len` flag that SFT supports", not "RL now has SFT's
+`pad_to_seq_len` escape hatch". Name the actor and the action plainly
+("This PR changes X to Y", "We ran Z"), and skip metaphors and labels like
+"escape hatch" or "hot path" that stand in for saying what the code does.
 
 Keep that list to roughly 3 bullets. Each bullet is one sentence of about
 100 characters or less; add a second sentence only when it is load-bearing,
@@ -63,7 +71,7 @@ budget.
 A typical result, and the shape to aim for:
 
 ```markdown
-RL compares trainer and inference logprobs token by token, so any disagreement between the two FP8 quantizers is model-independent noise. The trainer's activation cast is now bit-identical to vLLM's production CUDA op.
+The trainer's FP8 activation cast is now bit-identical to vLLM's production CUDA op. RL compares trainer and inference logprobs token by token, so the old disagreement between the two quantizers was model-independent noise.
 
 - Three kernels floor `amax` at `1e-10` and use `tl.math.div_rn` for scale and quotient. Triton's `/` lowers to multiply-by-reciprocal, one fp32 ULP off.
 - The weight kernel is untouched: vLLM's weight path already matched at 100%.
