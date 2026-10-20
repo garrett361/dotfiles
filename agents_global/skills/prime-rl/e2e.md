@@ -11,6 +11,22 @@ Run both unless the change only touches one of them:
   deeper truncation for perf than for parity, and let the user override it), on real SFT data
   (`PrimeIntellect/INTELLECT-3-SFT-10K`, renderer `glm-4.5`): real routing and real documents.
 
+## Compile-path changes: add a CP arm on dynamic lengths
+
+A change that makes more code compile (removes a graph break, edits a custom op fake, changes the compile
+layout) can expose recompiles that the old graph break hid. Context parallelism is the known trap: its
+attention parameters (`max_seqlen_k`, `cu_seqlens`) change with every packed document layout.
+
+- Add an arm with `model.cp = 2` on the GLM-4.5-Air real-data workload, `fullgraph = false`, against main. Real
+  variable-length documents are required: fake data with fixed length (one document per row) never changes
+  the CP parameters, and toy models hit the recompile limit within a few steps and fall back to eager.
+- Report per-rank recompile counts, CP guard failures and the per-step time series. A recompile storm shows as
+  slow steps (the max), not in the median.
+- State in the PR whether CP users are safe, or which PR must land first.
+
+Seen in prime-rl #4086: 14 to 25% faster at cp=1, but 42 to 55 s per step against 3.6 s on main at cp=2 until
+#4068 (CP parameters as forward args) was underneath.
+
 ## Run hygiene
 
 - **No offloading, set explicitly:** `model.optim_cpu_offload = false` (defaults to true),
