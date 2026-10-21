@@ -68,6 +68,8 @@ Inside one kernel:
 - Why is it slow (bandwidth, latency stalls, occupancy), and which source lines do warps stall on?
   `tools/nsight-compute.md` (`scripts/ncu_source_lines.py`).
 - A CuTe DSL kernel: JIT cache, PTX/SASS dumps, registers, spills? `tools/cute-dsl.md`.
+- Did a change alter a kernel's generated code at all (two worktrees, or two values of a compile-time constant),
+  and which instructions changed? `scripts/artifact_diff.py`; `tools/sass.md`.
 - Do two kernels (TileLang, CuTe DSL, Triton, CUDA) share a design: MMA, TMA vs `cp.async`, barriers,
   registers, spills by source line? `tools/sass.md` (`scripts/sass_inventory.py`).
 - When does each warp role issue, wait and finish, and which wait gates the next step? `tools/intra-kernel.md`
