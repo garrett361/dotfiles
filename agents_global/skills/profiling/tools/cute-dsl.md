@@ -48,7 +48,8 @@ The working-tree docs may describe a newer release.
 ## Dumps and line info
 
 - `CUTE_DSL_KEEP=ir,ptx,cubin,sass CUTE_DSL_DUMP_DIR=<dir>` writes the clean IR, PTX, cubin and SASS per
-  compiled host function (SASS via the `nvdisasm` bundled in the venv). Keeping `ptx`, `cubin` or `sass`
+  compiled host function (SASS via the `nvdisasm` bundled in the venv on 4.7.1; DSL 4.8 needs a separate one,
+  see "Blackwell and DSL 4.8" below). Keeping `ptx`, `cubin` or `sass`
   disables the JIT cache (`dsl.py`), so implicit calls then pay a full compile each time (43-46 ms vs 18-21 ms
   with `CUTE_DSL_KEEP=ir` alone, on a trivial kernel).
 - `CUTE_DSL_LINEINFO=1` maps PTX/SASS to Python `file:line` (`//## File "...py", line 37` in the SASS
@@ -82,6 +83,26 @@ The working-tree docs may describe a newer release.
   down to a multiple of 8 (168 at 384 threads), so judge each role's pressure by spills, not `REG:`.
 - `CUTE_DSL_DUMP_DIR` must exist: with a missing directory and `CUTE_DSL_KEEP=...,sass` the compile
   died with an internal error, "Cannot dump SASS: CUBIN file does not exist".
+
+## Blackwell and DSL 4.8
+
+Verified 2026-10-21 on B300 SXM6 (sm_103a) with `nvidia-cutlass-dsl` 4.8.0, torch 2.14.1+cu130, SLURM jobs 2755
+and 2757, against the installed DSL source (`base_dsl/env_manager.py`, `cache_helpers.py`, `dsl.py`).
+
+- SASS dumps need `nvdisasm` at least as new as the CUDA the DSL was built with (13.4 for 4.8.0); an older one is a
+  hard error at compile time ("nvdisasm ... reports version 12.9, which is not supported for SASS dumping"). The
+  error suggests `pip install nvidia-cutlass-dsl[sass]`, but the 4.8.0 wheel declares no `sass` extra (only
+  `cu13` and `qnx`): `uv pip install nvidia-cuda-nvdisasm` (13.4.92) works. The DSL probes that wheel first, then
+  `CUDA_HOME` / `CUDA_PATH` / `nvcc` on `PATH` / `/usr/local/cuda*`; Triton's bundled `nvdisasm` is never used.
+- Dumps are named `cutlass___call___<module><Class>_object_at__<argument types>`, truncated to 180 characters
+  with object addresses removed (`dsl.py`). Two specializations of one kernel class with the same argument types
+  get the same name, and the later compile overwrites the earlier dump: a dist_moe run with ten pipelines left 15
+  `.sass` files. Dump each configuration of interest into its own `CUTE_DSL_DUMP_DIR`.
+- On sm_103a the cubins are written as `<name>.sm_103a.cubin`.
+- `CUTE_DSL_CACHE_DIR` is read once, at import, by `cache_helpers.get_default_generated_ir_path` (default
+  `$TMPDIR/$USER/cutlass_python_cache`), even though the env-manager field of the same name is marked unread.
+- To compare the artifacts of two arms (two worktrees, or two values of a compile-time constant), use
+  `scripts/artifact_diff.py` on the two dump directories (`tools/sass.md`).
 
 ## Copies and swizzled shared memory (verified on the DSv4 port)
 
