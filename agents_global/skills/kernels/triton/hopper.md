@@ -4,7 +4,7 @@ Verified 2026-10-21/22 on H200 (sm90a) with Triton 3.8.0 and torch 2.14.1+cu130,
 
 ## Inspect the compiled kernel
 
-- After one launch, `fn.device_caches[device][0]` (with `fn` the `@triton.jit` function and `device` the CUDA device index) maps each specialization key to a compiled kernel `ck`: `ck.asm["ttgir"]` (Triton GPU IR), `ck.asm["ptx"]`, `ck.n_regs`, `ck.n_spills`, `ck.metadata.shared` (bytes of shared memory), `ck.metadata.num_warps`. Loop over `fn.device_caches.values()` and `dc[0].items()` to dump every specialization, from a script in `inputs/`.
+- After one launch, `fn.device_caches[device][0]` (with `fn` the `@triton.jit` function and `device` the CUDA device index) maps each specialization key to a compiled kernel `ck`: `ck.asm["ttgir"]` (Triton GPU IR), `ck.asm["ptx"]`, `ck.n_regs`, `ck.n_spills`, `ck.metadata.shared` (bytes of shared memory), `ck.metadata.num_warps`. Loop over `fn.device_caches.values()` and `dc[0].items()` to dump every specialization, from a script in the investigation's `inputs/` (see the profiling skill).
 - Counts worth printing for every variant:
 
 | Check | Where | Healthy |
@@ -16,8 +16,8 @@ Verified 2026-10-21/22 on H200 (sm90a) with Triton 3.8.0 and torch 2.14.1+cu130,
 | 128-bit register loads | `ld.global.v4.b32` or `ld.global.cg.v4.b32` in PTX | present on the vectorized loads |
 | Spills | `ck.n_spills` | 0 |
 
-- For the mainloop's instructions, use `tools/sass.md` (`scripts/sass_inventory.py <TRITON_CACHE_DIR> --kernel <name>`); to see what a change altered, `scripts/artifact_diff.py` on two fresh `TRITON_CACHE_DIR`s.
-- When one kernel lags a sibling that shares its structure (e.g. the input-gradient GEMM vs the forward GEMM), profile both with `tools/nsight-compute.md` and compare `smsp__inst_executed.sum`, registers, and the `dispatch` and `wait` stall reasons. Extra instructions with dispatch and wait stalls point at address arithmetic in the mainloop (the stride items below), not at memory.
+- For the mainloop's instructions, use `../profiling/tools/sass.md` (`../profiling/scripts/sass_inventory.py <TRITON_CACHE_DIR> --kernel <name>`); to see what a change altered, `../profiling/scripts/artifact_diff.py` on two fresh `TRITON_CACHE_DIR`s.
+- When one kernel lags a sibling that shares its structure (e.g. the input-gradient GEMM vs the forward GEMM), profile both with `../profiling/tools/nsight-compute.md` and compare `smsp__inst_executed.sum`, registers, and the `dispatch` and `wait` stall reasons. Extra instructions with dispatch and wait stalls point at address arithmetic in the mainloop (the stride items below), not at memory.
 
 ## Silent slowdowns
 
@@ -27,7 +27,7 @@ Verified 2026-10-21/22 on H200 (sm90a) with Triton 3.8.0 and torch 2.14.1+cu130,
 - A base pointer loaded from device memory (for example `buffer + tl.load(offset_ptr)`) rather than passed as a kernel argument lives in a per-thread register, and ptxas then rematerializes a carried 64-bit pointer tensor inside the mainloop (`IMAD.WIDE.U32` between HGMMA issues): dispatch stalls rose 6x, the tensor pipe fell from 92% to 84% active, and the GEMM lost 5 to 9% with identical TTGIR. Build each step's pointers as a scalar per-tile int64 base plus loop-invariant int32 offsets (`base + k0 + offs`) instead of advancing a carried pointer tensor. To isolate such a calling-convention regression, move one operand at a time to the production convention, and also call the plain-tensor path on views of the production buffer, which separates code generation from memory placement.
 - `tl.multiple_of` on a pointer counts bytes: hint 16 for 128-bit loads, whatever the element type, from addresses read out of an int64 pointer table, then check PTX for `v4` loads.
 - Per-tile reductions in a persistent loop (`tl.sum` or `tl.max` over a register vector of group sizes, to find a tile's group) spilled, and cost 7 to 9% at small shapes. Advance the group monotonically with scalar loads instead, e.g. a `tl.static_range` of `if group < g:` steps.
-- A large FP32 epilogue spills: a read-modify-write epilogue on a 128x256 FP32 accumulator spilled 60 registers. Splitting the tile with `tl.reshape`, `tl.permute` and `tl.split` and storing the halves separately removed the spills (3.03 to 2.55 ms).
+- A large FP32 epilogue spills: a read-modify-write epilogue on a 128x256 FP32 accumulator spilled 60 registers. Splitting the tile with `tl.reshape`, `tl.permute` and `tl.split` and storing the halves separately removed the spills (3.03 to 2.55 ms). The same split fixes heavy elementwise epilogues: `fusion.md`.
 - `num_stages` and tile shape interact with shared memory and registers: 3 vs 4 stages moved one GEMM 20 to 27%, and one 64x256x256 configuration ran 4.7x slower. In a config sweep, print the cp.async count and spills per config, not just time.
 
 ## Hopper features from Triton

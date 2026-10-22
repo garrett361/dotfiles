@@ -10,7 +10,7 @@ dist_moe `caf454c` plus the `feat/swiglu-beta` branch.
   rank=0, world_size=1)` after `import torch.testing._internal.distributed.fake_pg`) runs every pipeline (BF16,
   MXFP8 staged and Mega, NVFP4 inference) on one GPU. Example: `~/tmp/profiling/dist-moe-swiglu-beta/inputs/cases.py`.
 - Venv: `uv venv --python 3.12 && uv pip install --torch-backend=cu130 -e . pytest ruff`. For SASS dumps also
-  `uv pip install nvidia-cuda-nvdisasm` (`tools/cute-dsl.md`).
+  `uv pip install nvidia-cuda-nvdisasm` (`../kernels/cute-dsl/authoring.md`).
 - Two-rank tests (`DistMoeTwoRankTest`) need two GPUs visible; `pytest -k` selects them as usual.
 
 ## Compile caching and names
@@ -40,4 +40,4 @@ dist_moe `caf454c` plus the `feat/swiglu-beta` branch.
 - Run the same seeded pipelines from two worktrees with `PYTHONPATH=<tree>` (it overrides the editable install),
   `CUTE_DSL_KEEP=sass CUTE_DSL_DUMP_DIR=<arm>/sass TRITON_CACHE_DIR=<arm>/triton`, save outputs and gradients, and
   compare with `torch.equal`; then `scripts/artifact_diff.py <arm A> <arm B>`. Mind the one-dump-per-class-name
-  overwrite in `tools/cute-dsl.md`.
+  overwrite in `../kernels/cute-dsl/authoring.md`.

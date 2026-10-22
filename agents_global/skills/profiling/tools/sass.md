@@ -5,7 +5,7 @@ async copies, barriers, registers and spills. Verified 2026-10-10 and 2026-10-11
 
 ## Getting the cubin
 
-- CuTe DSL: `CUTE_DSL_KEEP=cubin`, see `tools/cute-dsl.md` for dumps and line info.
+- CuTe DSL: `CUTE_DSL_KEEP=cubin`, see `../kernels/cute-dsl/authoring.md` for dumps and line info.
 - TileLang: the cubin lands in `$TILELANG_CACHE_DIR/<version>/cuda-binaries/*.cubin` (default
   `~/.tilelang/cache`); set a fresh `TILELANG_CACHE_DIR` per arm. In TileLang 0.1.12 the `TVMFFIKernelAdapter`
   has no `libpath`. `kernel.get_kernel_source()` on a `tilelang.jit` kernel returns the generated CUDA.

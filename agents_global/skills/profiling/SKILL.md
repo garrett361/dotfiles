@@ -1,6 +1,6 @@
 ---
 name: profiling
-description: Measure and explain GPU/PyTorch performance and A/B a change fairly, with hard evidence (numbers plus trace figures). Use when benchmarking a kernel, op or PR; asking why a speedup misses end to end or where step time goes; profiling a training run (torch.profiler, Nsight Systems, Nsight Compute); finding host syncs or torch.compile recompiles; inspecting kernel stalls, SASS or spills; viewing a trace in Perfetto; or producing perf evidence for a PR.
+description: Measure and explain GPU/PyTorch performance and A/B a change fairly, with hard evidence (numbers plus trace figures). Use when benchmarking a kernel, op or PR; asking why a speedup misses end to end or where step time goes; profiling a training run (torch.profiler, Nsight Systems, Nsight Compute); finding host syncs or torch.compile recompiles; SASS stall analysis or per-line spill attribution; viewing a trace in Perfetto; or producing perf evidence for a PR. To write or restructure a kernel, use the kernels skill instead.
 ---
 
 # Profiling
@@ -22,6 +22,8 @@ knowledge goes in arguments or `projects/<repo>.md`. Capture harnesses that run 
 `sitecustomize.py` hook) also live in `scripts/`.
 
 ## 1. Pick the tool by the question
+
+This skill measures. To change a kernel (Triton or CuTe DSL authoring, fusion design, reading compiled artifacts while writing it), use the kernels skill (`../kernels/SKILL.md`), then come back here to measure the change.
 
 Read only what the matching line names. A script named without a doc is documented by its module docstring at the top of
 the file. Run each script as its docstring says: `uv run --script` by default (each file's header declares its
@@ -75,9 +77,8 @@ Runs, host and compiler:
 Inside one kernel:
 - Why is it slow (bandwidth, latency stalls, occupancy), and which source lines do warps stall on?
   `tools/nsight-compute.md` (`scripts/ncu_source_lines.py`).
-- A CuTe DSL kernel: JIT cache, PTX/SASS dumps, registers, spills? `tools/cute-dsl.md`.
-- A Triton kernel on Hopper: is it pipelined, spilling, flattened, using TMA, and why does it lag a sibling kernel?
-  `tools/triton.md`.
+- A CuTe DSL kernel: JIT cache? `tools/cute-dsl.md`. PTX/SASS dumps, registers, spills? `../kernels/cute-dsl/authoring.md`.
+- A Triton kernel on Hopper: is it pipelined, spilling, flattened, using TMA, and why does it lag a sibling kernel? `../kernels/triton/hopper.md`.
 - Did a change alter a kernel's generated code at all (two worktrees, or two values of a compile-time constant),
   and which instructions changed? `scripts/artifact_diff.py`; `tools/sass.md`.
 - Do two kernels (TileLang, CuTe DSL, Triton, CUDA) share a design: MMA, TMA vs `cp.async`, barriers,
