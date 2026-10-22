@@ -45,7 +45,53 @@ before weighing in on the user's points, and do not fold their views into it.
 - Lead with the verdict, then critical and borderline findings, each with a recommendation.
 - Supporting links are permalinks: prime-rl at the PR head SHA, libraries at the pinned tag. Say which links
   were not opened on GitHub.
-- Draft review comments in conversation. Write them to `~/tmp/` only when the user asks. Never post to GitHub without explicit approval.
+- Write the review to `~/tmp/review-prime-rl-<pr#>.md` by default (create `~/tmp/` if missing) and iterate on
+  that file with the user; it is pasted into GitHub as the review body. Never post to GitHub without explicit
+  approval.
+- Start the file with this skeleton. Leave the preamble for the user, who writes their own summary there;
+  everything Claude writes goes below the rule:
+
+  ```
+  <user's preamble>
+
+  Claude generated below
+
+  ---
+
+  <review body>
+  ```
+
+- Answer the user's comments and questions in conversation, and fold agreed wording into the file.
+- Write the review body for whoever acts on it, often another agent rather than the PR author: just enough to
+  be actionable, no more.
+  - Corrections and bugs: a GitHub permalink at the PR head SHA with line numbers
+    (`.../blob/<sha>/<path>#L<a>-L<b>`) for every location, the defect in one or two sentences, and the
+    expected behavior. Permalinks render in the GitHub UI and are precise enough for an agent to act on.
+  - Design changes: the design goal, the main shortcomings of the current code (with permalinks), and
+    pseudocode of the proposed shape. Do not write a full implementation.
+
+## Walkthrough and pending inline comments
+
+Once the review file is written and the user's comments are answered, go through the findings with the user one
+item at a time, with a recommendation. For each, the user decides: edit it, keep it in the top-level review, move or
+copy it into an inline code comment, or drop it.
+
+- **Short top-level items:** often one sentence, with a hyperlink to the exact upstream line that proves the claim,
+  so an agent can verify it in one click. The inline comment carries the detail.
+- **Links into other repos:** markdown hyperlinks at a commit SHA, not a branch or tag. prime-rl links stay raw
+  permalinks at the PR head SHA so GitHub renders them. Before citing a line in a repo not cloned locally, fetch it
+  at that SHA (`gh api 'repos/<o>/<r>/contents/<path>?ref=<sha>' -q .content | base64 -d`) and check the numbers.
+- **Inline comments go into one pending review, which the user submits:**
+  - GitHub allows one pending review per user per PR; check for one first (`gh api repos/<o>/<r>/pulls/N/reviews`,
+    state `PENDING`).
+  - Create it with `gh api -X POST repos/<o>/<r>/pulls/N/reviews --input <json>`: `commit_id` = head SHA, a
+    `comments` array (`path`, `line`, `side: RIGHT`, plus `start_line`/`start_side` for ranges), and no `event`,
+    so it stays pending.
+  - Add later comments with the GraphQL `addPullRequestReviewThread` mutation (`pullRequestReviewId` = the review's
+    `node_id`). The REST `pulls/N/comments` endpoint publishes immediately, so never use it here.
+  - Never submit the review; the user submits it from the GitHub UI.
+- **Side questions** raised during the walkthrough ("is this patch needed?", "did someone already do this?") go to
+  subagents; fold the answers into the relevant item rather than adding sections.
 
 ## Follow-up review: tracking the user's earlier comments
 
@@ -89,5 +135,5 @@ deliverable next to the independent review, not a replacement for it.
 - Answer each comment or question against the code and sources, with `file:line`. Push back when the user's
   reading does not hold, and revise earlier findings when a comment exposes a mistake.
 - When the user drafts a GitHub comment, check every claim in it and propose precise wording with
-  supporting permalinks.
+  supporting permalinks, and put it in the review file once agreed.
 - Do not edit the PR's code unless asked; the output is review text.
