@@ -164,6 +164,8 @@ return {
 			"<leader>ab",
 			function()
 				prequire("fzf-lua").git_branches({
+					fzf_opts = { ["--no-hscroll"] = true },
+					winopts = { preview = { layout = "vertical" } },
 					actions = {
 						["alt-y"] = {
 							fn = copy_branch_pr_url,
