@@ -63,6 +63,7 @@ syncs run on the autograd thread, which has its own `tid` and no `forward`/`back
 | `aten::index > aten::nonzero` | Boolean-mask indexing `x[mask]` |
 | `IndexBackward0 > aten::_index_put_impl_ > aten::nonzero` | Backward of `x[mask]` |
 | `aten::repeat_interleave > aten::item` | `repeat_interleave` without `output_size` (two syncs) |
+| `aten::bincount` (min/max reduce, then D2H copy) | `torch.bincount`, even with `minlength`; use `scatter_add_` |
 | `<custom op> > aten::to > ... copy_` | A sync inside a `torch.library.custom_op`; the stack pass names the line |
 
 ## 2. Stack pass: Python file:line without editing the project

@@ -21,7 +21,8 @@ the next) is swept on one GPU. Every instant goes to exactly one row:
 `multi_tensor_apply_kernel` for `foreach=True` optimizers. The latter also matches every other `_foreach_*`
 kernel (e.g. grad clipping's `_foreach_norm`), so it only works when none run mid-step: on a prime-rl trace it
 cut 4 real steps into 70 windows. Check with `--per-rank`, which prints each rank's window count and mean
-window; both should match the traced steps.
+window; both should match the traced steps. Boundary kernels less than `--cluster-gap-ms` (default 20) apart merge
+into one cluster, so for steps shorter than that, lower it.
 
 Inputs, repeatable, one per arm: `--trace LABEL=GLOB` (torch.profiler chrome traces, one file per rank) or
 `--nsys LABEL=SQLITE` (one export with every rank; ranks are deviceIds). `--steps LO:HI` picks step windows by

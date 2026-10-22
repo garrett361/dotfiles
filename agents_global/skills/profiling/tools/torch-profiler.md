@@ -11,6 +11,21 @@ count). This
 separates, for example, cast overhead from GEMM time, with launch counts. `prof.key_averages().table()`
 truncates kernel names, so templated elementwise kernels all look alike there.
 
+### Several ranks (`bench_ops.py --distributed --trace`)
+
+Each rank writes `DIR/<case>__<label>__rank<r>.json.gz`, one file per arm and rank, with `--trace-iters` calls each.
+Per-category accounting over all ranks treats each call as a step (verified 2026-10-22 on 8x H200):
+
+- `step_accounting.py --trace "A=DIR/<case>__A__rank*.json.gz" --trace "B=DIR/<case>__B__rank*.json.gz"
+  --step-boundary "<A's per-call kernel>|<B's per-call kernel>"`: pick a kernel each arm launches exactly once per
+  call (e.g. a D2H copy, a planner kernel); one alternation serves both arms.
+- Boundary kernels closer than `--cluster-gap-ms` (default 20) merge into one cluster. Back-to-back calls shorter
+  than that collapse into one window, so set it below the call length (2 to 5 ms for 4 to 25 ms calls).
+- The profiler starts at a different moment on each rank, so the first traced call can hold one huge barrier or
+  collective wait (36 ms in an 18 ms call). Drop it with `--steps 1:`.
+- `--per-rank` must show one window fewer than `--trace-iters` on every rank (10 calls gave 9); fewer means the
+  boundary regex or the cluster gap is wrong.
+
 ## Capture
 
 - Wrap the training loop in `torch.profiler.profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],

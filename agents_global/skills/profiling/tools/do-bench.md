@@ -19,6 +19,60 @@ kernels inside the op changed, see `torch-profiler.md`.
 4. If the medians are under about 20 us, rerun with `--cudagraph` (see below) and report that ratio too.
 5. Confirm end to end: the op benchmark covers only the code in the callable.
 
+Optional parts of a cases file (the script's docstring has the details):
+- A third case element `{"flops": F, "bytes": B}` adds TFLOP/s and GB/s columns from each median. Say in the notes
+  what the byte count covers (read plus write, or one link direction).
+- `teardown()` runs once after all timing, to release contexts or communication buffers.
+- Give every label its own output buffer. Arms that write into one shared buffer and return it make `--check`
+  compare the buffer with itself, so it passes whatever the arms compute.
+- torch 2.14's profiler prints `USDT ...` lines to stdout; pipe through `grep -v '^USDT'` before saving tables.
+
+## Power cap and clocks
+
+Measured 2026-10-21/22 on 8x H200 (700 W cap), Triton 3.8, torch 2.14.
+
+- Dense BF16 GEMMs hit the 700 W software power cap within about 0.3 s of sustained work, and the SM clock falls
+  from 1980 MHz to about 1450 MHz (throttle reason `0x4`, SW power cap). `do_bench`'s default 25 ms warmup ends
+  long before that, so the first callable timed in a process runs partly unthrottled and gets a fast lower tail
+  (p20 far below the median), biasing whichever arm comes first. Pass `--warmup 1000` (1 s per callable), or put a
+  sacrificial case first; the tables then report power-capped steady state, and should say so.
+- Back-to-back bursts right after idle (e.g. the 10 traced calls after a cool-down) ran about 15% shorter than the
+  steady-state medians. Inside an end-to-end step, GEMMs that alternate with memory-bound kernels and communication
+  logged a median near 1935 MHz while the per-launch benchmark of the same GEMMs sat near 1710 MHz, so a per-launch
+  ranking at the cap need not hold end to end.
+- Times also moved 5 to 10% with data values (random vs zeros change power draw): give every arm the same realistic
+  random inputs.
+- `bench_ops.py` times labels one after another. For 1 to 5% effects, check order: rerun with the labels reversed
+  (compare with `scripts/bench_compare.py`), or time with a harness in `inputs/` that warms up about 4 s, then
+  alternates arm order over several rounds of `do_bench` and takes the median of rounds (1 to 5% spread).
+- Log clocks during every timing run whose arms might sit at different power states: start
+  `nvidia-smi --query-gpu=timestamp,index,clocks.sm,power.draw,temperature.gpu,clocks_event_reasons.active
+  --format=csv -lms 100 > derived/<run>_clocks.csv &` before the run, kill it after, then
+  `scripts/gpu_clocks.py ARM=<log> ...` compares busy-sample clocks and throttle reasons. Locking clocks needs admin
+  rights.
+
+## Collectives and multi-rank ops: `--distributed`
+
+Plain `do_bench` hangs on callables that run collectives: each rank picks its own call count from its own time
+estimate, so ranks issue different numbers of collectives. `bench_ops.py --distributed` uses the slowest rank's
+estimate for every rank, adds barriers around each phase, and reports the maximum over ranks in every cell (its
+docstring has the details; `--cudagraph` is not supported).
+
+- Launch with the project's torchrun, e.g. `.venv/bin/torchrun --standalone --local-addr=127.0.0.1
+  --nproc-per-node=8 <skill>/scripts/bench_ops.py inputs/cases.py --distributed --check --warmup 1000 --rep 2000
+  --csv derived/<run>.csv`; inside a Slurm allocation, wrap it in `srun --jobid=<job> --overlap -N1 bash -c '...'`.
+- A callable that raises on only some ranks leaves the others waiting in a collective: wrap the run in `timeout`.
+- `--trace` writes one trace per rank; `tools/torch-profiler.md` covers analyzing them.
+- Peer-to-peer baseline over NVLink: a symmetric-memory peer view is an ordinary tensor
+  (`torch.distributed._symmetric_memory`: `local = empty(...)`, `handle = rendezvous(local, group=...)`,
+  `peer = handle.get_buffer(peer_rank, shape, dtype)`), so `peer.copy_(...)`, `peer.index_select(...)` and
+  `peer.index_copy_(...)` are the torch baselines for a custom peer gather or scatter kernel.
+- Reference points, H200 NV18 (nominal 450 GB/s per direction), 2 ranks: a peer `copy_` of 256 to 400 MB reached
+  360 to 390 GB/s per direction, one direction alone or both at once, and a Triton row gather from the peer was
+  insensitive to launch geometry (grid and block sizes). Locally, a row-pointer gather or scatter of 4 to 8 KiB
+  rows read plus wrote about 3.8 TB/s, while `index_copy_` reached about 1.4 TB/s (2.7x slower), so `index_copy_`
+  is a weak scatter baseline.
+
 ## What `do_bench` measures
 
 `triton.testing.do_bench(fn, warmup=25, rep=100, grad_to_none=None, quantiles=None, return_mode="mean")`:
@@ -60,12 +114,27 @@ graph, replays it 10 times, and returns per-call times: no L2 flush, no per-call
 - `bench_ops.py --check` compares each output with the first label's under `torch.testing.assert_close`'s
   default tolerances (bf16: rtol 1.6e-2, atol 1e-5). When the change should be exact, compare outputs and
   gradients with `torch.equal` (it accepts float8 in torch 2.13).
-- If a test fails, run it on the unmodified commit to show whether the failure predates the change.
+- Two correct BF16 implementations with different accumulation order fail those defaults on near-zero elements
+  (the atol of 1e-5 is far below one BF16 rounding step of the larger elements). Gate such A/Bs with a
+  scale-relative error, `max |got - ref| / max |ref|`, against an FP32 or FP64 evaluation of the same inputs, in
+  a correctness script in `inputs/`; read `--check`'s max abs diff as a sanity bound only.
+- Exact rewrites can be checked exactly: on H200 a Triton GEMM with FP32 accumulation over K in order was bitwise
+  equal to CUTLASS (`torch._grouped_mm`) and cuBLAS, so `torch.equal` gated it. In torch 2.14 `torch._grouped_mm`
+  rejects `out_dtype=torch.float32` for BF16 inputs; build an FP32-output reference from per-group
+  `torch.mm(a, b, out_dtype=torch.float32)`.
+- When a numerical test fails by a hair, compare both the result and the reference with an FP64 evaluation before
+  blaming the change: a BF16 reference can be the less accurate side.
+- If a test fails, run it on the unmodified commit to show whether the failure predates the change. On a new
+  architecture, record the baseline's failing tests before changing anything.
 
 ## Pitfalls
 
 - Op benchmarks only cover the code you included. Anything the model runs around the op (permutes,
   copies, their backward) is invisible here; confirm end to end.
+- `--memory` measures from the allocation just before the call. A forward plus backward callable that starts with
+  `x.grad = None` frees the previous call's gradients inside the call, so its peak above that baseline understates
+  the transient (it can read lower than the forward-only case). Compare such peaks only across arms with the same
+  gradient handling.
 - Don't run op benchmarks on GPUs an end-to-end timing run is using. Host-bound results move with CPU load on a
   shared node: the same eager forward and backward read 0.37 ms in one run and 0.24 ms in the next, both pinned
   with `taskset -c`. Repeat the run before trusting a host-bound difference.

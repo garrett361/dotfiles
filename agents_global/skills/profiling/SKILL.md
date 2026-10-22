@@ -31,6 +31,13 @@ dependencies), and the project's interpreter (`uv run --no-sync python`) for the
 Op level:
 - Is this op faster, and by how much (median, p20, p80, peak memory, output check)? `scripts/bench_ops.py`
   (`--cudagraph` for ops under ~20 us); `tools/do-bench.md`.
+- The op runs collectives or peer copies across ranks? `bench_ops.py --distributed` under torchrun;
+  `tools/do-bench.md`.
+- How did an op's time move between code versions or sessions, with each run's own reference ratio (drift-proof)?
+  `scripts/bench_compare.py` over the arms' `bench_ops.py --csv` files.
+- Did both arms run at the same SM clock and power state (power-capped GEMMs)? Log `nvidia-smi
+  --query-gpu=timestamp,index,clocks.sm,power.draw,temperature.gpu,clocks_event_reasons.active --format=csv -lms 100`
+  in the background during each timing run, then `scripts/gpu_clocks.py`; `tools/do-bench.md` (power cap).
 - How long does a region of my code take, per call? Copy `scripts/cuda_timer.py` into the project (the one script
   meant to be copied, not run).
 - Which kernels inside an op cost the time? `bench_ops.py --trace`, then `scripts/top_kernels.py --whole-trace
@@ -44,7 +51,8 @@ End to end, from traces:
   trace) or `scripts/nsys_kernels.py` (nsys SQLite); `analysis/top-kernels.md`.
 - Which kernels changed between two traces, per kernel, category or launching op? `scripts/kernel_diff.py`.
 - Where does the step time go (compute by category, exposed comm, idle by cause), and why is arm B slower,
-  reconciled with untraced step time? `scripts/step_accounting.py`, then `scripts/accounting_figure.py`.
+  reconciled with untraced step time? `scripts/step_accounting.py`, then `scripts/accounting_figure.py`. On
+  per-rank op traces from `bench_ops.py --distributed --trace`: `tools/torch-profiler.md`.
 - How much host work (launches, thread busy time, named ops) does each arm issue per step? `scripts/host_ops.py`.
 - Do host-side stream waits (e.g. FSDP's reduce-scatter cap) stall the GPU, and how much does labeled
   communication overlap compute? `scripts/comm_waits.py`, figure via `scripts/timeline_figure.py --comm-kernel`.
@@ -68,6 +76,8 @@ Inside one kernel:
 - Why is it slow (bandwidth, latency stalls, occupancy), and which source lines do warps stall on?
   `tools/nsight-compute.md` (`scripts/ncu_source_lines.py`).
 - A CuTe DSL kernel: JIT cache, PTX/SASS dumps, registers, spills? `tools/cute-dsl.md`.
+- A Triton kernel on Hopper: is it pipelined, spilling, flattened, using TMA, and why does it lag a sibling kernel?
+  `tools/triton.md`.
 - Did a change alter a kernel's generated code at all (two worktrees, or two values of a compile-time constant),
   and which instructions changed? `scripts/artifact_diff.py`; `tools/sass.md`.
 - Do two kernels (TileLang, CuTe DSL, Triton, CUDA) share a design: MMA, TMA vs `cp.async`, barriers,
@@ -131,6 +141,11 @@ An op-level win that disappears end to end is a finding, not noise: go to layer 
   should be exact, otherwise loss/grad-norm curves that track step by step.
 - Run arms on the same hardware class, serially or in parallel as the user asks (ask if unclear); never
   share GPUs between a timing run and anything else.
+- Time the op in its production calling convention (the same operand kinds, offsets, capacity bounds and flags
+  the real caller passes), not only with plain tensors; a per-launch win measured one way can be a regression the
+  other way. Confirm every op-level result end to end, where the gain can also be larger than per launch.
+- Log SM clocks and power during every timing run (`gpu_clocks.py`), so throttling is ruled in or out by a table.
+- Splitting an investigation across subagents (implementers, timers, tuners on a cluster)? `tools/agents.md`.
 
 ## 4. Report hard evidence
 

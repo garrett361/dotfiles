@@ -51,6 +51,11 @@ plus the tensor dims (`prime_rl_collectives::all_to_all_single [196608,4096]`).
   `prime_rl_dsv4_mhc_post_bda (bwd) > aten::cat [...]` (recompute) with equal time: add both for the op's
   real cost.
 - A site can launch several kernels, so its mean and median mix them; use `--by both` for per-kernel rows.
+- Conversely, one kernel name can serve several modes (e.g. one Triton GEMM for forward and for the input
+  gradient). `--category` regexes see only the name and cannot split it; `--by both` splits it by launching op.
+- `--minmax` adds min and max per row. A minimum near 1 us on a heavy kernel means some launches exit at once
+  (work predicated off on the device), e.g. a recompute that is launched but skipped; check call counts before
+  reading the mean.
 - Rows group raw kernel names. Distinct kernels can shorten to the same label; those get `#2`, `#3`, and the
   CSV has the raw names.
 - `--whole-trace` includes compile and autotuning: in the DSV4 trace, the `@triton.autotune`d mHC kernels
