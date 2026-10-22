@@ -101,6 +101,7 @@ Counters work for normal users on the `prime-nebius-puku-h200-gpu-*` nodes (ncu 
   script's own success output does not mean profiling worked.
 - `--launch-skip` counts only launches that match the `--kernel-name` filter;
   `--launch-skip-before-match` counts all launches (from `ncu --help`).
+- Cross-rank kernels are unreliable under ncu (2026-10-22, 8x H200, NVLink): with one `ncu --target-processes all` wrapping torchrun, profiling two ranks whose kernels read each other's memory failed with `==ERROR== UnknownError` for the NVLink (`nvlrx__*`) and peer-aperture L2 (`lts__t_sectors_srcunit_tex_aperture_peer*`) metrics; basic metrics on one rank sometimes succeeded. Fall back to timing (`tools/do-bench.md`, `bench_ops.py --distributed`).
 
 ## Not yet verified
 
