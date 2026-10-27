@@ -16,4 +16,4 @@ done
 for role in --assignee --review-requested --reviewed-by; do
     gh search prs "$role" @me --state open "${repo_flags[@]}" \
         --json title,url --jq '.[] | "\(.title)\t\(.url)"'
-done | sort -u
+done | sort -u | awk -F '\t' 'NR > 1 { print "" } { print $1; print $2 }'
