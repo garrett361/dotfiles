@@ -1,0 +1,4 @@
+interface:
+  display_name: "My PRs"
+  short_description: "List open PRs assigned to me or requesting my review"
+  default_prompt: "Use $my-prs to list my open assigned and review-requested PRs as titles plus plain URLs."
