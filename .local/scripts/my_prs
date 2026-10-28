@@ -4,6 +4,7 @@ set -euo pipefail
 ORG="PrimeIntellect-ai"
 REPOS=(
     prime-rl
+    prime-pt
     renderers
     verifiers
 )
@@ -15,5 +16,6 @@ done
 
 for role in --assignee --review-requested --reviewed-by; do
     gh search prs "$role" @me --state open "${repo_flags[@]}" \
-        --json title,url --jq '.[] | "\(.title)\t\(.url)"'
-done | sort -u | awk -F '\t' 'NR > 1 { print "" } { print $1; print $2 }'
+        --json repository,createdAt,title,url \
+        --jq '.[] | "\(.repository.name)\t\(.createdAt)\t\(.title)\t\(.url)"'
+done | sort -u | sort -t $'\t' -k1,1 -k2,2 | awk -F '\t' 'NR > 1 { print "" } { print $3; print $4 }'
