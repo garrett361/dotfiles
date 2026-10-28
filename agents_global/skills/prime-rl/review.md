@@ -64,6 +64,8 @@ before weighing in on the user's points, and do not fold their views into it.
 - Answer the user's comments and questions in conversation, and fold agreed wording into the file.
 - Write the review body for whoever acts on it, often another agent rather than the PR author: just enough to
   be actionable, no more.
+  - Describe only the code at head. Do not cite commit messages, earlier revisions, or where a claim was first
+    written; link the current line that makes or contradicts it.
   - Corrections and bugs: a GitHub permalink at the PR head SHA with line numbers
     (`.../blob/<sha>/<path>#L<a>-L<b>`) for every location, the defect in one or two sentences, and the
     expected behavior. Permalinks render in the GitHub UI and are precise enough for an agent to act on.
@@ -90,6 +92,13 @@ copy it into an inline code comment, or drop it.
   - Add later comments with the GraphQL `addPullRequestReviewThread` mutation (`pullRequestReviewId` = the review's
     `node_id`). The REST `pulls/N/comments` endpoint publishes immediately, so never use it here.
   - Never submit the review; the user submits it from the GitHub UI.
+  - Keep each inline comment to one or two sentences, about as long as the matching bullet in the review file.
+    Go longer only when pseudocode or a suggested replacement is needed to explain the change.
+  - A comment's line must fall inside a diff hunk. When the code at fault is unchanged (outside the diff), anchor
+    the comment on the changed line that calls it.
+  - The user marks items to inline in the review file (e.g. a trailing `GG: inline`). After posting, replace each
+    mark with a status tag such as `[posted inline on L130, pending review]`, and keep the item's number unchanged
+    so earlier references to it still hold. The tags show which items are covered by the pending review.
 - **Side questions** raised during the walkthrough ("is this patch needed?", "did someone already do this?") go to
   subagents; fold the answers into the relevant item rather than adding sections.
 
