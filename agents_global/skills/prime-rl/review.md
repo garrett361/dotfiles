@@ -69,6 +69,8 @@ before weighing in on the user's points, and do not fold their views into it.
   - Corrections and bugs: a GitHub permalink at the PR head SHA with line numbers
     (`.../blob/<sha>/<path>#L<a>-L<b>`) for every location, the defect in one or two sentences, and the
     expected behavior. Permalinks render in the GitHub UI and are precise enough for an agent to act on.
+    GitHub expands a raw prime-rl permalink into a code snippet, so put it at the end of a sentence, never
+    inside parentheses or markdown link syntax.
   - Design changes: the design goal, the main shortcomings of the current code (with permalinks), and
     pseudocode of the proposed shape. Do not write a full implementation.
 
