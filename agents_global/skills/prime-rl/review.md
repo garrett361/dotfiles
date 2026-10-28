@@ -54,7 +54,7 @@ before weighing in on the user's points, and do not fold their views into it.
   ```
   <user's preamble>
 
-  Claude generated below
+  Generated below, for your agent:
 
   ---
 
