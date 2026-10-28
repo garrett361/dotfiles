@@ -14,8 +14,18 @@ for repo in "${REPOS[@]}"; do
     repo_flags+=(--repo "$ORG/$repo")
 done
 
-for role in --assignee --review-requested --reviewed-by; do
-    gh search prs "$role" @me --state open "${repo_flags[@]}" \
-        --json repository,createdAt,title,url \
-        --jq '.[] | "\(.repository.name)\t\(.createdAt)\t\(.title)\t\(.url)"'
-done | sort -u | sort -t $'\t' -k1,1 -k2,2 | awk -F '\t' 'NR > 1 { print "" } { print $3; print $4 }'
+print_section() {
+    local header="$1"
+    shift
+    printf '%s\n%s\n\n' "$header" "${header//?/=}"
+    for role in "$@"; do
+        gh search prs "$role" @me --state open "${repo_flags[@]}" \
+            --json repository,createdAt,title,url \
+            --jq '.[] | "\(.repository.name)\t\(.createdAt)\t\(.title)\t\(.url)"'
+    done | sort -u | sort -t $'\t' -k1,1 -k2,2 |
+        awk -F '\t' 'NR > 1 { print "" } { print $3; print $4 } END { if (NR == 0) print "(none)" }'
+}
+
+print_section "My PRs" --author
+echo
+print_section "Reviews" --assignee --review-requested --reviewed-by
