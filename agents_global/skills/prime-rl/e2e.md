@@ -29,9 +29,9 @@ Seen in prime-rl #4086: 14 to 25% faster at cp=1, but 42 to 55 s per step agains
 
 ## Run hygiene
 
-- **No offloading, set explicitly:** `model.optim_cpu_offload = false` (defaults to true),
-  `model.ac_offloading = None` (on by default), `model.fsdp_cpu_offload = false`. Offloading adds host and
-  copy-stream work that confounds timing.
+- **No offloading, set explicitly:** `model.offload = "none"` (defaults to `"optimizer"`),
+  `model.ac_offloading = None` (on by default). Offloading adds host and copy-stream work that confounds
+  timing.
 - **No checkpoints:** leave `[ckpt]` unset. Saves add I/O to step time and fill disk.
 - **About 20 steps per run:** enough for a steady state after compile warmup. Take medians over the steps
   after warmup.
