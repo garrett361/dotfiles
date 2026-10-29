@@ -31,6 +31,8 @@ unmatched point that returned before it (at most 20 ms before), and is dropped a
 already has a callback record.
 `--dump out.json` writes the per-point rows for join_sync_dumps.py. `--list` prints every sync point in time order.
 
+An anchor also matches `ANCHOR#<n>`, so `--anchor ProfilerStep` windows on torch.profiler's per-step ranges.
+
 `--to-end` windows from the last anchor to the last GPU event instead (e.g. the final micro-batch plus optimizer).
 
 Usage: uv run --script find_syncs.py <trace.json.gz> [--steps N | --to-end] [--anchor forward] [--stacks syncs.jsonl] [--list] [--dump f]
@@ -47,6 +49,7 @@ from collections import defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sync_stacks_report import site_key, site_label
+from trace_events import is_marker
 
 BLOCKING = {
     "cudaStreamSynchronize", "cudaDeviceSynchronize", "cudaEventSynchronize", "cudaThreadSynchronize",
@@ -74,7 +77,7 @@ args = p.parse_args()
 
 trace = json.load((gzip.open if args.trace.endswith(".gz") else open)(args.trace))
 xs = [e for e in trace["traceEvents"] if e.get("ph") == "X"]
-anchors = sorted(e["ts"] for e in xs if e.get("cat") == "user_annotation" and e["name"] == args.anchor)
+anchors = sorted(e["ts"] for e in xs if e.get("cat") == "user_annotation" and is_marker(e["name"], args.anchor))
 if args.to_end:
     if not anchors:
         raise SystemExit(f"no '{args.anchor}' annotations")

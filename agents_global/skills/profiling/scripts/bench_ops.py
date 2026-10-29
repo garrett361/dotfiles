@@ -18,7 +18,8 @@ With --cudagraph, timing uses do_bench_cudagraph instead: many calls replayed fr
 no per-call event overhead (do_bench adds about 3 us per call, which dominates ops under ~20 us); p20/p80 then
 come from only 10 replays. The callable must be capturable (no host syncs).
 With --trace DIR, each callable is also run --trace-iters times (after timing) under torch.profiler, and the
-chrome trace is written to DIR/<case>__<label>.json.gz for a per-kernel breakdown with `top_kernels.py
+chrome trace is written to DIR/<case>__<label>.json.gz, each iteration inside a `record_function("bench_iter")` range
+(a step marker for `timeline_figure.py --step-marker bench_iter`), for a per-kernel breakdown with `top_kernels.py
 --whole-trace --csv OUT` (the CSV is in us; divide totals by --trace-iters for per-call numbers).
 With --distributed, for callables that run collectives (launch under torchrun): the NCCL process group is initialized
 from the torchrun environment and the device set from LOCAL_RANK before `cases()` runs, so cases may use
@@ -140,13 +141,14 @@ def write_trace(fn, trace_dir, name, iters):
     import re
 
     import torch
-    from torch.profiler import ProfilerActivity, profile
+    from torch.profiler import ProfilerActivity, profile, record_function
 
     os.makedirs(trace_dir, exist_ok=True)
     torch.cuda.synchronize()
     with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
         for _ in range(iters):
-            fn()
+            with record_function("bench_iter"):
+                fn()
         torch.cuda.synchronize()
     safe_name = re.sub(r"[^A-Za-z0-9_.=+-]+", "_", name)
     prof.export_chrome_trace(os.path.join(trace_dir, f"{safe_name}.json.gz"))

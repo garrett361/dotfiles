@@ -14,10 +14,12 @@ cast inside a custom op vs one in a compiled graph) gets its own row; categories
 Labels that `top_kernels.py` numbered `#2`, `#3` (distinct kernels that shorten alike) are joined on the label without
 the number plus the raw kernel name, since the numbering depends on which kernels each file contains.
 `--filter REGEX` keeps only rows whose key matches (e.g. one kernel family across all its call sites).
+`--iters N` divides every time by N, so a trace of N iterations of an op (e.g. `bench_ops.py --trace-iters N`) reads per
+iteration; call counts stay raw.
 
 Usage: uv run --script kernel_diff.py before.csv after.csv [--top 30] [--name-width 90] [--group compute]
        [--category "expert GEMM:sm90_fp8_gemm_1d"] [--before-label A] [--after-label B] [--key label] [--filter REGEX]
-       [--decimals 1]
+       [--decimals 1] [--iters 1]
 """
 
 import argparse
@@ -39,7 +41,7 @@ def join_key(row, column, numbered):
     return f"{label} [{row['kernel_names']}]" if label in numbered else label
 
 
-def load(rows, column, numbered, keep=None):
+def load(rows, column, numbered, keep=None, iters=1):
     totals = {}
     for row in rows:
         name = join_key(row, column, numbered)
@@ -47,7 +49,7 @@ def load(rows, column, numbered, keep=None):
             continue
         key = (row["group"], name)
         total, calls = totals.get(key, (0.0, 0))
-        totals[key] = (total + float(row["total_us"]) / 1000.0, calls + int(row["calls"]))
+        totals[key] = (total + float(row["total_us"]) / 1000.0 / iters, calls + int(row["calls"]))
     return totals
 
 
@@ -68,6 +70,7 @@ def main():
     parser.add_argument("--key", choices=("kernel", "label"), default="kernel", help="join on raw kernel names or labels")
     parser.add_argument("--filter", default=None, help="keep only rows whose key matches this regex")
     parser.add_argument("--decimals", type=int, default=1, help="decimal places for ms (e.g. 3 for op-level traces)")
+    parser.add_argument("--iters", type=int, default=1, help="divide times by this many traced iterations")
     args = parser.parse_args()
 
     column = "kernel_names" if args.key == "kernel" else "label"
@@ -76,7 +79,8 @@ def main():
     numbered = {
         NUMBERED_LABEL.sub("", r["label"]) for r in before_rows + after_rows if NUMBERED_LABEL.search(r["label"])
     }
-    before, after = load(before_rows, column, numbered, keep), load(after_rows, column, numbered, keep)
+    before = load(before_rows, column, numbered, keep, args.iters)
+    after = load(after_rows, column, numbered, keep, args.iters)
     keys = set(before) | set(after)
     rows = []
     for key in keys:

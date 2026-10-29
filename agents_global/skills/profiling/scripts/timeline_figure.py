@@ -23,7 +23,13 @@ order against kernel names; unmatched kernels fall into "other".
 exactly that name instead of a kernel, e.g. `FSDP::all_gather_copy_out (model.layers.2)`, which starts a
 layer's compute; a window starting at 0 then left-aligns every arm. `--end-annotation NAME` marks the first
 such annotation after the anchor as the end of a region: each panel gets a dashed line and the region's
-length, and with two arms an arrow on the second panel labels the difference.
+length, and with two arms an arrow on the second panel labels the difference. `--dim-outside-region [ALPHA]`
+fades kernels before the anchor and after the region end (default alpha 0.25), so each panel's region reads as
+one bright bar. `--diff-arrow below` draws the difference arrow and its label in a strip under the second panel's
+kernels instead of over them (`kernels`, the default), so it never covers unrelated work. With more than two arms,
+`--delta-pair I J` (0-based arm indices) draws the delta panel for arm J minus arm I and makes arm I the reference
+for difference arrows: every other panel gets an arrow from arm I's region end to its own, labeled with the
+difference vs arm I. Without it, only two-arm figures get the delta panel and the arrow (second arm vs first).
 
 `--launched-in NAME` is for host ranges torch does not project onto the GPU (e.g. prime-rl's `optimizer`): it aligns
 at the GPU start of the first kernel launched inside the step's CPU-side `user_annotation` named NAME and marks the end
@@ -94,6 +100,12 @@ def parse_args():
     parser.add_argument("--launched-in", default=None,
                         help="CPU user_annotation name: align at its first launched kernel, end region at its last")
     parser.add_argument("--region-label", default="region", help="wording for the marked region")
+    parser.add_argument("--dim-outside-region", type=float, nargs="?", const=0.25, default=None, metavar="ALPHA",
+                        help="fade kernels outside the anchor-to-region-end span to this alpha")
+    parser.add_argument("--diff-arrow", choices=["kernels", "below"], default="kernels",
+                        help="draw the region difference arrow over the kernels or in a strip below them")
+    parser.add_argument("--delta-pair", type=int, nargs=2, default=None, metavar=("I", "J"),
+                        help="delta panel shows arm J minus arm I (0-based); arm I is the difference-arrow reference")
     parser.add_argument("--step-index", type=int, default=-1, help="which step-marker event starts the step")
     parser.add_argument("--annotate-gaps", type=float, default=None, metavar="MIN_MS", help="mark GPU idle gaps")
     parser.add_argument("--gap-scope", choices=["device", "main"], default="device",
@@ -266,6 +278,21 @@ def draw_comm_row(ax, comm, anchor_ts, lo, hi, comm_labels, row_label="reduce-sc
     ax.set_yticklabels(["compute stream", row_label], fontsize=9)
 
 
+def draw_kernel(ax, t0, dur, color, edge_width, region=None, dim_alpha=1.0):
+    """Draw one kernel, faded to `dim_alpha` where it falls outside `region` (start, end) in ms."""
+    if region is None:
+        ax.broken_barh([(t0, dur)], (0, 1), facecolors=color, edgecolor="white", linewidth=edge_width)
+        return
+    start, end = region
+    spans = [(float("-inf"), start, dim_alpha), (start, end, 1.0), (end, float("inf"), dim_alpha)]
+    pieces = [(max(t0, a), min(t0 + dur, b), alpha) for a, b, alpha in spans if max(t0, a) < min(t0 + dur, b)]
+    if not pieces:
+        pieces = [(t0, t0 + dur, 1.0 if start <= t0 < end else dim_alpha)]
+    for x0, x1, alpha in pieces:
+        ax.broken_barh([(x0, x1 - x0)], (0, 1), facecolors=color, edgecolor="white", linewidth=edge_width,
+                       alpha=alpha)
+
+
 def idle_gaps(kernels, lo, hi, min_us):
     gaps, busy_until = [], None
     for e in kernels:
@@ -320,7 +347,12 @@ def main():
         label, path = spec.split("=", 1)
         arms.append((label, load_step(path, args.step_marker, args.step_index, args.main_exclude)))
 
-    show_delta = len(arms) == 2 and not args.no_delta
+    if args.delta_pair is not None and (len(set(args.delta_pair)) != 2
+                                        or not all(0 <= i < len(arms) for i in args.delta_pair)):
+        raise SystemExit(f"--delta-pair needs two different arm indices in [0, {len(arms)})")
+    ref, other = args.delta_pair or (0, 1)
+    compare_arms = len(arms) == 2 or args.delta_pair is not None
+    show_delta = compare_arms and not args.no_delta
     heights = [1] * len(arms) + ([1.4] if show_delta else [])
     fig = plt.figure(figsize=(14, 2.8 * len(heights) + 0.6))
     legend_rows = -(-legend_count(args) // 6)
@@ -350,12 +382,20 @@ def main():
             anchor_ts = nth(matches, args.anchor_index, what)["ts"]
         else:
             anchor_ts = step["start"]
+        region_end = None
+        if args.end_annotation or launched:
+            if launched:
+                end_ts = max(e["ts"] + e["dur"] for e in launched)
+            else:
+                end_ts = next(e["ts"] for e in step["annotations"]
+                              if e["name"] == args.end_annotation and e["ts"] > anchor_ts)
+            region_end = (end_ts - anchor_ts) / 1e3
+        dim_region = (0.0, region_end) if args.dim_outside_region is not None and region_end is not None else None
         for e in step["main_all"]:
             t0 = (e["ts"] - anchor_ts) / 1e3
             if lo <= t0 + e["dur"] / 1e3 and t0 <= hi:
                 color = kernel_label(e, categories, phases)[1]
-                ax.broken_barh([(t0, e["dur"] / 1e3)], (0, 1), facecolors=color, edgecolor="white",
-                               linewidth=args.edge_width)
+                draw_kernel(ax, t0, e["dur"] / 1e3, color, args.edge_width, dim_region, args.dim_outside_region)
         ax.set_xlim(lo, hi)
         ax.set_yticks([])
         if comm is not None:
@@ -369,13 +409,7 @@ def main():
         ax.set_title(label, loc="left", fontsize=11)
         if args.annotate_gaps is not None:
             annotate_gaps(ax, step, anchor_ts, lo, hi, args.annotate_gaps, label, args.gap_scope, args.gap_labels)
-        if args.end_annotation or launched:
-            if launched:
-                end_ts = max(e["ts"] + e["dur"] for e in launched)
-            else:
-                end_ts = next(e["ts"] for e in step["annotations"]
-                              if e["name"] == args.end_annotation and e["ts"] > anchor_ts)
-            region_end = (end_ts - anchor_ts) / 1e3
+        if region_end is not None:
             region_ends.append(region_end)
             ax.axvline(region_end, color="black", linestyle="--", linewidth=1)
             ax.set_title(f"{args.region_label}: {region_end:.1f} ms", loc="right", fontsize=10)
@@ -404,18 +438,34 @@ def main():
             step_label = "last step" if args.step_index == -1 else f"step index {args.step_index}"
             ax.set_xlabel(f"ms relative to {anchor_label} ({step_label}, main GPU stream)")
 
-    region_in_view = len(region_ends) == 2 and all(
-        axes[1].get_xlim()[0] <= end <= axes[1].get_xlim()[1] for end in region_ends
-    )
-    if len(region_ends) == 2 and not region_in_view:
-        print(f"region ends {region_ends[0]:.1f} and {region_ends[1]:.1f} ms fall outside --window; widen it to draw "
-              "the region arrow", file=sys.stderr)
-    if region_in_view:
-        (before_end, after_end), ax = region_ends, axes[1]
-        ax.axvline(before_end, color="#cc0000", linestyle=":", linewidth=1)
-        ax.annotate("", xy=(after_end, 0.5), xytext=(before_end, 0.5), arrowprops=dict(arrowstyle="<->", color="#cc0000"))
-        ax.text((before_end + after_end) / 2, 0.62, f"{after_end - before_end:+.1f} ms", ha="center", va="bottom",
-                fontsize=11, color="#cc0000", fontweight="bold")
+    arrow_rows = [row for row in range(len(arms)) if row != ref] if args.delta_pair is not None else [1]
+    draw_arrows = compare_arms and len(region_ends) == len(arms)
+    region_in_view = draw_arrows and all(lo <= end <= hi for end in region_ends)
+    if draw_arrows and not region_in_view:
+        print(f"region ends {' and '.join(f'{end:.1f}' for end in region_ends)} ms fall outside --window; widen it to "
+              "draw the region arrow", file=sys.stderr)
+    label_box = dict(facecolor="white", edgecolor="none", pad=1) if args.delta_pair is not None else None
+    for row in arrow_rows if region_in_view else []:
+        before_end, after_end, ax = region_ends[ref], region_ends[row], axes[row]
+        if args.diff_arrow == "below":
+            ax.axvline(before_end, color="#cc0000", linestyle=":", linewidth=1)
+            y_lo, y_hi = ax.get_ylim()
+            strip = 0.5 * (y_hi - y_lo)
+            ax.set_ylim(y_lo - strip, y_hi)
+            arrow_y = y_lo - 0.3 * strip
+            ax.axhline(y_lo, color="black", linewidth=0.8)
+            ax.annotate("", xy=(after_end, arrow_y), xytext=(before_end, arrow_y),
+                        arrowprops=dict(arrowstyle="<->", color="#cc0000", shrinkA=0, shrinkB=0))
+            ax.text((before_end + after_end) / 2, y_lo - 0.55 * strip,
+                    f"{args.region_label}: {after_end - before_end:+.1f} ms vs {arms[ref][0].split(',')[0]}",
+                    ha="center", va="top", fontsize=10, color="#cc0000", fontweight="bold",
+                    bbox=label_box, zorder=5)
+        else:
+            ax.axvline(before_end, color="#cc0000", linestyle=":", linewidth=1)
+            ax.annotate("", xy=(after_end, 0.5), xytext=(before_end, 0.5),
+                        arrowprops=dict(arrowstyle="<->", color="#cc0000"))
+            ax.text((before_end + after_end) / 2, 0.62, f"{after_end - before_end:+.1f} ms", ha="center",
+                    va="bottom", fontsize=11, color="#cc0000", fontweight="bold")
 
     legend_entries = [(label, color) for label, _, color in categories[:-1]]
     legend_entries += [(label, color) for label, _, color, _ in segments]
@@ -425,7 +475,7 @@ def main():
     labels = [label for label, _ in legend_entries if label not in comm_legend]
     if show_delta:
         ax = fig.add_subplot(grid[len(arms)])
-        before, after = totals
+        before, after = totals[ref], totals[other]
         deltas = [after.get(k, 0.0) - before.get(k, 0.0) for k in labels]
         ax.barh(labels, deltas, color=[dict(legend_entries)[label] for label in labels])
         span = max(abs(d) for d in deltas) or 1.0
@@ -440,7 +490,7 @@ def main():
         ax.set_xlim(-1.35 * span, 1.35 * span)
         ax.set_xlabel("change in main-stream kernel ms per step")
         ax.set_title(
-            f"Main-stream kernel time per step, {arms[1][0].split(':')[0]} minus {arms[0][0].split(':')[0]}: "
+            f"Main-stream kernel time per step, {arms[other][0].split(':')[0]} minus {arms[ref][0].split(':')[0]}: "
             f"{total_after - total_before:+.{decimals}f} ms "
             f"({total_before:.{decimals - 1}f} -> {total_after:.{decimals - 1}f} ms)",
             loc="left",

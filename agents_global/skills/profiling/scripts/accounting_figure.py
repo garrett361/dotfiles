@@ -10,7 +10,8 @@ red, bars that save time blue (the validated diverging pair of the dataviz refer
 printed at the bar end. `--fold PREFIX` (repeatable) merges all rows starting with PREFIX into one row (e.g.
 "idle" or "exposed comm"), `--min-ms` drops rows whose delta is smaller in every panel, and rows keep one order
 across panels. `--reference LABEL=MS` (repeatable) draws a dashed vertical line, e.g. the untraced step delta,
-and `--total-label` names the summed row added at the bottom of each panel.
+and `--total-label` names the summed row added at the bottom of each panel. `--panel-reference INDEX:LABEL=MS`
+draws such a line on panel INDEX only (0-based, in `--csv` order), for panels whose arms differ in untraced step time.
 
 Usage:
   uv run --script accounting_figure.py --out fig.png --csv "torch.profiler=a.csv" --csv "nsys=b.csv" \\
@@ -20,6 +21,7 @@ Usage:
 
 import argparse
 import csv
+from collections import defaultdict
 
 import matplotlib
 
@@ -57,6 +59,8 @@ def main():
     parser.add_argument("--fold", action="append", default=[])
     parser.add_argument("--min-ms", type=float, default=0.5)
     parser.add_argument("--reference", action="append", default=[], help="LABEL=MS dashed line")
+    parser.add_argument("--panel-reference", action="append", default=[],
+                        help="INDEX:LABEL=MS dashed line on one panel (0-based)")
     parser.add_argument("--total-label", default="sum of rows (traced step delta)")
     parser.add_argument("--title", default="")
     args = parser.parse_args()
@@ -73,7 +77,11 @@ def main():
     span = max(max(abs(v) for v in rows.values()) for _, rows in panels)
     span = max(span, max(abs(sum(rows.values())) for _, rows in panels))
     reference_texts = []
-    for ax, (title, rows) in zip(axes, panels):
+    panel_references = defaultdict(list)
+    for spec in args.panel_reference:
+        index, ref = spec.split(":", 1)
+        panel_references[int(index)].append(ref)
+    for index, (ax, (title, rows)) in enumerate(zip(axes, panels)):
         values = [rows.get(k, 0.0) for k in labels[:-1]] + [sum(rows.values())]
         ys = range(len(labels))
         colors = [ADD if v > 0 else SAVE for v in values]
@@ -83,7 +91,7 @@ def main():
                     ha="left" if v >= 0 else "right", fontsize=8.5, color=INK)
         ax.axvline(0, color=MUTED, linewidth=0.8)
         ax.axhline(len(labels) - 1.5, color=MUTED, linewidth=0.6, linestyle=":")
-        for ref in args.reference:
+        for ref in args.reference + panel_references[index]:
             name, ms = ref.rsplit("=", 1)
             ax.axvline(float(ms), color=INK, linewidth=1.0, linestyle="--")
             reference_texts.append(

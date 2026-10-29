@@ -26,7 +26,14 @@ Each term of METRIC may be `delta(NAME)`, the per-step increase of a cumulative 
 read it from another run. E.g. when arm B pads rows that arm A does not, on the same samples, B's non-padding
 tokens/s/GPU on 64 GPUs is "tok_s_gpu=delta(progress/num_tokens)@runs/a / time/step * 0.015625".
 
+Step table: `--step-table METRIC` (repeatable) writes one CSV row per step to `--out`, with a column per metric and
+run, and prints each metric as a markdown table, runs side by side, ending in each run's max |diff| from the first
+`--run`. Use it for parity checks (do two arms track step by step?) and to read off per-step stalls; `--steady`
+limits the steps and `--digits` sets the printed precision. METRIC takes the same forms as in `--summarize`.
+
 Usage:
+  uv run --script run_metrics.py --out parity.csv --step-table optim/grad_norm --step-table time/step \\
+    --run "dsv4:main=runs/main" --run "dsv4:fix=runs/fix"
   uv run --script run_metrics.py --csv summary.csv --out bars.png --noise fp32-cap2,fp32-cap2-r2,fp32-main \\
     --bar "tok_s_gpu:tokens/s/GPU (higher is better)" --bar "peak_gib:peak memory GiB (lower is better)"
   uv run --script run_metrics.py --csv summary.csv --out steps.png --lines time/step --steady 5 20
@@ -63,6 +70,10 @@ def parse_args():
     parser.add_argument("--steady", type=int, nargs=2, default=None, metavar=("LO", "HI"))
     parser.add_argument("--stat", choices=("median", "mean"), default="median", help="summary statistic per run")
     parser.add_argument("--title", default="")
+    parser.add_argument(
+        "--step-table", action="append", default=[], help="METRIC, write per-step values side by side per run"
+    )
+    parser.add_argument("--digits", type=int, default=6, help="significant digits in the --step-table markdown")
     return parser.parse_args()
 
 
@@ -224,11 +235,44 @@ def draw_lines(rows, args):
     return fig
 
 
+def write_step_table(rows, args):
+    """One CSV row per step with a column per (metric, run); prints each metric as markdown with the max |diff| vs
+    the first run, so a parity check reads off which runs track step by step."""
+    labels = [f"{r['group']}:{r['variant']}" for r in rows]
+    by_metric = {
+        metric: [dict(load_metric(r["run_dir"], metric)) for r in rows] for metric in args.step_table
+    }
+    steps = sorted({s for per_run in by_metric.values() for values in per_run for s in values})
+    if args.steady:
+        steps = [s for s in steps if args.steady[0] <= s <= args.steady[1]]
+    with open(args.out, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["step"] + [f"{metric}@{label}" for metric in args.step_table for label in labels])
+        for s in steps:
+            writer.writerow([s] + [per_run[i].get(s, "") for per_run in by_metric.values() for i in range(len(rows))])
+    for metric, per_run in by_metric.items():
+        print(f"\n{metric}\n")
+        print("| step | " + " | ".join(labels) + " |")
+        print("|---:|" + "---:|" * len(labels))
+        for s in steps:
+            cells = [f"{values[s]:.{args.digits}g}" if s in values else "" for values in per_run]
+            print(f"| {s} | " + " | ".join(cells) + " |")
+        diffs = []
+        for values in per_run:
+            shared = [s for s in steps if s in values and s in per_run[0]]
+            diffs.append(f"{max(abs(values[s] - per_run[0][s]) for s in shared):.3g}" if shared else "")
+        print(f"| max abs diff vs {labels[0]} | " + " | ".join(diffs) + " |")
+    print(f"\nwrote {args.out}")
+
+
 def main():
     args = parse_args()
     rows = read_rows(args)
     if args.summarize:
         write_summary(rows, args)
+        return
+    if args.step_table:
+        write_step_table(rows, args)
         return
     fig = draw_lines(rows, args) if args.lines else draw_bars(rows, args)
     if args.title:

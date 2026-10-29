@@ -68,7 +68,7 @@ End to end, from traces:
 
 Runs, host and compiler:
 - How do arms compare on step time, memory, loss (prime-rl run dirs or any `.jsonl` with a step key)?
-  `scripts/run_metrics.py`.
+  `scripts/run_metrics.py`; `--step-table` puts arms side by side per step, for parity checks and per-step stalls.
 - Where does the host block on the GPU (syncs), from which Python line? `scripts/find_syncs.py` (costs), then
   `scripts/sync_stacks/`, `sync_stacks_report.py` (file:line) and `join_sync_dumps.py`; `analysis/cuda-syncs.md`.
 - What keeps `torch.compile` recompiling, at which step? `scripts/recompile_reasons.py`.
