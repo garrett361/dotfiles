@@ -150,8 +150,9 @@ explanations and design variants, then let untraced timing of the variants decid
 
 ## Other languages
 
-- Triton: Proton (`triton.profiler`) has intra-kernel instrumentation. Not yet verified here. A hand-rolled
-  probe works: `tl.inline_asm_elementwise("mov.u64 $0, %globaltimer;", "=l", [], dtype=tl.int64,
+- Triton: Proton (`triton.profiler`) has intra-kernel instrumentation. Not yet verified here.
+  `scripts/triton_event_recorder.py` (copied into the project) is a verified constexpr-gated recorder that writes
+  this table directly (overhead and placement: `tools/exposed-comm.md`). Its probe: `tl.inline_asm_elementwise("mov.u64 $0, %globaltimer;", "=l", [], dtype=tl.int64,
   is_pure=False, pack=1)` returns the timer (and `"mov.u32 $0, %smid;"` with `"=r"`, `tl.int32` the SM), stored
   to a global buffer and written out as `intra_kernel_events.py`'s table.
 - TileLang: IKET support landed upstream (TileLang PR #2515, merged 2026-07-12). prime-rl pins 0.1.12,

@@ -9,7 +9,8 @@ the next) is swept on one GPU. Every instant goes to exactly one row:
   across the kernels running then, and each kernel's share goes to its `--category` (first match wins, raw
   names, unmatched kernels go to "other compute").
 - exposed comm: only communication kernels (`--comm`, default NCCL) run, labeled by collective
-  (AllGather, ReduceScatter, AllReduce, SendRecv/AllToAll, Broadcast, ...).
+  (AllGather, ReduceScatter, AllReduce, SendRecv/AllToAll, Broadcast, ...), or by the first matching
+  `--comm-label LABEL:REGEX` (repeatable, checked first; e.g. custom peer-copy and barrier kernels).
 - idle: nothing runs. Each idle gap is classified by the kernel that ends it. If that kernel's launch call
   ended after the gap began, the host was late ("idle, host late: ..."), labeled with what the launching
   thread was inside at the gap start (torch traces: blocking CUDA call if any, else innermost cpu_op within
@@ -175,8 +176,11 @@ def step_windows(rank, boundary, gap_us):
     return list(zip(ends[:-1], ends[1:]))
 
 
+COMM_LABELS = []
+
+
 def collective(name):
-    for label, pattern in COLLECTIVES:
+    for label, pattern in COMM_LABELS + list(COLLECTIVES):
         if re.search(pattern, name):
             return label
     return "other comm"
@@ -254,6 +258,7 @@ def main():
     parser.add_argument("--steps", default="-2:", help="slice of step windows to average (default last two)")
     parser.add_argument("--category", action="append", default=[], help="LABEL:REGEX for compute kernels")
     parser.add_argument("--comm", default=r"nccl|NCCL", help="regex of communication kernels")
+    parser.add_argument("--comm-label", action="append", default=[], help="LABEL:REGEX naming comm kernels")
     parser.add_argument("--untraced", action="append", default=[], help="LABEL=SECONDS untraced median step")
     parser.add_argument("--ranks", default=None, help="comma list of ranks (file order or deviceId) to include")
     parser.add_argument("--host-depth", type=int, default=1)
@@ -264,6 +269,7 @@ def main():
 
     categories = [(c.split(":", 1)[0], re.compile(c.split(":", 1)[1])) for c in args.category]
     comm = re.compile(args.comm)
+    COMM_LABELS.extend((c.split(":", 1)[0], c.split(":", 1)[1]) for c in args.comm_label)
     boundary = re.compile(args.step_boundary)
     lo_s, hi_s = (args.steps.split(":") + [""])[:2]
     step_slice = slice(int(lo_s) if lo_s else None, int(hi_s) if hi_s else None)

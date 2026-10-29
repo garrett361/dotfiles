@@ -40,11 +40,14 @@ Op level:
 - Did both arms run at the same SM clock and power state (power-capped GEMMs)? Log `nvidia-smi
   --query-gpu=timestamp,index,clocks.sm,power.draw,temperature.gpu,clocks_event_reasons.active --format=csv -lms 100`
   in the background during each timing run, then `scripts/gpu_clocks.py`; `tools/do-bench.md` (power cap).
-- How long does a region of my code take, per call? Copy `scripts/cuda_timer.py` into the project (the one script
-  meant to be copied, not run).
+- How long does a region of my code take, per call? Copy `scripts/cuda_timer.py` into the project (meant to be copied,
+  not run, like `scripts/triton_event_recorder.py`).
 - Which kernels inside an op cost the time? `bench_ops.py --trace`, then `scripts/top_kernels.py --whole-trace
   --decimals 3` and `scripts/kernel_diff.py --decimals 3`.
 - A CuTe DSL op: does it re-trace or pay host overhead on every call? `tools/cute-dsl.md`, before timing it.
+- How much communication does a fused or overlapped implementation hide, split into SMs taken from the GEMM,
+  measured waits inside the kernel and contention, comparably across implementations? `tools/exposed-comm.md`
+  (`scripts/exposed_comm.py`, `scripts/triton_event_recorder.py`; known-answer controls: `scripts/exposed_comm_controls.py`).
 
 End to end, from traces:
 - Why doesn't an op win show up in step time? Capture both arms (`tools/torch-profiler.md`), then diff them with
@@ -84,7 +87,8 @@ Inside one kernel:
 - Do two kernels (TileLang, CuTe DSL, Triton, CUDA) share a design: MMA, TMA vs `cp.async`, barriers,
   registers, spills by source line? `tools/sass.md` (`scripts/sass_inventory.py`).
 - When does each warp role issue, wait and finish, and which wait gates the next step? `tools/intra-kernel.md`
-  (`intra_kernel_events.py`, `intra_kernel_intervals.py`, `intra_kernel_ab_figure.py`).
+  (`intra_kernel_events.py`, `intra_kernel_intervals.py`, `intra_kernel_ab_figure.py`; Triton kernels:
+  `scripts/triton_event_recorder.py`).
 
 Showing results:
 - A before/after timeline figure: `scripts/timeline_figure.py`; `reporting/figures.md`.
