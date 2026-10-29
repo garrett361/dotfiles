@@ -19,7 +19,9 @@ The ops file (all expressions are strings evaluated over `[params]`; a param is 
   per-layer view adds them to each other kind.
 - `[schedule]`: `micro_batches_per_step` expression; ops with `per = "step"` are amortized over it.
 - `[mfu]`: `flops` (FLOPs the MFU definition counts per micro batch per GPU), `peak` (compute peak it divides by),
-  `tokens` (tokens per micro batch per GPU, for ideal tokens/s) and `definition` (text).
+  `tokens` (tokens per micro batch per GPU, for ideal tokens/s) and `definition` (text). Use `[[mfu]]` with a `name`
+  each to report several definitions side by side, e.g. a framework's own count next to a causal-correct one (a count
+  that ignores causal masking can exceed the hardware's executed FLOPs and give an ideal MFU above 100%).
 - `assumptions`: list of strings, printed verbatim.
 - `[[ops]]`: `name`, `group`, any other string fields (e.g. `kind`, usable with `--group-by`), `peak` (a compute
   name) or `link` (a link name: a communication op, reported separately and excluded from the compute roofline),
@@ -316,22 +318,26 @@ def totals_section(spec: dict, params: Params, ops: list[Op], compute: dict, tot
         f"- Executed FLOPs: {sum(op.total_flops for op in ops) / 1e12:.3f} TFLOP; HBM bytes: "
         f"{sum(op.total_bytes for op in ops) / 1e9:.2f} GB.",
     ]
-    mfu = spec.get("mfu")
-    if mfu:
+    definitions = spec.get("mfu") or []
+    if isinstance(definitions, dict):
+        definitions = [definitions]
+    for mfu in definitions:
         counted = params.eval(mfu["flops"])
         peak = compute[mfu["peak"]]
+        label = f" ({mfu['name']})" if "name" in mfu else ""
         lines.append(
-            f"- MFU-counted FLOPs: {counted / 1e12:.3f} TFLOP; ideal MFU against {peak.name} "
+            f"- MFU-counted FLOPs{label}: {counted / 1e12:.3f} TFLOP; ideal MFU against {peak.name} "
             f"({peak.value:.4g} FLOP/s): {100 * counted / (total_s * peak.value):.1f}%."
         )
-        if "tokens" in mfu:
-            tokens = params.eval(mfu["tokens"])
-            lines.append(f"- Ideal throughput: {tokens / total_s:,.0f} tokens/s per GPU ({num(tokens)} tokens).")
         if "definition" in mfu:
-            lines.append(f"- MFU definition: {mfu['definition']}")
-        counted_ops = [op.name for op in ops if op.spec.get("mfu_counted")]
-        if counted_ops:
-            lines.append(f"- Ops whose FLOPs the MFU definition counts (once, no recompute): {', '.join(counted_ops)}.")
+            lines.append(f"- MFU definition{label}: {mfu['definition']}")
+    tokens_spec = next((mfu["tokens"] for mfu in definitions if "tokens" in mfu), None)
+    if tokens_spec is not None:
+        tokens = params.eval(tokens_spec)
+        lines.append(f"- Ideal throughput: {tokens / total_s:,.0f} tokens/s per GPU ({num(tokens)} tokens).")
+    counted_ops = [op.name for op in ops if op.spec.get("mfu_counted")]
+    if counted_ops:
+        lines.append(f"- Ops whose FLOPs the MFU definition counts (once, no recompute): {', '.join(counted_ops)}.")
     return lines + [""]
 
 
