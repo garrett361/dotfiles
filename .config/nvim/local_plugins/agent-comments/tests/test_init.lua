@@ -19,6 +19,32 @@ T.test("init: comment_line adds a decorated comment via stubbed input", function
 	T.eq({ l[1].start_line, l[1].text }, { 2, "stub comment" })
 end)
 
+T.test("init: comment_file seeds the bare path and stores a whole-file comment", function()
+	comments.clear()
+	local ui = require("agent-comments.ui")
+	local orig = ui.input_comment
+	local seed
+	ui.input_comment = function(cb, opts)
+		seed = opts.lines
+		cb(table.concat(seed, "\n") .. "about the whole file")
+	end
+	local b = vim.api.nvim_create_buf(false, true)
+	vim.api.nvim_buf_set_lines(b, 0, -1, false, { "one", "two", "three" })
+	vim.api.nvim_buf_set_name(b, "/tmp/agent-comments-whole-file.py")
+	vim.api.nvim_set_current_buf(b)
+	vim.api.nvim_win_set_cursor(0, { 3, 0 })
+	local path = vim.api.nvim_buf_get_name(b)
+	hn.comment_file()
+	ui.input_comment = orig
+	T.eq(seed, { path, "", "" })
+	local l = comments.list()
+	T.eq(#l, 1)
+	T.eq({ l[1].whole_file, l[1].text }, { true, path .. "\n\nabout the whole file" })
+	T.eq(comments.snippet(l[1].id), {})
+	comments.clear()
+	vim.api.nvim_buf_delete(b, { force = true })
+end)
+
 T.test("init: comment_selection uses the visual marks", function()
 	comments.clear()
 	local ui = require("agent-comments.ui")

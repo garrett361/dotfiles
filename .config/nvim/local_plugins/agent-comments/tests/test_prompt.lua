@@ -11,6 +11,26 @@ local function seeded(c, snippet, max)
 	}
 end
 
+T.test("prompt: a whole-file item is the bare path and a blank, with no quote", function()
+	T.eq(
+		prompt.item(
+			{ file = "/tmp/x.py", start_line = 1, end_line = 1, whole_file = true },
+			{ "ignored" }
+		),
+		{ "/tmp/x.py", "" }
+	)
+	T.eq(
+		prompt.item({
+			file = "/tmp/x.py",
+			start_line = 1,
+			end_line = 1,
+			whole_file = true,
+			modified = true,
+		}),
+		{ "/tmp/x.py [unsaved]", "" }
+	)
+end)
+
 T.test("prompt: single comment renders as path, range, quoted line, comment", function()
 	local s = prompt.format({
 		seeded({

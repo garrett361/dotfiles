@@ -169,8 +169,9 @@ function M.decorate(id)
 	-- 1. Rail + tint on every line of the block. ▌ (half block) fills the sign
 	--    cell solidly, so the rail reads as one continuous stripe down the block
 	--    instead of a dotted column of glyphs.
+	--    A whole-file comment gets no rail, which would claim it is about line 1.
 	local bars = {}
-	for line = c.start_line, c.end_line do
+	for line = c.start_line, c.whole_file and 0 or c.end_line do
 		bars[#bars + 1] = vim.api.nvim_buf_set_extmark(c.bufnr, ns, line - 1, 0, {
 			sign_text = "▌",
 			sign_hl_group = "AgentCommentsSign",
@@ -217,6 +218,9 @@ function M.summary(c)
 end
 
 function M.comment_row(c)
+	if c.whole_file then
+		return string.format("%s  %s", vim.fn.fnamemodify(c.file, ":t"), M.summary(c))
+	end
 	return string.format(
 		"%s:%d-%d  %s",
 		vim.fn.fnamemodify(c.file, ":t"),

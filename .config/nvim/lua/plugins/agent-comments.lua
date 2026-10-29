@@ -23,7 +23,7 @@ return {
 		{
 			"<leader>zc",
 			function()
-				prequire("agent-comments").comment_line()
+				prequire("agent-comments").comment_file()
 			end,
 		},
 		{

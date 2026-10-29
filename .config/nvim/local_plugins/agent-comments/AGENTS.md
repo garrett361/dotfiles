@@ -59,9 +59,12 @@ Entries describe the current state, not the order things happened in. That histo
   would attach the finished comment to whatever has since moved under them. `comments.list` skips
   drafts, so one reaches neither the prompt nor the comment list, while `comments.get` and
   `comments.snippet` still resolve it. A draft is decorated with the rail alone.
-- There is one kind of comment. `<leader>zc` seeds the editor with the rendered item whether it was
-  started from the cursor line or a visual selection, and `prompt.format` emits what the buffer
-  holds as typed. The cost is accepted knowingly: every comment is a snapshot, so one written before
-  a large edit quotes and cites the file as it was. `ui.summary` is the block's line count, since
-  the block is freely editable and any guess at which line carries the annotation would eventually
-  point at the wrong one.
+- There is one kind of comment. Visual `<leader>zc` seeds the editor with the rendered item for the
+  selection, and `prompt.format` emits what the buffer holds as typed. Normal-mode `<leader>zc`
+  calls `comment_file()` instead: a whole-file comment whose item header is the bare path, with no
+  range and no quote. It is anchored at line 1 for tracking and sorting but decorated with the
+  callout alone, since a rail on line 1 would claim the comment is about that line. The cost is
+  accepted knowingly: every comment is a snapshot, so one written before a large edit quotes and
+  cites the file as it was. `ui.summary` is the block's line count, since the block is freely
+  editable and any guess at which line carries the annotation would eventually point at the wrong
+  one.

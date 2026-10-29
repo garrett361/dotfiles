@@ -109,6 +109,26 @@ T.test("ui: the callout for a multi-line comment stays a single line", function(
 	comments.clear()
 end)
 
+T.test("ui: a whole-file comment gets a callout and no rail", function()
+	comments.clear()
+	local b = vim.api.nvim_create_buf(false, true)
+	vim.api.nvim_buf_set_lines(b, 0, -1, false, { "x", "y" })
+	local id = comments.add(b, 1, 1, "/f.py\n\nwhy", { whole_file = true })
+	ui.decorate(id)
+	local bars, callouts = 0, 0
+	for _, m in ipairs(vim.api.nvim_buf_get_extmarks(b, ui.ns, 0, -1, { details = true })) do
+		if m[4].sign_text then
+			bars = bars + 1
+		end
+		if m[4].virt_lines then
+			callouts = callouts + 1
+		end
+	end
+	T.eq({ bars, callouts }, { 0, 1 })
+	ui.undecorate(id)
+	comments.clear()
+end)
+
 T.test("ui: comment row format", function()
 	T.eq(
 		ui.comment_row({
@@ -122,6 +142,16 @@ T.test("ui: comment row format", function()
 	T.eq(
 		ui.comment_row({ file = "/a/b/mod.rs", start_line = 3, end_line = 3, text = "one" }),
 		"mod.rs:3-3  1 line"
+	)
+	T.eq(
+		ui.comment_row({
+			file = "/a/b/mod.rs",
+			start_line = 1,
+			end_line = 1,
+			text = "one\ntwo",
+			whole_file = true,
+		}),
+		"mod.rs  2 lines"
 	)
 end)
 

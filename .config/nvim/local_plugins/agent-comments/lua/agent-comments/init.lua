@@ -41,13 +41,7 @@ function M.setup(config)
 	require("agent-comments.commands").register()
 end
 
--- Range primitive behind comment_line(), comment_selection(), and :AgentComment comment.
-function M.comment_range(start_line, end_line)
-	local bufnr = vim.api.nvim_get_current_buf()
-	-- Anchored before the editor opens rather than after it closes: the editor can be left for the
-	-- code window and the buffer edited underneath it, and only an extmark keeps the range on the
-	-- lines the comment was aimed at.
-	local id = comments.add(bufnr, start_line, end_line, nil)
+local function open_editor(id)
 	ui.decorate(id)
 	-- The annotation is typed into the rendered item itself, so it can sit between two quoted code
 	-- lines. Seeding from prompt.item is what makes an untouched buffer send as the item it was
@@ -66,6 +60,20 @@ function M.comment_range(start_line, end_line)
 		comments.edit(id, text)
 		ui.decorate(id)
 	end, { lines = seed })
+end
+
+-- Range primitive behind comment_line(), comment_selection(), and :AgentComment comment.
+function M.comment_range(start_line, end_line)
+	local bufnr = vim.api.nvim_get_current_buf()
+	-- Anchored before the editor opens rather than after it closes: the editor can be left for the
+	-- code window and the buffer edited underneath it, and only an extmark keeps the range on the
+	-- lines the comment was aimed at.
+	open_editor(comments.add(bufnr, start_line, end_line, nil))
+end
+
+-- A comment on the current file as a whole: the seed is the bare path, with no range or quote.
+function M.comment_file()
+	open_editor(comments.add(vim.api.nvim_get_current_buf(), 1, 1, nil, { whole_file = true }))
 end
 
 function M.comment_selection()

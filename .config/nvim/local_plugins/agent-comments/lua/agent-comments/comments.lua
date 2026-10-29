@@ -2,19 +2,29 @@ local M = {}
 -- Range tracking only: one extmark per comment, so a query here counts comments.
 -- Decorations live in their own namespace (see ui.ns).
 M.ns = vim.api.nvim_create_namespace("agent-comments")
-local store = {} -- id -> { bufnr, extmark, text, created_at }
+local store = {} -- id -> { bufnr, extmark, text, created_at, whole_file }
 local next_id = 1
 
-function M.add(bufnr, start_line, end_line, text)
+-- `opts.whole_file` makes a comment on the file rather than on start_line..end_line; its extmark
+-- still exists so the buffer it belongs to is tracked like any other.
+function M.add(bufnr, start_line, end_line, text, opts)
+	local whole_file = opts and opts.whole_file or false
 	local id = next_id
 	next_id = next_id + 1
-	local extmark = vim.api.nvim_buf_set_extmark(bufnr, M.ns, start_line - 1, 0, {
-		end_row = end_line,
-		end_col = 0,
-		right_gravity = false,
-		end_right_gravity = true,
-	})
-	store[id] = { bufnr = bufnr, extmark = extmark, text = text, created_at = os.time() }
+	local extmark =
+		vim.api.nvim_buf_set_extmark(bufnr, M.ns, whole_file and 0 or start_line - 1, 0, {
+			end_row = not whole_file and end_line or nil,
+			end_col = not whole_file and 0 or nil,
+			right_gravity = false,
+			end_right_gravity = not whole_file or nil,
+		})
+	store[id] = {
+		bufnr = bufnr,
+		extmark = extmark,
+		text = text,
+		created_at = os.time(),
+		whole_file = whole_file,
+	}
 	return id
 end
 
@@ -27,11 +37,11 @@ local function resolve(id)
 	if not pos or #pos == 0 then
 		return nil
 	end
-	local start_line = pos[1] + 1
+	local start_line = e.whole_file and 1 or pos[1] + 1
 	-- pos[3].end_row is 0-indexed and exclusive; numerically that equals the
 	-- 1-indexed inclusive end line, so no conversion is needed here.
 	local end_line = pos[3] and pos[3].end_row or (pos[1] + 1)
-	if end_line < start_line then
+	if e.whole_file or end_line < start_line then
 		end_line = start_line
 	end
 	-- A draft has no text yet, and the live buffer is what its seed's [unsaved] marker will be
@@ -53,6 +63,7 @@ local function resolve(id)
 		text = e.text,
 		modified = modified,
 		created_at = e.created_at,
+		whole_file = e.whole_file,
 	}
 end
 
@@ -109,6 +120,9 @@ function M.snippet(id)
 	local c = resolve(id)
 	if not c then
 		return nil
+	end
+	if c.whole_file then
+		return {}
 	end
 	return vim.api.nvim_buf_get_lines(c.bufnr, c.start_line - 1, c.end_line, false)
 end

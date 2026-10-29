@@ -8,9 +8,10 @@ local MAX_SNIPPET_LINES = 200
 
 function M.item(c, snippet, max)
 	max = max or MAX_SNIPPET_LINES
-	snippet = snippet or {}
+	snippet = not c.whole_file and snippet or {}
 
-	local head = string.format("%s:%d-%d", c.file, c.start_line, c.end_line)
+	local head = c.whole_file and c.file
+		or string.format("%s:%d-%d", c.file, c.start_line, c.end_line)
 	if c.modified then
 		head = head .. " [unsaved]"
 	end
