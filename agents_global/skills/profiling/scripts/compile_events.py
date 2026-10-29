@@ -27,6 +27,11 @@ report steady-state step time after every compile. `--events-csv` writes one row
 Usage:
   uv run --script compile_events.py <run dir>
   uv run --script compile_events.py <run dir> --attempt 1 --events-csv events.csv
+  uv run --script compile_events.py <run dir> --log-dir <run dir>/torchrun --deepgemm-listing listing.txt:node0
+
+`--log-dir` and `--deepgemm-listing` point at runs launched outside the `rl` launcher (e.g. bare torchrun). A listing
+may also use `find <cache> -type f -printf "%TY-%Tm-%Td %TT %p\n"` lines; each `kernel.*` entry counts once, at its
+first file's mtime.
 """
 
 import argparse
@@ -47,6 +52,10 @@ def parse_args():
     parser.add_argument("run_dir", type=Path)
     parser.add_argument("--attempt", type=int, default=1)
     parser.add_argument("--events-csv", type=Path, default=None)
+    parser.add_argument("--log-dir", type=Path, default=None,
+                        help="directory searched recursively for per-rank torch logs (default logs/attempt_N/trainer)")
+    parser.add_argument("--deepgemm-listing", action="append", default=[], metavar="FILE[:HOST]",
+                        help="extra DeepGEMM cache listing; replaces the deep_gemm_cache_<host>.txt search when given")
     return parser.parse_args()
 
 
@@ -80,15 +89,35 @@ def dynamo_events(log_dir: Path, year: int) -> list[tuple[float, str, str]]:
     return sorted(events)
 
 
-def cache_events(log_dir: Path) -> list[tuple[str, float, str, str]]:
-    """(kind, mtime epoch seconds, host, entry) per entry of every `<kind>_cache_<host>.txt` listing."""
+def listing_entries(listing: Path, kind: str) -> list[tuple[float, str]]:
+    """(mtime epoch seconds, entry) from `<epoch> <entry>` or `<YYYY-MM-DD> <HH:MM:SS.frac> <path>` lines."""
+    entries = []
+    for line in listing.open():
+        fields = line.split()
+        if len(fields) >= 3 and re.fullmatch(r"\d{4}-\d\d-\d\d", fields[0]):
+            whole, _, fraction = fields[1].partition(".")
+            epoch = time.mktime(time.strptime(f"{fields[0]} {whole}", "%Y-%m-%d %H:%M:%S")) + float(f"0.{fraction or 0}")
+            path = fields[2]
+        elif len(fields) == 2:
+            epoch, path = float(fields[0]), fields[1]
+        else:
+            continue
+        entries.append((epoch, path))
+    if kind != "deep_gemm":
+        return entries
+    first = {}
+    for epoch, path in entries:
+        entry = next((part for part in Path(path).parts if part.startswith("kernel.")), None)
+        if entry is not None:
+            first[entry] = min(epoch, first.get(entry, epoch))
+    return [(epoch, entry) for entry, epoch in first.items()]
+
+
+def cache_events(listings: list[tuple[Path, str, str]]) -> list[tuple[str, float, str, str]]:
+    """(kind, mtime epoch seconds, host, entry) per entry of every (listing, kind, host)."""
     events = []
-    for listing in sorted(log_dir.rglob("*_cache_*.txt")):
-        kind, _, host = listing.stem.rpartition("_cache_")
-        for line in listing.open():
-            mtime, _, entry = line.strip().partition(" ")
-            if entry and (kind != "deep_gemm" or entry.startswith("kernel.")):
-                events.append((kind, float(mtime), host, entry))
+    for listing, kind, host in listings:
+        events += [(kind, epoch, host, entry) for epoch, entry in listing_entries(listing, kind)]
     return sorted(events)
 
 
@@ -102,8 +131,22 @@ def main():
     def step_of(epoch: float) -> int:
         return steps[min(bisect_left(ends, epoch), len(steps) - 1)][0]
 
-    events = [("dynamo", *e) for e in dynamo_events(log_dir / "trainer", year)]
-    events += cache_events(log_dir)
+    dynamo_dir = args.log_dir or log_dir / "trainer"
+    listings = []
+    for path in sorted(log_dir.rglob("*_cache_*.txt")):
+        kind, _, host = path.stem.rpartition("_cache_")
+        if not (args.deepgemm_listing and kind == "deep_gemm"):
+            listings.append((path, kind, host))
+    for spec in args.deepgemm_listing:
+        path, _, host = spec.partition(":")
+        listings.append((Path(path), "deep_gemm", host or "node"))
+    events = [("dynamo", *e) for e in dynamo_events(dynamo_dir, year)]
+    if not events:
+        print(f"note: no `Recompiling function` records under {dynamo_dir} (logs missing, or not run with "
+              "TORCH_LOGS=recompiles); Dynamo counts below are not evidence of zero recompiles.\n")
+    if not listings:
+        print("note: no JIT cache listing found; the missing compile columns are not evidence of zero compiles.\n")
+    events += cache_events(listings)
     cache_kinds = sorted({kind for kind, *_ in events} - {"dynamo"})
     by_step: dict[int, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
     rows = []
