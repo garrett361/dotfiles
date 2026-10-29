@@ -438,4 +438,5 @@ def main():
                                      " || ".join(sorted(full_names[r["key"]]))])
 
 
-main()
+if __name__ == "__main__":
+    main()

@@ -49,6 +49,8 @@ Op level:
 - How much communication does a fused or overlapped implementation hide, split into SMs taken from the GEMM,
   measured waits inside the kernel and contention, comparably across implementations? `tools/exposed-comm.md`
   (`scripts/exposed_comm.py`, `scripts/triton_event_recorder.py`; known-answer controls: `scripts/exposed_comm_controls.py`).
+- What should this cost in principle, compute- vs bandwidth-bound per op, and what MFU could it reach? `scripts/roofline.py`
+  over a TOML ops file in the investigation's `inputs/` (no GPU); `--measured` sets `step_accounting.py --csv` totals beside it.
 
 End to end, from traces:
 - Why doesn't an op win show up in step time? Capture both arms (`tools/torch-profiler.md`), then diff them with
@@ -62,6 +64,8 @@ End to end, from traces:
 - How much host work (launches, thread busy time, named ops) does each arm issue per step? `scripts/host_ops.py`.
 - Do host-side stream waits (e.g. FSDP's reduce-scatter cap) stall the GPU, and how much does labeled
   communication overlap compute? `scripts/comm_waits.py`, figure via `scripts/timeline_figure.py --comm-kernel`.
+- Is a slow collective transferring or waiting for a late rank, and which rank arrives last? `scripts/collective_skew.py`
+  over every rank's trace from one node.
 - What annotations and host ranges does a trace have; where does one op's host time go, down to Python frames?
   `scripts/trace_events.py` (`--include-python` on a `with_stack=True` trace).
 - Host gaps, stream overlap and NCCL across a whole step, with no code change? `tools/nsight-systems.md`.
