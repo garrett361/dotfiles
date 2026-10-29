@@ -15,6 +15,8 @@ The working-tree docs may describe a newer release.
   arguments, `make_fake_stream(use_tvm_ffi_env_stream=True)`) 4.0 us, classic executor with pre-converted
   `cute.Tensor` arguments 9.5 us, classic with `from_dlpack` per call 23.5 us. Benchmark the TVM-FFI
   executor, or report which path was timed.
+- A TVM-FFI executor compiled with `make_fake_stream(use_tvm_ffi_env_stream=True)` needs at least one GPU
+  `torch.Tensor` argument to pick up the current stream (observed 2026-10-22, DSL 4.8.0).
 - Compile cost: `import cutlass.cute` 0.6 to 4 s (15.6 s on the first process on a node), a trivial kernel
   0.1 s, a kernel with 4096 unrolled FMAs 7 s. `CUTE_DSL_JIT_TIME_PROFILING=1 CUTE_DSL_LOG_TO_CONSOLE=1
   CUTE_DSL_LOG_LEVEL=20` logs the split: tracing (`build_ir_module`), lowering plus ptxas
@@ -27,7 +29,9 @@ The working-tree docs may describe a newer release.
   ("Mismatched ...strides[0] ..., expected to be 1") and ran silently before.
 - A real kernel for scale: the DSv4 sparse attention forward (2 WGMMA GEMMs, 36 `HGMMA`, 196 registers)
   compiles in 1.3 s (2.4 s with line info and dumps). `cute.compile` writes no file cache, so every new
-  process pays that again.
+  process pays that again. A one-warp bulk-copy gather kernel (DSL 4.8.0, 2026-10-22): `import cutlass` plus
+  its module 0.8 s, then 0.25 to 0.49 s per configuration; compile and launch each configuration once before
+  CUDA graph capture (`../../kernels/fusion.md`, side-stream producer, on why the first launch matters).
 - File cache: node-local `/tmp/$USER/cutlass_python_cache` (override `CUTE_DSL_CACHE_DIR`), used by the
   implicit path only. Use a fresh `CUTE_DSL_CACHE_DIR` per A/B arm when the implicit path is involved.
 - Libraries that wrap `cute.compile` inherit this. The cuDNN frontend's DSA backward

@@ -25,6 +25,9 @@ Per-category accounting over all ranks treats each call as a step (verified 2026
   collective wait (36 ms in an 18 ms call). Drop it with `--steps 1:`.
 - `--per-rank` must show one window fewer than `--trace-iters` on every rank (10 calls gave 9); fewer means the
   boundary regex or the cluster gap is wrong.
+- Only the first label traced in a process is clean: later labels ran 12 to 25% slower in their traces, and their
+  timing up to 14% slower on a 3.4 ms step (verified 2026-10-22, 8x H200, by reversing the label order: the slowdown
+  followed the position). Trace each arm first in its own process and account each arm from that trace.
 
 ## Capture
 

@@ -26,6 +26,7 @@ Optional parts of a cases file (the script's docstring has the details):
 - Give every label its own output buffer. Arms that write into one shared buffer and return it make `--check`
   compare the buffer with itself, so it passes whatever the arms compute.
 - torch 2.14's profiler prints `USDT ...` lines to stdout; pipe through `grep -v '^USDT'` before saving tables.
+- The most faithful production calling convention for a launch-level case: wrap the real launcher (`mock.patch.object`) during one real training step, record its kwargs, clone the per-step device metadata it was given (pointer tables, counts, offsets), and replay the launcher with identical arguments in each arm. Nothing about routing or buffer offsets is reimplemented in the cases file.
 
 ## Power cap and clocks
 
@@ -50,6 +51,10 @@ Measured 2026-10-21/22 on 8x H200 (700 W cap), Triton 3.8, torch 2.14.
   --format=csv -lms 100 > derived/<run>_clocks.csv &` before the run, kill it after, then
   `scripts/gpu_clocks.py ARM=<log> ...` compares busy-sample clocks and throttle reasons. Locking clocks needs admin
   rights.
+- One clock log per arm inside a multi-arm `bench_ops.py` process: in the cases file, wrap each callable so that its first call after the label changes stops the running `nvidia-smi` and starts a new one writing `<prefix>_<label>.csv` (one rank per node starts it, e.g. local rank 0). `bench_ops.py` calls each label contiguously (warmup, then timed calls), so each file covers exactly one arm and needs no timestamp join; feed the files to `gpu_clocks.py LABEL=<file> ...`. Stop the last logger in `teardown()`.
+- Arms that cannot share a clock (decide the metric before measuring): measured 2026-10-22 on 8x H200, a GEMM with a peer gather overlapped inside it ran at 1450 to 1550 MHz at the power cap, against 1695 MHz for the unfused gather then GEMM (input-gradient GEMM: 1500 to 1730 vs 1972 MHz), because the unfused sequence's memory-bound gather phase lets the clock recover. Lower clocks are a cost of the fused design, not noise, so matching clocks is impossible. Decide on raw ms with both arms in the same session and power state (sustained loops), and report clock-normalized ms (`ms x arm MHz / reference MHz`) only as a ceiling on what the fusion would give without the cap (here 1.14x raw vs 1.31x normalized). Fix that rule (raw ms, same node, same session, ABBA arm order) before the first timing run; deciding it after seeing both numbers invites picking the flattering one.
+- Run-to-run noise of an end-to-end case: a 16 ms 8-rank forward plus backward had p20 to p80 spanning about 5% within one run, while the medians of 4 repeated runs (`--warmup 1000 --rep 2000`, identical clocks) spread only 0.17 to 0.47%. Compare full-run medians, never a single run's percentiles, and compare arms on the same node in the same session: another node of the same type read 1% slower.
+- A wide p20 to p80 range together with a higher SM clock than the comparison arm points to GPU idle time (host lag or rank skew), not slower kernels: an 8-rank 3.5 ms step that ran 7.9% slower at 1965 vs 1845 MHz had kernels no slower, and one rank's host about 1.3 ms per step late (`tools/exposed-comm.md`, "Step level").
 
 ## Collectives and multi-rank ops: `--distributed`
 
@@ -72,6 +77,7 @@ docstring has the details; `--cudagraph` is not supported).
   insensitive to launch geometry (grid and block sizes). Locally, a row-pointer gather or scatter of 4 to 8 KiB
   rows read plus wrote about 3.8 TB/s, while `index_copy_` reached about 1.4 TB/s (2.7x slower), so `index_copy_`
   is a weak scatter baseline.
+- At 8 ranks (all-to-all, H200 NV18): an SM pull gather reached about 27 GB/s per SM and 316 GB/s per GPU, an SM push 23 to 26 GB/s per SM (45 GB/s per SM at 2 ranks does not carry over), and `copy_` from a symmetric peer view (a copy-engine "Memcpy PtoP") about 200 GB/s per GPU. Design consequences: `../kernels/fusion.md`, "Choosing the gather producer".
 
 ## What `do_bench` measures
 
@@ -122,6 +128,11 @@ graph, replays it 10 times, and returns per-call times: no L2 flush, no per-call
   equal to CUTLASS (`torch._grouped_mm`) and cuBLAS, so `torch.equal` gated it. In torch 2.14 `torch._grouped_mm`
   rejects `out_dtype=torch.float32` for BF16 inputs; build an FP32-output reference from per-group
   `torch.mm(a, b, out_dtype=torch.float32)`.
+- An exactness check of a gather (or of a kernel that fuses one) only means something if the destination rows are poisoned (filled with NaN) before each checked call; otherwise a kernel that skips the gather passes on the rows a previous call left behind.
+- Variants selected by an environment variable can be compared bitwise inside one torchrun process: set the variable only around context creation, run each arm on fresh clones of the same inputs and parameters, compare with `torch.equal` per rank and reduce the verdict over ranks, and add a second run of the reference arm, so that run-to-run nondeterminism cannot pass for a variant effect.
+- When a fused path can silently fall back to the unfused one (for example when a per-shape config is missing), spying on the dispatch flag or the selected mode is not enough: wrap the fused component's own launcher with a spy and assert its launch count per step (here 3 producer launches per step on every rank, with the expected grid).
+- To prove that a device-predicated branch ran (for example a recompute guarded by a device flag), wrap the launcher with `mock.patch.object(module, name, side_effect=spy)` and read the predicate with `.item()` inside the spy, at call time (a host sync, so only in correctness runs outside graph capture). Read after the step, the tensor can already hold a later value from a reused buffer.
+- A graph-replay test that rewrites a pointer table (device memory holding source addresses) must keep the new source tensors alive until the replay finishes: the caching allocator hands the freed blocks to the next allocation (a later `clone()`), so the replay reads overwritten memory with no error. One such test failed deterministically on its second replay; a sibling test with the same dangling pattern passed only by luck of allocation order.
 - When a numerical test fails by a hair, compare both the result and the reference with an FP64 evaluation before
   blaming the change: a BF16 reference can be the less accurate side.
 - If a test fails, run it on the unmodified commit to show whether the failure predates the change. On a new
@@ -135,6 +146,7 @@ graph, replays it 10 times, and returns per-call times: no L2 flush, no per-call
   `x.grad = None` frees the previous call's gradients inside the call, so its peak above that baseline understates
   the transient (it can read lower than the forward-only case). Compare such peaks only across arms with the same
   gradient handling.
+- When a host-side limit (a shared-memory budget, a register cap, a size clamp) rewrites a requested config, label each arm by the config that actually runs and skip duplicate points; otherwise two labels time the same kernel, and their noise reads as a tuning signal (a 4-warp x 4-stage request ran as 4 x 3 under a 96 KiB budget at 8 KiB rows).
 - Don't run op benchmarks on GPUs an end-to-end timing run is using. Host-bound results move with CPU load on a
   shared node: the same eager forward and backward read 0.37 ms in one run and 0.24 ms in the next, both pinned
   with `taskset -c`. Repeat the run before trusting a host-bound difference.
