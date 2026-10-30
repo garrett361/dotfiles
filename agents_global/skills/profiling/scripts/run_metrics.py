@@ -12,7 +12,8 @@ Missing values are skipped.
 Lines: each `--lines METRIC` draws, per group, that metric over steps for every run named in the CSV's `run_dir`
 column, with `--steady LO HI` shaded. A run dir is read as prime-rl's `<run_dir>/monitors/file/metrics.jsonl`; a
 path to a `.jsonl` file is read directly, so any repo can log one JSON object per line with a `step` key and
-metric keys (records of the same step are merged).
+metric keys (records of the same step are merged, and the last record carrying a metric wins). `--prefer KEY=VALUE`
+makes a record with that key value win instead, for logs where two processes write the same metric at a step.
 
 Summary: `--summarize COLUMN=METRIC` (repeatable) writes the per-run summary CSV that the bar mode reads: one row per
 `--run GROUP:VARIANT=RUN_DIR` with the median (`--stat mean` for the mean) of METRIC over the `--steady` steps (all
@@ -47,7 +48,6 @@ import json
 import math
 import statistics
 import sys
-from collections import defaultdict
 from pathlib import Path
 
 import matplotlib
@@ -74,7 +74,11 @@ def parse_args():
         "--step-table", action="append", default=[], help="METRIC, write per-step values side by side per run"
     )
     parser.add_argument("--digits", type=int, default=6, help="significant digits in the --step-table markdown")
-    return parser.parse_args()
+    parser.add_argument("--prefer", default=None, metavar="KEY=VALUE",
+                        help="when several records of a step carry a metric, take the one whose KEY equals VALUE")
+    args = parser.parse_args()
+    args.prefer = tuple(args.prefer.split("=", 1)) if args.prefer else None
+    return args
 
 
 def read_rows(args):
@@ -98,7 +102,7 @@ def write_summary(rows, args):
         for column, metric in columns:
             values = [
                 v
-                for s, v in load_metric(row["run_dir"], metric)
+                for s, v in load_metric(row["run_dir"], metric, args.prefer)
                 if (not args.steady or args.steady[0] <= s <= args.steady[1]) and math.isfinite(v)
             ]
             if not values:
@@ -167,43 +171,49 @@ def draw_bars(rows, args):
     return fig
 
 
-def load_steps(run_dir, metric):
-    by_step = defaultdict(dict)
+def load_steps(run_dir, metric, prefer=None):
+    """Per-step values of METRIC. The last record of a step wins, unless a record matches PREFER (KEY, VALUE)."""
+    values = {}
     path = Path(run_dir)
     if not path.is_file():
         path = path / "monitors/file/metrics.jsonl"
     for line in path.read_text().splitlines():
         record = json.loads(line)
-        if record.get("step") is not None:
-            by_step[record["step"]].update(record)
-    return sorted((step, values[metric]) for step, values in by_step.items() if metric in values)
+        step = record.get("step")
+        if step is None or metric not in record:
+            continue
+        preferred = prefer is not None and str(record.get(prefer[0])) == prefer[1]
+        if preferred or step not in values or not values[step][0]:
+            values[step] = (preferred, record[metric])
+    return sorted((step, value) for step, (_, value) in values.items())
 
 
-def load_term(run_dir, term):
+def load_term(run_dir, term, prefer=None):
     """Per-step values of one term: NAME or delta(NAME), optionally suffixed @RUN_DIR to read another run."""
     if "@" in term:
         term, run_dir = term.rsplit("@", 1)
     if term.startswith("delta(") and term.endswith(")"):
         previous = 0.0
         deltas = []
-        for step, value in load_steps(run_dir, term[len("delta(") : -1]):
+        for step, value in load_steps(run_dir, term[len("delta(") : -1], prefer):
             deltas.append((step, value - previous))
             previous = value
         return deltas
-    return load_steps(run_dir, term)
+    return load_steps(run_dir, term, prefer)
 
 
-def load_metric(run_dir, spec):
+def load_metric(run_dir, spec, prefer=None):
     """Per-step values of a term (see load_term), or of the per-step ratio for a spec 'NUM / DEN [* SCALE]'."""
     if " / " not in spec:
-        return load_term(run_dir, spec)
+        return load_term(run_dir, spec, prefer)
     numerator, denominator = spec.split(" / ", 1)
     scale = 1.0
     if " * " in denominator:
         denominator, scale_text = denominator.split(" * ", 1)
         scale = float(scale_text)
-    den_by_step = dict(load_term(run_dir, denominator.strip()))
-    return [(s, v / den_by_step[s] * scale) for s, v in load_term(run_dir, numerator.strip()) if den_by_step.get(s)]
+    den_by_step = dict(load_term(run_dir, denominator.strip(), prefer))
+    numerator_steps = load_term(run_dir, numerator.strip(), prefer)
+    return [(s, v / den_by_step[s] * scale) for s, v in numerator_steps if den_by_step.get(s)]
 
 
 def draw_lines(rows, args):
@@ -215,7 +225,7 @@ def draw_lines(rows, args):
         for col_index, group in enumerate(groups):
             ax = axes[row_index][col_index]
             for i, r in enumerate(r for r in rows if r["group"] == group and r.get("run_dir")):
-                points = load_steps(r["run_dir"], metric)
+                points = load_steps(r["run_dir"], metric, args.prefer)
                 ax.plot([s for s, _ in points], [v for _, v in points], label=r["variant"], color=PALETTE[i % len(PALETTE)],
                         linewidth=1.2, marker=".", markersize=3)
             if args.steady:
@@ -224,7 +234,7 @@ def draw_lines(rows, args):
             ax.set_xlabel("step")
             ax.grid(alpha=0.3)
             values = [v for r in rows if r["group"] == group and r.get("run_dir")
-                      for s, v in load_steps(r["run_dir"], metric)
+                      for s, v in load_steps(r["run_dir"], metric, args.prefer)
                       if (not args.steady or s >= args.steady[0]) and math.isfinite(v)]
             if not values:
                 print(f"warning: no finite '{metric}' values for group {group}", file=sys.stderr)
@@ -240,7 +250,7 @@ def write_step_table(rows, args):
     the first run, so a parity check reads off which runs track step by step."""
     labels = [f"{r['group']}:{r['variant']}" for r in rows]
     by_metric = {
-        metric: [dict(load_metric(r["run_dir"], metric)) for r in rows] for metric in args.step_table
+        metric: [dict(load_metric(r["run_dir"], metric, args.prefer)) for r in rows] for metric in args.step_table
     }
     steps = sorted({s for per_run in by_metric.values() for values in per_run for s in values})
     if args.steady:

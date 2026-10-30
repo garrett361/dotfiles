@@ -13,7 +13,9 @@
   covers the last whole step (with K = 2, a 720 ms window for a logged `time/step` of 0.72 s).
 - Per-step timing without the profiler: `<run dir>/monitors/file/metrics.jsonl`, merge records by `step`,
   take the median `time/step` (and `perf/peak_memory`, GiB) over steady-state steps; `scripts/run_metrics.py
-  --summarize` does this per run.
+  --summarize` does this per run. In RL run dirs the orchestrator (`producer` "orch") also logs `time/step` under the
+  same step index with a different value (249.8 s vs the trainer's 199.4 s at one SWE step), so pass `--prefer
+  producer=trainer` to `run_metrics.py` and `--row-filter producer=trainer` to `compile_events.py`.
 - Trainer logs of the ranks in `log.ranks_filter` (default `[0]`), lines prefixed `[trainer<rank>]:`, are in
   `<run dir>/logs/attempt_<N>/trainer.log`; every rank's own stdout/stderr is under `trainer/torchrun/` there. The
   launch environment reaches the trainer, so `TORCH_LOGS=recompiles uv run sft ...` works with

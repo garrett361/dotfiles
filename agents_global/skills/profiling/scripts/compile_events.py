@@ -3,13 +3,17 @@
 # ///
 """Place every rank's torch.compile recompiles and every node's JIT kernel compiles in the training step they stalled.
 
-Reads one prime-rl run directory (the one holding `monitors/file/metrics.jsonl` and `logs/`):
-- Steps: each `time/step` record in metrics.jsonl; its `time` is the step's end (epoch seconds), so step k spans
-  (end of step k-1, end of step k].
-- Dynamo: every `Recompiling function` record in every rank's torchrun log under `logs/attempt_N/trainer/`, run with
-  `TORCH_LOGS=recompiles`. The rank comes from torch's `[rankR]:` prefix and the time from the glog timestamp
-  (`V1019 19:49:02.48`, local time; the year is taken from the first step).
-- JIT caches: `<kind>_cache_<host>.txt` files anywhere under `logs/attempt_N/`, one line per cache entry,
+Paths are relative to RUN_DIR unless absolute. The defaults match a prime-rl run directory, and
+`projects/<repo>.md` lists the flags a repo's runs need.
+- Steps: `--metrics` (default `monitors/file/metrics.jsonl`) holds JSON lines. Each record carrying `--step-key`
+  (default `step`), `--duration-key` (default `time/step`) and `--end-key` (default `time`, the step's end in epoch
+  seconds) defines one step, so step k spans (end of step k-1, end of step k]. `--row-filter KEY=VALUE` (repeatable)
+  keeps only matching records, for logs where several processes write the same keys under one step index.
+- Dynamo: every `Recompiling function` record in the `*.log` files under `--dynamo-logs` (default
+  `logs/attempt_<attempt>/trainer`), written with `TORCH_LOGS=recompiles`. The rank comes from torch's `[rankR]:`
+  prefix and the time from the glog timestamp (`V1019 19:49:02.48`, local time; the year is taken from the first step).
+- JIT caches: `<kind>_cache_<host>.txt` files anywhere under `--listings` (default `logs/attempt_<attempt>`), one line
+  per cache entry,
   `<mtime epoch seconds> <entry name>`, written after training. Each entry's mtime is when that node first compiled
   the kernel, and `<kind>` names the column. Point each cache at a fresh per-run directory, or entries from earlier
   runs land in the listing. Listings for DeepGEMM (`kernel.*` entries only) and Triton:
@@ -18,6 +22,10 @@ Reads one prime-rl run directory (the one holding `monitors/file/metrics.jsonl` 
   Triton writes one `<hash>/<kernel>.cubin` per specialization, so the Triton listing catches hand-written kernels
   that Dynamo never logs, e.g. a second variant compiled when an int argument first becomes divisible by 16. It
   also holds Inductor's generated kernels (`triton_poi_*`, `triton_red_*`, ...), which first compile in step 1.
+  `--deepgemm-listing FILE[:HOST]` (repeatable) replaces the DeepGEMM listings found under `--listings`, e.g. for
+  runs launched outside the `rl` launcher. A listing may also use
+  `find <cache> -type f -printf "%TY-%Tm-%Td %TT %p\n"` lines; each `kernel.*` entry counts once, at its first file's
+  mtime.
 
 Prints a markdown table per step with any event (step time, Dynamo recompiles with their ranks, compiles per JIT cache
 with their nodes), then `last compile step: K` over all events. Pass K + 1 as the start of `run_metrics.py --steady` to
@@ -27,11 +35,9 @@ report steady-state step time after every compile. `--events-csv` writes one row
 Usage:
   uv run --script compile_events.py <run dir>
   uv run --script compile_events.py <run dir> --attempt 1 --events-csv events.csv
-  uv run --script compile_events.py <run dir> --log-dir <run dir>/torchrun --deepgemm-listing listing.txt:node0
-
-`--log-dir` and `--deepgemm-listing` point at runs launched outside the `rl` launcher (e.g. bare torchrun). A listing
-may also use `find <cache> -type f -printf "%TY-%Tm-%Td %TT %p\n"` lines; each `kernel.*` entry counts once, at its
-first file's mtime.
+  uv run --script compile_events.py <run dir> --metrics metrics.jsonl --duration-key step_seconds \\
+    --end-key wall_time --dynamo-logs logs --listings caches --row-filter role=trainer
+  uv run --script compile_events.py <run dir> --dynamo-logs torchrun --deepgemm-listing listing.txt:node0
 """
 
 import argparse
@@ -50,22 +56,31 @@ REASON = re.compile(r"\[__recompiles\]\s+- \d+/\d+: (.*)")
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("run_dir", type=Path)
-    parser.add_argument("--attempt", type=int, default=1)
-    parser.add_argument("--events-csv", type=Path, default=None)
-    parser.add_argument("--log-dir", type=Path, default=None,
-                        help="directory searched recursively for per-rank torch logs (default logs/attempt_N/trainer)")
+    parser.add_argument("--attempt", type=int, default=1, help="fills <attempt> in the default log paths")
+    parser.add_argument("--metrics", type=Path, default=Path("monitors/file/metrics.jsonl"))
+    parser.add_argument("--step-key", default="step")
+    parser.add_argument("--duration-key", default="time/step")
+    parser.add_argument("--end-key", default="time", help="the step's end time in epoch seconds")
+    parser.add_argument("--row-filter", action="append", default=[], metavar="KEY=VALUE",
+                        help="keep only metrics records whose KEY equals VALUE (repeatable)")
+    parser.add_argument("--dynamo-logs", type=Path, default=None, help="default logs/attempt_<attempt>/trainer")
+    parser.add_argument("--listings", type=Path, default=None, help="default logs/attempt_<attempt>")
     parser.add_argument("--deepgemm-listing", action="append", default=[], metavar="FILE[:HOST]",
                         help="extra DeepGEMM cache listing; replaces the deep_gemm_cache_<host>.txt search when given")
-    return parser.parse_args()
+    parser.add_argument("--events-csv", type=Path, default=None)
+    args = parser.parse_args()
+    args.row_filter = [tuple(spec.split("=", 1)) for spec in args.row_filter]
+    return args
 
 
-def load_steps(run_dir: Path) -> list[tuple[int, float, float]]:
-    """(step, end epoch seconds, step seconds), sorted by step."""
+def load_steps(path: Path, step_key: str, end_key: str, duration_key: str,
+               row_filters: list[tuple[str, str]]) -> list[tuple[int, float, float]]:
+    """(step, end epoch seconds, step seconds), sorted by step, from the records passing every row filter."""
     steps = {}
-    for line in (run_dir / "monitors" / "file" / "metrics.jsonl").open():
+    for line in path.open():
         record = json.loads(line)
-        if "time/step" in record:
-            steps[record["step"]] = (record["time"], record["time/step"])
+        if duration_key in record and all(str(record.get(key)) == value for key, value in row_filters):
+            steps[record[step_key]] = (record[end_key], record[duration_key])
     return [(step, end, seconds) for step, (end, seconds) in sorted(steps.items())]
 
 
@@ -123,23 +138,24 @@ def cache_events(listings: list[tuple[Path, str, str]]) -> list[tuple[str, float
 
 def main():
     args = parse_args()
-    steps = load_steps(args.run_dir)
+    steps = load_steps(args.run_dir / args.metrics, args.step_key, args.end_key, args.duration_key, args.row_filter)
     ends = [end for _, end, _ in steps]
     year = time.localtime(ends[0]).tm_year
-    log_dir = args.run_dir / "logs" / f"attempt_{args.attempt}"
+    attempt_dir = Path("logs") / f"attempt_{args.attempt}"
+    dynamo_dir = args.run_dir / (args.dynamo_logs or attempt_dir / "trainer")
+    listings_dir = args.run_dir / (args.listings or attempt_dir)
 
     def step_of(epoch: float) -> int:
         return steps[min(bisect_left(ends, epoch), len(steps) - 1)][0]
 
-    dynamo_dir = args.log_dir or log_dir / "trainer"
     listings = []
-    for path in sorted(log_dir.rglob("*_cache_*.txt")):
+    for path in sorted(listings_dir.rglob("*_cache_*.txt")):
         kind, _, host = path.stem.rpartition("_cache_")
         if not (args.deepgemm_listing and kind == "deep_gemm"):
             listings.append((path, kind, host))
     for spec in args.deepgemm_listing:
         path, _, host = spec.partition(":")
-        listings.append((Path(path), "deep_gemm", host or "node"))
+        listings.append((args.run_dir / path, "deep_gemm", host or "node"))
     events = [("dynamo", *e) for e in dynamo_events(dynamo_dir, year)]
     if not events:
         print(f"note: no `Recompiling function` records under {dynamo_dir} (logs missing, or not run with "
