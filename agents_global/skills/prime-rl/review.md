@@ -64,6 +64,7 @@ before weighing in on the user's points, and do not fold their views into it.
 - Answer the user's comments and questions in conversation, and fold agreed wording into the file.
 - Write the review body for whoever acts on it, often another agent rather than the PR author: just enough to
   be actionable, no more.
+  - Lead every top-level item and inline comment with the core issue in one sentence, often the missing guarantee or broken invariant (e.g. "the gradient receive pool should be sized from the action lists that run"), then the mechanism and evidence, then the fix. A reader who stops after the first sentence should know what is wrong.
   - Describe only the code at head. Do not cite commit messages, earlier revisions, or where a claim was first
     written; link the current line that makes or contradicts it.
   - Corrections and bugs: a GitHub permalink at the PR head SHA with line numbers
