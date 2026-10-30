@@ -10,7 +10,8 @@ default 200 W; idle H200s draw about 75 W) enter the statistics, so the idle hea
 them. `power.draw` is averaged over about a second, so short bursts (under ~0.5 s of GPU work between idle gaps) never
 reach 200 W: lower `--busy-watts` (e.g. 100) for those. Per log (and per GPU with `--per-gpu`) it prints sample counts, busy GPU-seconds (busy samples times the median
 sampling interval), the SM clock median, p20 and p80, the median power, the maximum temperature, and the share of
-busy samples with each active throttle reason bit (e.g. 0x4 SW power cap).
+busy samples with each active throttle reason bit (e.g. 0x4 SW power cap). With a `memory.used` column it also prints
+the maximum device memory in use over all samples, which counts allocations outside PyTorch's allocator.
 
 Usage: uv run --script gpu_clocks.py [LABEL=]log.csv [...] [--busy-watts 200] [--per-gpu] [--decimals 0]
 """
@@ -60,6 +61,7 @@ def read_log(path):
         "power": column(header, "power.draw"),
         "temp": column(header, "temperature.gpu"),
         "reasons": column(header, "clocks_event_reasons.active", "clocks_throttle_reasons.active"),
+        "mem": column(header, "memory.used"),
     }
     samples = []
     for r in body:
@@ -74,6 +76,7 @@ def read_log(path):
                     "power": number(r[cols["power"]]),
                     "temp": number(r[cols["temp"]]) if cols["temp"] is not None else None,
                     "reasons": int(r[cols["reasons"]].strip(), 16) if cols["reasons"] is not None else 0,
+                    "mem": number(r[cols["mem"]]) if cols["mem"] is not None else None,
                 }
             )
         except (ValueError, IndexError):
@@ -92,8 +95,10 @@ def interval_s(samples):
 def summarize(label, samples, busy_watts, decimals):
     busy = [s for s in samples if s["power"] > busy_watts]
     row = [label, str(len(samples)), str(len(busy))]
+    mems = [s["mem"] for s in samples if s["mem"] is not None]
+    max_mem = f"{max(mems):.0f}" if mems else "-"
     if not busy:
-        return row + [f"{len(busy) * interval_s(samples):.1f}"] + ["-"] * 6
+        return row + [f"{len(busy) * interval_s(samples):.1f}"] + ["-"] * 6 + [max_mem]
     sm = [s["sm"] for s in busy]
     temps = [s["temp"] for s in busy if s["temp"] is not None]
     bits = {}
@@ -111,6 +116,7 @@ def summarize(label, samples, busy_watts, decimals):
         fmt.format(statistics.median(s["power"] for s in busy)),
         fmt.format(max(temps)) if temps else "-",
         reasons or "none",
+        max_mem,
     ]
 
 
@@ -124,9 +130,9 @@ def main():
 
     print(
         "| log | samples | busy samples | busy GPU-s | SM MHz median | p20 | p80 | power W median | max temp C "
-        "| throttle reasons (share of busy) |"
+        "| throttle reasons (share of busy) | max memory.used MiB |"
     )
-    print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---|")
+    print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|")
     for spec in args.logs:
         label, _, path = spec.partition("=") if "=" in spec else (spec, "", spec)
         samples = read_log(path)

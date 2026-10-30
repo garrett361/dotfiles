@@ -14,13 +14,15 @@ its own start. Calls are reported if their first rank's start falls in the windo
 `forward`). Rows group calls by launching op (dims dropped, since token counts differ across ranks): calls, summed
 wait over ranks, summed transfer, and which rank arrived last how often. `--per-rank` adds each rank's total wait
 and how often it was last. All ranks must run the same collective sequence; the script stops if the per-key call
-counts differ.
+counts differ. `--comm REGEX` replaces the NCCL kernel set with the kernels whose name matches REGEX, for other
+collectives that wait for their peers inside the kernel, e.g. `'nccl|deep_ep::intranode'` for DeepEP's dispatch and
+combine kernels next to NCCL.
 
 Traces are loaded one at a time and reduced to their NCCL kernels, so memory stays near one trace's size.
 
 Usage:
   uv run --script collective_skew.py "traces/T6/trace_*.json.gz" --annotation-index -2 --annotation-span 2 \\
-    [--per-rank] [--per-call 20] [--top 30] [--csv out.csv]
+    [--per-rank] [--per-call 20] [--top 30] [--comm 'nccl|deep_ep::intranode'] [--csv out.csv]
 """
 
 import argparse
@@ -48,6 +50,8 @@ def parse_args():
     p.add_argument("--top", type=int, default=30)
     p.add_argument("--per-call", type=int, default=0, metavar="N",
                    help="also list the N calls with the most summed wait, with the first rank's full launching op")
+    p.add_argument("--comm", default=None, metavar="REGEX",
+                   help="regex of the collective kernels to match (default: NCCL kernels)")
     p.add_argument("--csv")
     return p.parse_args()
 
@@ -62,8 +66,9 @@ def drop_dims(site):
 
 def load_rank(path, args):
     xs = [e for e in read_trace(path)["traceEvents"] if e.get("ph") == "X"]
-    nccl = sorted((e for e in xs if e.get("cat") in GPU_CATS and is_comm(e["name"])), key=lambda e: e["ts"])
-    sites = call_sites(xs, nccl)
+    is_collective = re.compile(args.comm).search if args.comm else is_comm
+    collectives = sorted((e for e in xs if e.get("cat") in GPU_CATS and is_collective(e["name"])), key=lambda e: e["ts"])
+    sites = call_sites(xs, collectives)
     steps = sorted(e["ts"] for e in xs if e.get("cat") == "user_annotation" and is_marker(e["name"], args.annotation))
     window = None
     if steps:
@@ -71,7 +76,7 @@ def load_rank(path, args):
         later = [t for t in steps if t > start]
         window = (start, later[args.annotation_span - 1] if len(later) >= args.annotation_span else float("inf"))
     calls = defaultdict(list)
-    for e in nccl:
+    for e in collectives:
         site = drop_dims(sites.get(e["args"].get("correlation"), "<no enclosing cpu_op>"))
         key = (site, e["name"]) if args.no_stream_key else (site, e["name"], e["tid"])
         calls[key].append((e["ts"], e["ts"] + e["dur"], sites.get(e["args"].get("correlation"), "")))
