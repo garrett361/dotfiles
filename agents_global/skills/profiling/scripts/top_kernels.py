@@ -30,21 +30,34 @@ annotate each micro-batch (e.g. prime-rl RL's `forward` with 2 micro-batches per
 --annotation-span 2` is the second-to-last whole step). `--category LABEL:REGEX` (repeatable, first match wins on the raw
 kernel name, unmatched kernels go to "other") adds a per-category table with summed and union time.
 
+`--marker REGEX` (site grouping only) prefixes each call site with `[M]`, where M is the most recent host event
+(`cpu_op` or `user_annotation`) on the launch's thread that started at or before the launch and whose name matches
+REGEX (its first capture group if it has one), or `[-]` if none did. It splits rows by layer or phase, e.g. prime-rl's
+FSDP2 hooks, which fire on the forward thread and on autograd's thread:
+`--marker 'FSDP::(?:pre_forward|pre_backward) \\((model\\.layers\\.\\d+|model\\.norm, lm_head|model\\.embed_tokens)\\)|(Optimizer\\.step)'`.
+`--arg-bytes` adds a CSV column `site_arg_bytes`: the median over a row's launches of the bytes spanned by the
+launching op's tensor arguments (`Input Dims`, `Input Strides`, `Input type`). A stride-0 broadcast counts once, and
+lists and unknown dtypes count zero. Inductor's Triton launches record every buffer, outputs included, so for them it
+approximates the kernel's traffic. An `aten::` op records only its inputs (and `out=`/in-place targets). A custom op
+that launches several kernels reports its whole argument list on each.
+
 The header reports GPU busy time (union of kernel intervals on all selected streams, clipped to the window end), idle time (window minus busy),
 and exposed NCCL time (when an NCCL kernel runs and no non-NCCL kernel does, i.e. busy minus non-NCCL busy).
 
 Usage: uv run --script top_kernels.py <trace.json.gz> [--by name|site|both] [--top 15] [--stream main|<tid>]
          [--annotation forward [--annotation-index -1] | --whole-trace | --from-annotation NAME [--from-index -1]
           [--to-annotation NAME] | --launched-in NAME [--launched-in-index -1]] [--min-calls 1] [--minmax] [--name-width 55] [--csv out.csv]
-         [--decimals 1]
+         [--decimals 1] [--marker REGEX] [--arg-bytes]
   e.g. layer 12's recompute and backward in the last step of a prime-rl SFT trace:
     --from-annotation "FSDP::all_gather_copy_out (model.layers.12) [pg=16]" --from-index -1 \\
     --to-annotation "FSDP::all_gather_copy_out (model.layers.11) [pg=16]"
 """
 
 import argparse
+import bisect
 import csv
 import json
+import math
 import re
 import statistics
 import sys
@@ -80,6 +93,11 @@ MANGLED_STOPWORDS = {
     "Underscore", "identity", "epilogue", "fusion", "enable_3x_kernel_for_sm10", "CollectiveMma", "TiledMMA",
     "MMA_Atom", "UMMA", "Major", "E", "ScaleIn",
 }
+DTYPE_BYTES = {
+    "double": 8, "float": 4, "c10::Half": 2, "c10::BFloat16": 2, "c10::Float8_e4m3fn": 1, "c10::Float8_e4m3fnuz": 1,
+    "c10::Float8_e5m2": 1, "c10::Float8_e5m2fnuz": 1, "c10::Float8_e8m0fnu": 1, "long int": 8, "int": 4,
+    "short int": 2, "signed char": 1, "unsigned char": 1, "bool": 1, "c10::complex<float>": 8,
+}
 
 
 def parse_args():
@@ -106,7 +124,29 @@ def parse_args():
     p.add_argument("--decimals", type=int, default=1, help="decimal places for ms totals (e.g. 3 for op-level traces)")
     p.add_argument("--annotation-span", type=int, default=1,
                    help="with --annotation: end the window at the Nth later step annotation instead of the next one")
+    p.add_argument("--marker", default=None,
+                   help="prefix sites with the most recent matching host event on the launch thread")
+    p.add_argument("--arg-bytes", action="store_true",
+                   help="add the CSV column site_arg_bytes (bytes spanned by the launching op's tensor arguments)")
     return p.parse_args()
+
+
+def arg_bytes(op):
+    args = op.get("args", {})
+    total = 0
+    for dims, strides, dtype in zip(args.get("Input Dims", []), args.get("Input Strides", []), args.get("Input type", [])):
+        size = DTYPE_BYTES.get(dtype)
+        if size is None or not isinstance(dims, list) or not all(isinstance(d, int) for d in dims):
+            continue
+        if any(d == 0 for d in dims):
+            continue
+        if isinstance(strides, list) and len(strides) == len(dims) and all(isinstance(s, int) for s in strides):
+            extent = 1 + sum((d - 1) * s for d, s in zip(dims, strides) if s > 0)
+            elements = min(extent, math.prod(dims))
+        else:
+            elements = math.prod(dims)
+        total += elements * size
+    return total
 
 
 def strip_params(name):
@@ -189,19 +229,28 @@ def union_length(intervals):
     return total + (cur_end - cur_start if cur_end is not None else 0.0)
 
 
-def call_sites(xs, kernels):
+def call_sites(xs, kernels, marker=None, bytes_out=None):
+    """Map each kernel's correlation id to its site label, and fill `bytes_out` (if given) with arg_bytes."""
     wanted = {k["args"].get("correlation") for k in kernels}
     launches = [e for e in xs if e.get("cat") in LAUNCH_CATS and e.get("args", {}).get("correlation") in wanted]
     launch_tids = {e["tid"] for e in launches}
-    ops_by_tid, launches_by_tid = defaultdict(list), defaultdict(list)
+    ops_by_tid, launches_by_tid, marks_by_tid = defaultdict(list), defaultdict(list), defaultdict(list)
+    marker_rx = re.compile(marker) if marker else None
     for e in xs:
         if e.get("cat") == "cpu_op" and e["tid"] in launch_tids and e["name"] not in WRAPPER_OPS:
             ops_by_tid[e["tid"]].append(e)
+        if marker_rx and e.get("cat") in ("cpu_op", "user_annotation") and e["tid"] in launch_tids:
+            found = marker_rx.search(e["name"])
+            if found:
+                text = next((g for g in found.groups() if g is not None), found.group(0))
+                marks_by_tid[e["tid"]].append((e["ts"], text))
     for e in launches:
         launches_by_tid[e["tid"]].append(e)
     site_by_corr = {}
     for tid, tid_launches in launches_by_tid.items():
         ops = sorted(ops_by_tid[tid], key=lambda e: (e["ts"], -e["dur"]))
+        marks = sorted(marks_by_tid[tid])
+        mark_times = [t for t, _ in marks]
         stack, i = [], 0
         for launch in sorted(tid_launches, key=lambda e: e["ts"]):
             while i < len(ops) and ops[i]["ts"] <= launch["ts"]:
@@ -210,7 +259,13 @@ def call_sites(xs, kernels):
                 stack.append(ops[i])
                 i += 1
             chain = [o for o in stack if o["ts"] + o["dur"] >= launch["ts"]]
-            site_by_corr[launch["args"]["correlation"]] = describe_site(chain)
+            site = describe_site(chain)
+            if marker_rx:
+                j = bisect.bisect_right(mark_times, launch["ts"]) - 1
+                site = f"[{marks[j][1] if j >= 0 else '-'}] {site}"
+            site_by_corr[launch["args"]["correlation"]] = site
+            if bytes_out is not None:
+                bytes_out[launch["args"]["correlation"]] = arg_bytes(chain[-1]) if chain else 0
     return site_by_corr
 
 
@@ -379,7 +434,8 @@ def main():
     window = end - start
     busy = union_length((e["ts"], min(e["ts"] + e["dur"], end)) for e in gpu)
     compute_busy = union_length((e["ts"], min(e["ts"] + e["dur"], end)) for e in gpu if not is_comm(e["name"]))
-    sites = call_sites(xs, gpu) if args.by in ("site", "both") else {}
+    site_bytes = {}
+    sites = call_sites(xs, gpu, args.marker, site_bytes) if args.by in ("site", "both") else {}
 
     def key_of(e):
         site = sites.get(e["args"].get("correlation"), "<no launch event>")
@@ -387,10 +443,12 @@ def main():
 
     groups = {False: defaultdict(list), True: defaultdict(list)}
     full_names = defaultdict(set)
+    bytes_by_key = defaultdict(list)
     for e in gpu:
         key = key_of(e)
         groups[is_comm(e["name"])][key].append(e["dur"])
         full_names[key].add(e["name"])
+        bytes_by_key[key].append(site_bytes.get(e["args"].get("correlation"), 0))
     compute, comm = summarize(groups[False]), summarize(groups[True])
     labels = make_labels({r["key"] for r in compute + comm})
 
@@ -429,13 +487,14 @@ def main():
         with open(args.csv, "w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(["group", "label", "total_us", "pct_busy", "pct_window", "calls", "mean_us", "median_us",
-                             "min_us", "max_us", "kernel_names"])
+                             "min_us", "max_us", "kernel_names"] + (["site_arg_bytes"] if args.arg_bytes else []))
             for group, rows in (("compute", compute), ("nccl", comm)):
                 for r in sorted(rows, key=lambda r: -r["total_us"]):
+                    extra = [f"{statistics.median(bytes_by_key[r['key']]):.0f}"] if args.arg_bytes else []
                     writer.writerow([group, labels[r["key"]], f"{r['total_us']:.3f}", f"{100 * r['total_us'] / busy:.2f}",
                                      f"{100 * r['total_us'] / window:.2f}", r["calls"], f"{r['mean_us']:.3f}",
                                      f"{r['median_us']:.3f}", f"{r['min_us']:.3f}", f"{r['max_us']:.3f}",
-                                     " || ".join(sorted(full_names[r["key"]]))])
+                                     " || ".join(sorted(full_names[r["key"]]))] + extra)
 
 
 if __name__ == "__main__":
