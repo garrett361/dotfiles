@@ -21,6 +21,8 @@ documented in the script's usage docstring, never hardcoded to one model, run, o
 knowledge goes in arguments or `projects/<repo>.md`. Capture harnesses that run inside a project (e.g. a
 `sitecustomize.py` hook) also live in `scripts/`.
 
+This skill directory is a symlink into the dotfiles git repo (`readlink -f` on it shows where). Commit each extension that meets the bar above there right away, with a conventional commit such as `feat(profiling): ...`, staging only the files you changed, because other sessions may hold uncommitted edits in the same repo. Git is the backup, so keep no `.orig` copies.
+
 ## 1. Pick the tool by the question
 
 This skill measures. To change a kernel (Triton or CuTe DSL authoring, fusion design, reading compiled artifacts while writing it), use the kernels skill (`../kernels/SKILL.md`), then come back here to measure the change.
