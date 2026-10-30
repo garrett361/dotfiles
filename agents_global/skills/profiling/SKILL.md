@@ -76,7 +76,7 @@ Runs, host and compiler:
 - Where does the host block on the GPU (syncs), from which Python line? `scripts/find_syncs.py` (costs), then
   `scripts/sync_stacks/`, `sync_stacks_report.py` (file:line) and `join_sync_dumps.py`; `analysis/cuda-syncs.md`.
 - What keeps `torch.compile` recompiling, at which step? `scripts/recompile_reasons.py`.
-- Which rank or node compiled (Dynamo recompile or DeepGEMM JIT) in which step, and when was the last compile, so
+- Which rank or node compiled (Dynamo recompile, DeepGEMM or Triton JIT) in which step, and when was the last compile, so
   step time can be reported over all steps and after it? `scripts/compile_events.py`, then `scripts/run_metrics.py
   --steady <last+1> <end>` (and `--stat mean` for the all-step view).
 - Does a prime-rl model change move logprobs, step time or peak memory on real weights, and which class did a

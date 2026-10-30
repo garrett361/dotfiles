@@ -19,9 +19,11 @@
   launch environment reaches the trainer, so `TORCH_LOGS=recompiles uv run sft ...` works with
   `scripts/recompile_reasons.py <log> --rank 0 --step-regex 'Step (\d+) \|'`.
 - One rank compiling mid-step stalls every other rank in the next collective, so attribute slow steps across all ranks:
-  `scripts/compile_events.py <run dir>` reads every rank's `TORCH_LOGS=recompiles` lines and DeepGEMM cache listings
-  (`deep_gemm_cache_<host>.txt` under `logs/attempt_N/`, written after training with `find $DG_JIT_CACHE_DIR/cache
+  `scripts/compile_events.py <run dir>` reads every rank's `TORCH_LOGS=recompiles` lines and JIT cache listings
+  (`<kind>_cache_<host>.txt` under `logs/attempt_N/`, written after training, e.g. `find $DG_JIT_CACHE_DIR/cache
   -mindepth 1 -maxdepth 1 -printf "%T@ %f\n"`; DeepGEMM's `DG_JIT_PRINT_COMPILER_COMMAND=1` lines carry no time).
+  Write a Triton listing too (command in the script's docstring). Hand-written Triton kernels respecialize when an
+  int argument such as a token count first becomes divisible by 16, which shows up only there.
 - Throughput across arms that pad differently: `perf/throughput` and `perf/mfu` count pad tokens. Use real tokens from
   an arm without padding on the same samples: `run_metrics.py --summarize "tok_s_gpu=delta(progress/num_tokens)@<arm A>
   / time/step * <1/GPUs>"`.

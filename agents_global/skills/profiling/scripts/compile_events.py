@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10"
 # ///
-"""Place every rank's torch.compile recompiles and every node's DeepGEMM JIT compiles in the training step they stalled.
+"""Place every rank's torch.compile recompiles and every node's JIT kernel compiles in the training step they stalled.
 
 Reads one prime-rl run directory (the one holding `monitors/file/metrics.jsonl` and `logs/`):
 - Steps: each `time/step` record in metrics.jsonl; its `time` is the step's end (epoch seconds), so step k spans
@@ -9,15 +9,20 @@ Reads one prime-rl run directory (the one holding `monitors/file/metrics.jsonl` 
 - Dynamo: every `Recompiling function` record in every rank's torchrun log under `logs/attempt_N/trainer/`, run with
   `TORCH_LOGS=recompiles`. The rank comes from torch's `[rankR]:` prefix and the time from the glog timestamp
   (`V1019 19:49:02.48`, local time; the year is taken from the first step).
-- DeepGEMM: `deep_gemm_cache_<host>.txt` files anywhere under `logs/attempt_N/`, one line per cache entry,
-  `<mtime epoch seconds> <entry name>`, e.g. written after training by
-  `find $DG_JIT_CACHE_DIR/cache -mindepth 1 -maxdepth 1 -printf "%T@ %f\n"`. Each entry's mtime is when that node
-  first compiled the kernel.
+- JIT caches: `<kind>_cache_<host>.txt` files anywhere under `logs/attempt_N/`, one line per cache entry,
+  `<mtime epoch seconds> <entry name>`, written after training. Each entry's mtime is when that node first compiled
+  the kernel, and `<kind>` names the column. Point each cache at a fresh per-run directory, or entries from earlier
+  runs land in the listing. Listings for DeepGEMM (`kernel.*` entries only) and Triton:
+    find $DG_JIT_CACHE_DIR/cache -mindepth 1 -maxdepth 1 -printf "%T@ %f\n" > deep_gemm_cache_$(hostname).txt
+    find $TRITON_CACHE_DIR -mindepth 2 -maxdepth 2 -name "*.cubin" -printf "%T@ %f\n" > triton_cache_$(hostname).txt
+  Triton writes one `<hash>/<kernel>.cubin` per specialization, so the Triton listing catches hand-written kernels
+  that Dynamo never logs, e.g. a second variant compiled when an int argument first becomes divisible by 16. It
+  also holds Inductor's generated kernels (`triton_poi_*`, `triton_red_*`, ...), which first compile in step 1.
 
-Prints a markdown table per step with any event (step time, Dynamo recompiles with their ranks, DeepGEMM compiles with
-their nodes), then `last compile step: K` over all events. Pass K + 1 as the start of `run_metrics.py --steady` to
+Prints a markdown table per step with any event (step time, Dynamo recompiles with their ranks, compiles per JIT cache
+with their nodes), then `last compile step: K` over all events. Pass K + 1 as the start of `run_metrics.py --steady` to
 report steady-state step time after every compile. `--events-csv` writes one row per event: kind, step, time, where
-(rank or host), what (function and first guard failure, or kernel entry).
+(rank or host), what (function and first guard failure, or cache entry).
 
 Usage:
   uv run --script compile_events.py <run dir>
@@ -75,14 +80,15 @@ def dynamo_events(log_dir: Path, year: int) -> list[tuple[float, str, str]]:
     return sorted(events)
 
 
-def deepgemm_events(log_dir: Path) -> list[tuple[float, str, str]]:
+def cache_events(log_dir: Path) -> list[tuple[str, float, str, str]]:
+    """(kind, mtime epoch seconds, host, entry) per entry of every `<kind>_cache_<host>.txt` listing."""
     events = []
-    for listing in sorted(log_dir.rglob("deep_gemm_cache_*.txt")):
-        host = listing.stem.removeprefix("deep_gemm_cache_")
+    for listing in sorted(log_dir.rglob("*_cache_*.txt")):
+        kind, _, host = listing.stem.rpartition("_cache_")
         for line in listing.open():
             mtime, _, entry = line.strip().partition(" ")
-            if entry.startswith("kernel."):
-                events.append((float(mtime), host, entry))
+            if entry and (kind != "deep_gemm" or entry.startswith("kernel.")):
+                events.append((kind, float(mtime), host, entry))
     return sorted(events)
 
 
@@ -97,8 +103,9 @@ def main():
         return steps[min(bisect_left(ends, epoch), len(steps) - 1)][0]
 
     events = [("dynamo", *e) for e in dynamo_events(log_dir / "trainer", year)]
-    events += [("deepgemm", *e) for e in deepgemm_events(log_dir)]
-    by_step: dict[int, dict[str, list[str]]] = defaultdict(lambda: {"dynamo": [], "deepgemm": []})
+    events += cache_events(log_dir)
+    cache_kinds = sorted({kind for kind, *_ in events} - {"dynamo"})
+    by_step: dict[int, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
     rows = []
     for kind, epoch, where, what in events:
         step = step_of(epoch)
@@ -106,15 +113,17 @@ def main():
         rows.append((kind, step, f"{epoch:.3f}", where, what))
 
     seconds = {step: s for step, _, s in steps}
-    print("| step | step time (s) | Dynamo recompiles | ranks | DeepGEMM compiles | nodes |")
-    print("|---:|---:|---:|---|---:|---|")
+    cache_headers = "".join(f" {kind} compiles | nodes |" for kind in cache_kinds)
+    print("| step | step time (s) | Dynamo recompiles | ranks |" + cache_headers)
+    print("|---:|---:|---:|---|" + "---:|---|" * len(cache_kinds))
     for step in sorted(by_step):
-        dynamo, deepgemm = by_step[step]["dynamo"], by_step[step]["deepgemm"]
+        dynamo = by_step[step]["dynamo"]
         ranks = ",".join(sorted(set(dynamo), key=lambda r: int(r[4:])))
-        nodes = ",".join(sorted(set(deepgemm)))
-        print(f"| {step} | {seconds[step]:.2f} | {len(dynamo)} | {ranks} | {len(deepgemm)} | {nodes} |")
-    print(f"\n{len(steps)} steps, {sum(k == 'dynamo' for k, *_ in rows)} Dynamo recompiles, "
-          f"{sum(k == 'deepgemm' for k, *_ in rows)} DeepGEMM compiles")
+        cells = "".join(f" {len(by_step[step][k])} | {','.join(sorted(set(by_step[step][k])))} |" for k in cache_kinds)
+        print(f"| {step} | {seconds[step]:.2f} | {len(dynamo)} | {ranks} |{cells}")
+    totals = [f"{sum(k == 'dynamo' for k, *_ in rows)} Dynamo recompiles"]
+    totals += [f"{sum(k == kind for k, *_ in rows)} {kind} compiles" for kind in cache_kinds]
+    print(f"\n{len(steps)} steps, " + ", ".join(totals))
     print(f"last compile step: {max(by_step) if by_step else 0}")
 
     if args.events_csv:
