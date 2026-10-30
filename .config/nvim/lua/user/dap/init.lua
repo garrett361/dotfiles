@@ -703,7 +703,7 @@ M.lazy_keymaps = {
 		silent = true,
 	},
 	{
-		"<A-z>",
+		"<A-p>",
 		function()
 			prequire("fzf-lua").dap_commands()
 		end,
