@@ -29,6 +29,12 @@ correct it early if it's wrong.
 
 ## 2. Draft
 
+Repo rules (the repo's `AGENTS.md`, CONTRIBUTING, or PR template) override
+this skill: any PR-body section a repo mandates (evidence lanes, checklists,
+compliance statements) goes in verbatim, and this skill's minimal format
+governs everything the repo doesn't mandate. Check for PR-body requirements
+before drafting.
+
 1-2 sentences: first what the PR changes, then what that improves over the
 current code. Open with the change itself, not background or motivation, so
 the first sentence alone tells a reviewer what the PR does. A single
