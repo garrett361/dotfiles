@@ -45,3 +45,8 @@ These govern your replies to me, prose, and docs alike.
 
 ## My tools
 - `git tree`: my stacked-branch / cascading-rebase CLI (worktree-per-branch, `propagate`, stacked `push`). Reach for it for stacked/dependent-branch work in any repo. To see a stack's structure, run `git tree --json` (machine-readable forest on stdout). `git tree -h` lists the command surface (there is no `list` or `status` subcommand). If `git tree` isn't found, the binary is `~/.local/bin/git-tree`. Full agent contract and internals live in `~/github/garrett361/git_tree/AGENTS.md`; read it before modifying the tool.
+
+## My skills
+- Skills whose `SKILL.md` resolves (`readlink -f`) into `~/github/garrett361/dotfiles` or `~/github/garrett361/git_tree` are mine; skills in other repos, including my forks under `~/github/garrett361/`, are not.
+- When using one of mine exposes something wrong, stale, ambiguous, or missing, suggest a concrete edit: the proposed wording and what exposed the gap. Raise it at a natural break or in your final report rather than mid-task, and edit only once I approve, following the owning repo's `AGENTS.md`/`CLAUDE.md`; if you can't ask, put the suggestion in your report.
+- An edit must help any agent, on any harness, on any task the skill covers: one session's workaround or one harness's quirk doesn't qualify, and a cut or correction beats an addition.
