@@ -92,26 +92,26 @@ rustup component add rust-analyzer clippy rustfmt
 
 # Pinned binaries installed identically on macOS and Linux, so the two can't drift. brew is
 # reserved for GUI apps and tools with no Linux counterpart here.
-NVIM_VERSION="0.12.4"
-CLANGD_VERSION="22.1.6"
-LUA_LS_VERSION="3.18.2"
-RUFF_VERSION="0.16.0"
-TY_VERSION="0.0.65"
-STYLUA_VERSION="2.5.2"
-TINYMIST_VERSION="0.15.2"
-CODELLDB_VERSION="1.12.2"
-TREE_SITTER_VERSION="0.25.10"
-STARSHIP_VERSION="1.26.0"
+NVIM_VERSION="0.12.6"
+CLANGD_VERSION="23.1.0"
+LUA_LS_VERSION="3.19.2"
+RUFF_VERSION="0.17.3"
+TY_VERSION="0.0.95"
+STYLUA_VERSION="2.6.0"
+TINYMIST_VERSION="0.15.10"
+CODELLDB_VERSION="1.12.3"
+TREE_SITTER_VERSION="0.27.1"
+STARSHIP_VERSION="1.27.0"
 RG_VERSION="15.2.0"
-DELTA_VERSION="0.19.2"
+DELTA_VERSION="0.20.1"
 BAT_VERSION="0.26.1"
-FD_VERSION="10.4.2"
-GH_VERSION="2.96.0"
-GIT_LFS_VERSION="3.7.1"
+FD_VERSION="10.5.0"
+GH_VERSION="2.103.3"
+GIT_LFS_VERSION="3.8.1"
 JQ_VERSION="1.8.2"
 # herdr self-updates with `herdr update`, but the next run of this script puts the pin back, so
 # bump this instead. Upstream's installer has no version knob, hence the release asset directly.
-HERDR_VERSION="0.9.1"
+HERDR_VERSION="0.9.5"
 
 pinned_ok=1
 case "$os-$arch" in
