@@ -75,8 +75,9 @@ function M.input_comment(on_done, opts)
 	vim.api.nvim_buf_set_name(buf, "agent-comment://" .. editor_seq)
 	vim.bo[buf].buftype = "acwrite"
 	vim.bo[buf].bufhidden = "wipe"
-	-- Deliberately not the list's "agent-comments": an editor float must not read as a list.
-	vim.bo[buf].filetype = "agent-comment-edit"
+	-- markdown, so the user's markdown snippets, keymaps and highlighting apply. textwidth is set
+	-- after it because a markdown FileType hook may raise it and hard-wrap the comment.
+	vim.bo[buf].filetype = "markdown"
 	vim.bo[buf].textwidth = 0
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
 	vim.bo[buf].modified = false
@@ -102,6 +103,9 @@ function M.input_comment(on_done, opts)
 	vim.wo[win].wrap = true
 	vim.wo[win].linebreak = true
 	vim.wo[win].showbreak = "↪ "
+	-- The float inherits the code window's fold settings, and a markdown parser gives a typed fence
+	-- or heading something to fold.
+	vim.wo[win].foldenable = false
 	vim.api.nvim_win_set_cursor(win, { #lines, 0 })
 	if not seeded then
 		vim.cmd("startinsert")

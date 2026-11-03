@@ -397,7 +397,7 @@ local function open_editor_floats()
 		local wb = vim.api.nvim_win_get_buf(w)
 		if
 			vim.api.nvim_win_get_config(w).relative ~= ""
-			and vim.bo[wb].filetype == "agent-comment-edit"
+			and vim.api.nvim_buf_get_name(wb):match("^agent%-comment://")
 		then
 			n = n + 1
 		end
@@ -427,6 +427,35 @@ T.test("ui: :w commits the editor buffer joined by newlines", function()
 	T.ok(done, "on_done must fire after a :w")
 	T.eq(got, "  leading space kept\n\nthird", ":w commits the buffer raw, blank lines and all")
 	T.eq(open_editor_floats(), 0, "the editor float is gone once it has committed")
+end)
+
+T.test("ui: the editor is markdown but keeps its own textwidth and folds", function()
+	local grp = vim.api.nvim_create_augroup("AgentCommentsTestMarkdown", { clear = true })
+	vim.api.nvim_create_autocmd("FileType", {
+		group = grp,
+		pattern = "markdown",
+		callback = function()
+			vim.opt_local.textwidth = 100
+		end,
+	})
+	local origin_win = vim.api.nvim_get_current_win()
+	vim.wo[origin_win].foldenable = true
+	local done = false
+	ui.input_comment(function()
+		done = true
+	end)
+	local ebuf = vim.api.nvim_get_current_buf()
+	local ewin = vim.api.nvim_get_current_win()
+	vim.api.nvim_del_augroup_by_id(grp)
+	vim.wo[origin_win].foldenable = false
+	T.eq(vim.bo[ebuf].filetype, "markdown")
+	T.eq(vim.bo[ebuf].textwidth, 0, "a markdown FileType hook must not hard-wrap the comment")
+	T.eq(vim.wo[ewin].foldenable, false, "folds inherited from the code window stay off")
+	quit_editor(ebuf)
+	vim.wait(2000, function()
+		return done
+	end)
+	T.eq(open_editor_floats(), 0)
 end)
 
 T.test("ui: :q cancels the editor and reports nil", function()
@@ -603,7 +632,7 @@ T.test("ui: opening the editor from the list does not cancel the list", function
 
 	list_keymap(list_buf, "e")()
 	local ebuf = vim.api.nvim_get_current_buf()
-	T.eq(vim.bo[ebuf].filetype, "agent-comment-edit", "`e` opens a comment editor")
+	T.ok(vim.api.nvim_buf_get_name(ebuf):match("^agent%-comment://"), "`e` opens a comment editor")
 	-- The list cancels itself on WinLeave, which entering the editor just fired.
 	vim.wait(300, function()
 		return false
