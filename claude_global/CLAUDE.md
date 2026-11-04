@@ -37,7 +37,7 @@ These govern your replies to me, prose, and docs alike.
 
 ## Git
 - Never run `git push` (or otherwise publish commits/branches to a remote) without my explicit verbal approval in the conversation first, every time, even if a push was approved earlier in the same session or for a similar task.
-- Never add a file to `.gitignore` or `.git/info/exclude` just to keep it out of a commit. Ignore rules hide files from search tooling that respects them, which I rely on. Scratch markdown (plans, PR drafts, handoffs, notes) stays visible and untracked: simply don't `git add` it.
+- Never add a file to `.gitignore` or `.git/info/exclude` just to keep it out of a commit. Ignore rules hide files from search tooling that respects them, which I rely on. Scratch markdown (plans, PR drafts, handoffs, notes) stays visible and untracked: simply don't `git add` it. The exception is a remote handoff's `PLAN.md`, which the git-tree-plan skill commits so another machine can pull it.
 - Worktree paths: put each branch's worktree beside the repo's main worktree, named `<main-worktree-dir>-<branch with slashes removed>`, e.g. `../prime-pt-featperf-baseline` for `feat/perf-baseline` next to `prime-pt`. Create it with `git tree branch <path> <branch> --parent <parent>`.
 
 ## Claude Code project memory
