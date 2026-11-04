@@ -25,6 +25,18 @@ before weighing in on the user's points, and do not fold their views into it.
   belongs to whatever worktree the review was invoked from. When the PR leans on library behavior, ask for or
   locate a local checkout of that exact tag (e.g. torch at `v2.13.0`) and check it is clean at the tag.
 
+## Running code
+
+- **The first pass is read-only.** Review from the diff, the PR body, pinned library sources, and upstream issues, without running the PR's tests or project code. After delivering the review, ask whether to run anything that would settle open findings.
+- **The review machine is often the user's laptop** (macOS, no GPUs, and the repo's compute stack is
+  linux-only), so even "not gpu" suites and venv builds usually cannot produce meaningful results there. Do
+  not initialize submodules, build venvs, or sync dependencies to try; report such claims as "reported,
+  not checked" instead.
+- **Trivial scratch scripts are exempt**: a short pure-Python script with preinstalled packages (shape
+  math, regexes over sources, small parsers) is fine without asking.
+- **On a cluster, an allocation can run the real thing** (GPU steps, the suite, e2e), but only when the
+  user asks; never request one on your own.
+
 ## Review
 
 - Fan out reviewers in parallel, read-only, each with the diff and PR body inlined. Lenses, merged for a
@@ -35,14 +47,15 @@ before weighing in on the user's points, and do not fold their views into it.
     library source with `file:line`. Verdict per claim: true, false, or partial.
   - **Evidence:** does the reported data establish causality, and which measurement would settle what it
     does not (e.g. peak allocated next to peak reserved).
-  - **Conventions:** AGENTS.md and the user's CLAUDE.md.
+  - **Conventions:** the repo's AGENTS.md. The user's own conventions (their CLAUDE.md, and this skill's rules such as committing benchmark code under `benchmarks/scripts/`) govern the user's work only, so leave them out of the review file. When the PR clearly breaks good practice by those rules, tell the user in chat instead.
 - When a claim is about library failure modes, have a subagent search upstream issues and note the fix
   version relative to the pinned one.
 - Separate measured, code-verified, and inferred in every finding.
 
 ## Report
 
-- Lead with the verdict, then critical and borderline findings, each with a recommendation.
+- Lead with a one-line verdict: approve, approve with comments, or request changes; what the PR changes, as behavior before and after; and which items gate the merge. Keep how the review verified things out of the verdict. Then critical and borderline findings, each with a recommendation.
+- Leave out nits: inaccurate or overstated wording in the PR description, commit messages, or comments that changes no behavior and would not mislead someone acting on the code. The claims lens still checks every claim, but report a false claim only when it matters, for example when it implies a fix or behavior change that did not happen.
 - Supporting links are permalinks: prime-rl at the PR head SHA, libraries at the pinned tag. Say which links
   were not opened on GitHub.
 - Write the review to `~/tmp/review-prime-rl-<pr#>.md` by default (create `~/tmp/` if missing) and iterate on
