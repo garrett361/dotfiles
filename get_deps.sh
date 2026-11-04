@@ -228,6 +228,7 @@ install_pinned() {
     case "$asset" in
         *.zip | *.vsix)
             if [ "$have_unzip" -eq 0 ]; then
+                echo "$name: unzip not found, skipping" >&2
                 skipped="$skipped $name"
                 return
             fi
