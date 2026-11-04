@@ -13,6 +13,8 @@ REPOS=(
     prime-rl
     renderers
     verifiers
+    prime-pt
+    prime-mega-moe
 )
 
 # git refuses to check out main twice, so the clone parks on a detached HEAD and the -main worktree
