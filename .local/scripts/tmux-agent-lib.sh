@@ -66,9 +66,28 @@ claude_records() {
 # outlives the pane it named and three sources now name panes independently, and the newest
 # transition is the likelier occupant. Consumers apply this after their own liveness filter, never
 # before: a dead record winning the group would take the live one with it.
+#
+# live_on_panes keeps the records that are both alive and on a pane in $P (the pane table keyed by
+# pane id), then dedupes, which puts the two in the required order once for every consumer. $L is
+# the live_pids output as an array.
 JQ_PRELUDE='
 def dedupe_by_pane:
     group_by(.tmux_pane) | map(if length == 1 then .[0] else (sort_by(.updatedAt) | last) end);
+def live_on_panes($L; $P):
+    map(
+        # Bound before the pipe into $L: inside that pipe `.` is the pid array, so a bare .pid
+        # there would try to index an array with a string.
+        . as $r
+        # An empty pid means the source has no process to check and its liveness is the existence
+        # of the pane, which the next select enforces for every row anyway. Only the Claude
+        # registry carries a pid; codex and prime-agent rows are built from the pane table itself.
+        | select($r.pid == "" or ($L | index($r.pid)))
+        # Set membership is the only valid liveness test for a pane: tmux display-message on a
+        # pane that no longer exists prints ":. cmd= title=" and exits 0. A session with no live
+        # pane is dropped rather than shown, because on this machine those are herdr-hosted agents
+        # and the consumers are the tmux ones.
+        | select(.tmux_pane != "" and $P[.tmux_pane] != null))
+    | dedupe_by_pane;
 '
 
 # THE SEAM. Everything downstream consumes the uniform record and knows nothing about its source.

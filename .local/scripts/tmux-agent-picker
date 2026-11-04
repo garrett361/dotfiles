@@ -106,26 +106,12 @@ def striproot: if $root != "" and startswith($root) then .[($root | length):] el
   | {key: .[0], value: {ws: (.[1] // ""), title: (.[4] // "")}}] | from_entries) as $P
 | ([$live | split("\n")[] | select(length > 0)]) as $L
 
-| [ .[]
-    # Bound before the pipe into $L: inside that pipe `.` is the pid array, so a bare .pid there
-    # would try to index an array with a string.
-    | . as $r
-    # An empty pid means the source has no process to check and its liveness is the existence of
-    # the pane, which the next select enforces for every row anyway. Only the Claude registry
-    # carries a pid; codex and prime-agent rows are built from the pane table itself.
-    | select($r.pid == "" or ($L | index($r.pid)))
-    # Set membership is the only valid liveness test for a pane: tmux display-message on a pane
-    # that no longer exists prints ":. cmd= title=" and exits 0. A session with no live pane is
-    # dropped rather than shown, because on this machine those are herdr-hosted agents and this
-    # picker is the tmux one.
-    | select(.tmux_pane != "" and $P[.tmux_pane] != null)
-    # Stripped before the sort as well as the display, so the grouping matches what is on screen.
-    | . + {ws: ($P[.tmux_pane].ws | striproot), ptitle: $P[.tmux_pane].title} ]
-
-# Unreachable while the registry is the only source, but a wrong jump is the worst failure this
-# script can produce, so two records can never both claim one pane. The newest transition wins,
-# being the claim most recently proven alive in that pane.
-| dedupe_by_pane
+# The dedupe inside is unreachable while the registry is the only source, but a wrong jump is the
+# worst failure this script can produce, so two records can never both claim one pane. The newest
+# transition wins, being the claim most recently proven alive in that pane.
+| live_on_panes($L; $P)
+# Stripped before the sort as well as the display, so the grouping matches what is on screen.
+| map(. + {ws: ($P[.tmux_pane].ws | striproot), ptitle: $P[.tmux_pane].title})
 
 # The current tmux session first, then attention order within each group. The default fzf layout
 # grows the list upward from the prompt, so position 1 renders nearest the cursor: the agents in
