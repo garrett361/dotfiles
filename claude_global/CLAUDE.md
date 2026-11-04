@@ -42,7 +42,7 @@ These govern your replies to me, prose, and docs alike.
 
 ## Claude Code project memory
 - Per-repo memory lives at `~/.claude/projects/<repo main worktree path, with `/` replaced by `-`>/memory/`, shared by every linked worktree of the repo: resolve the git common dir's main worktree, not the current one. `MEMORY.md` in that directory is the index and is loaded every session; individual memory files are read on demand.
-- Any agent harness that reads this memory must follow the same memory rules and treat the files as read-only unless I explicitly ask for an edit in the current conversation.
+- Claude Code writes memories here as its memory rules direct. Any other agent harness that reads this memory follows the same rules but treats the files as read-only unless I explicitly ask for an edit in the current conversation.
 
 ## My tools
 - `git tree`: my stacked-branch / cascading-rebase CLI (worktree-per-branch, `propagate`, stacked `push`). Reach for it for stacked/dependent-branch work in any repo. To see a stack's structure, run `git tree --json` (machine-readable forest on stdout). `git tree -h` lists the command surface (there is no `list` or `status` subcommand). If `git tree` isn't found, the binary is `~/.local/bin/git-tree`. Full agent contract and internals live in `~/github/garrett361/git_tree/AGENTS.md`; read it before modifying the tool.
