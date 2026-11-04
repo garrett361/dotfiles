@@ -60,19 +60,20 @@
   },
   "tui": "default",
   "theme": "dark",
-  "agentPushNotifEnabled": true,
   "idleCompaction": false,
+  "agentPushNotifEnabled": true,
   "autoMode": {
-    "environment": [
-      "$defaults",
-      "SLURM GPU cluster. The login node 'prime' is shared and only runs light commands (git, editing, squeue). All heavy work runs on compute nodes in the user's own SLURM jobs via 'srun --jobid=<id> --overlap'.",
-      "Each git worktree under ~/github/<org>/<repo>-<branch> has its own .venv; scratch output goes to ~/tmp."
-    ],
     "allow": [
       "$defaults",
       "Running uv sync, uv run, pytest, torchrun and training/eval entrypoints inside the user's own SLURM jobs via 'srun --jobid=<id> --overlap', from the user's own worktrees, including 'bash -lc' wrappers, '&&' chains and output redirected to ~/tmp or the run directory.",
       "Cancelling SLURM jobs the user created in this session with scancel.",
-      "Allocating whole compute nodes with 'salloc --no-shell --exclusive -p all --time=<walltime> -J <name>' once the user has approved the node count, walltime and purpose in the conversation, or has told the agent to take nodes."
+      "Allocating whole compute nodes with salloc or sbatch (e.g. 'salloc --no-shell --exclusive -p <partition> --time=<walltime> -J <name>', or an sbatch hold job), and updating those jobs with 'scontrol update', once the user has approved the node count, walltime, partition and purpose in the conversation, or has told the agent to take nodes.",
+      "Pushing branches with 'git push' (including --force-with-lease, but not --force) or 'git tree push', and creating or editing pull requests, when the user has explicitly asked in the conversation for that push or for an action that requires it (e.g. 'push it', 'open the PR', 'do it' in reply to a proposal that names the push)."
+    ],
+    "environment": [
+      "$defaults",
+      "SLURM GPU cluster. The login node 'prime' is shared and only runs light commands (git, editing, squeue). All heavy work runs on compute nodes in the user's own SLURM jobs via 'srun --jobid=<id> --overlap'.",
+      "Each git worktree under ~/github/<org>/<repo>-<branch> has its own .venv; scratch output goes to ~/tmp."
     ]
-}
+  }
 }
