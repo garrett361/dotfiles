@@ -15,7 +15,8 @@ gh pr view <num> --repo <owner>/<repo> \
 ## 2. Resolve team/project
 
 - Team: default "Research" (ask only if it's obviously a different team).
-- Project: ask via AskUserQuestion with options "RL Stack" / "Performance"
+- Project: ask via AskUserQuestion with options "RL Stack" / "Performance" /
+  "Autonomous AI Research / Pretraining" (P-RES-141, used for prime-pt PRs)
   (the built-in "Other" choice covers anything else). Skip asking only if
   the user already named the project in their request.
 
