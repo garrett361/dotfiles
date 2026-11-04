@@ -9,12 +9,10 @@ Setup:
 # Set up symlinks and other installation steps
 ./install.sh
 
-# Clone repo helpers
+# Clone repo helpers (require gh auth and an ssh key for github.com)
+gh auth login
 ./clone_pi_repos.sh
 ./clone_forked_repos.sh
-
-# Optional:
-gh auth login
 ```
 
 ## Notes

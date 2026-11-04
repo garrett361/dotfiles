@@ -87,6 +87,8 @@ function preflight_github()
         return 1
     fi
 
-    gh auth status >/dev/null 2>&1 \
-        || echo "gh is not authenticated; forks will not get an upstream remote" >&2
+    if ! gh auth status >/dev/null 2>&1; then
+        echo "gh is not authenticated; run gh auth login first" >&2
+        return 1
+    fi
 }
