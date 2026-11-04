@@ -61,6 +61,7 @@
   "tui": "default",
   "theme": "dark",
   "agentPushNotifEnabled": true,
+  "idleCompaction": false,
   "autoMode": {
     "environment": [
       "$defaults",
