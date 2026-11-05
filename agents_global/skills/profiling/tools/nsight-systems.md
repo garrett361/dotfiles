@@ -16,7 +16,7 @@ Recipes verified with nsys 2025.3.2 on 8xB300 (2026-09-24, toy workloads) and H2
   13.0 toolkit's `nsys`).
 - `nsys` on `PATH` may be older (`/usr/local/cuda-12.9/bin/nsys`, 2025.1.3). It captures, but warns that
   device-side CUDA event trace is on (disable with `--cuda-event-trace=false`).
-- `nsys stats` and `nsys export` need no GPU; run them on the login node.
+- `nsys stats` and `nsys export` need no GPU, so a CPU-only allocation is enough; never run them on the login node.
 
 ## Verified recipes
 
