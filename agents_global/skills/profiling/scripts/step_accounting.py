@@ -35,13 +35,20 @@ prints each rank's window and partition, to check that one rank is representativ
 levels of cpu_op names in host-late labels. Collectives that launch no GPU kernel (gloo) show up as host-late
 idle, and a `--comm` regex that matches nothing moves the NCCL kernels into compute rows.
 
+`--category-context` (torch traces only) matches `--category` and `--comm-label` regexes against
+`<host stack> [<dims>] : <kernel name>` instead of the bare name, where the host stack is every cpu_op and
+user_annotation enclosing the kernel's launch on its thread, outermost first, joined by " > ", and dims are the
+innermost cpu_op's first 3 Input Dims. Use it to split kernels that one name serves (e.g. nvjet GEMMs of the LM head,
+dense layers and the optimizer) by launching op, annotation or shape, and to keep a custom op's kernels out of a
+name-based category (see `top_kernels.py --category-context`). `--comm` detection and `--step-boundary` stay name-only.
+
 The header also reports the number of GPU activities (kernels, memcpys, memsets) per step.
 
 Usage:
   uv run --script step_accounting.py --trace "bf16=traces/bf16/trace_*.json.gz" \\
     --trace "fp8=traces/fp8/trace_*.json.gz" --step-boundary "FusedAdamMathFunctor" \\
     --category "FP8 GEMM:sm90_fp8_gemm|fp8_gemm" --category "BF16 GEMM:nvjet|cutlass" \\
-    --untraced bf16=0.652 --untraced fp8=0.696 [--per-rank] [--top-idle 12] [--csv out.csv]
+    --untraced bf16=0.652 --untraced fp8=0.696 [--category-context] [--per-rank] [--top-idle 12] [--csv out.csv]
   uv run --script step_accounting.py --nsys "bf16=nsys/bf16.sqlite" --nsys "fp8=nsys/fp8.sqlite" \\
     --step-boundary "FusedAdamMathFunctor" --steps 4:11 ...
 """
@@ -57,6 +64,8 @@ import re
 import sqlite3
 from collections import defaultdict
 
+from trace_events import launch_context, launch_stacks
+
 BLOCKING = re.compile(
     r"cudaStreamSynchronize|cudaDeviceSynchronize|cudaEventSynchronize|cudaMemcpy(?!Async)|cuStreamSynchronize|"
     r"cuCtxSynchronize|cuEventSynchronize|cuMemcpyDtoH(?!Async)"
@@ -71,14 +80,15 @@ COLLECTIVES = (
 
 
 class Rank:
-    """GPU activity and host context for one rank: `gpu` rows are (start, end, name, launch_end, launch_thread)."""
+    """GPU activity and host context for one rank: `gpu` rows are (start, end, name, launch_end, launch_thread,
+    launch_context)."""
 
     def __init__(self, gpu, host_at):
         self.gpu = sorted(gpu)
         self.host_at = host_at
 
 
-def load_torch(path, host_depth):
+def load_torch(path, host_depth, with_context=False):
     opener = gzip.open if path.endswith(".gz") else open
     with opener(path, "rt") as f:
         events = [e for e in json.load(f)["traceEvents"] if e.get("ph") == "X"]
@@ -92,14 +102,18 @@ def load_torch(path, host_depth):
             host[(e["pid"], e["tid"])].append(e)
         elif cat in ("cpu_op", "user_annotation"):
             host[(e["pid"], e["tid"])].append(e)
+    contexts = {}
+    if with_context:
+        contexts = {corr: launch_context(stack) for corr, stack in launch_stacks(events).items()}
     gpu = []
     for e in events:
         if e.get("cat") not in ("kernel", "gpu_memcpy", "gpu_memset"):
             continue
-        launch = launches.get(e.get("args", {}).get("correlation"))
+        corr = e.get("args", {}).get("correlation")
+        launch = launches.get(corr)
         launch_end = launch["ts"] + launch.get("dur", 0) if launch else None
         thread = (launch["pid"], launch["tid"]) if launch else None
-        gpu.append((e["ts"], e["ts"] + e["dur"], e["name"], launch_end, thread))
+        gpu.append((e["ts"], e["ts"] + e["dur"], e["name"], launch_end, thread, contexts.get(corr, "")))
     starts = {}
     for key, evs in host.items():
         evs.sort(key=lambda e: (e["ts"], -e.get("dur", 0)))
@@ -157,7 +171,7 @@ def load_nsys(path):
         for start, end, device, pid, corr, name_id in db.execute(query):
             name = names.get(name_id, "") if name_id is not None else table.rsplit("_", 1)[-1].lower()
             launch_end, tid = launch_by_corr.get((pid >> 24, corr), (None, None))
-            per_device[device].append((start / 1e3, end / 1e3, name, launch_end, tid))
+            per_device[device].append((start / 1e3, end / 1e3, name, launch_end, tid, ""))
 
     def host_at(tid, t):
         rows = api.get(tid, [])
@@ -171,7 +185,7 @@ def load_nsys(path):
 
 
 def step_windows(rank, boundary, gap_us):
-    marks = sorted((s, e) for s, e, name, _, _ in rank.gpu if boundary.search(name))
+    marks = sorted((s, e) for s, e, name, *_ in rank.gpu if boundary.search(name))
     ends = [e for (_, e), (ns, _) in zip(marks, marks[1:] + [(float("inf"), 0)]) if ns - e > gap_us]
     return list(zip(ends[:-1], ends[1:]))
 
@@ -179,8 +193,11 @@ def step_windows(rank, boundary, gap_us):
 COMM_LABELS = []
 
 
-def collective(name):
-    for label, pattern in COMM_LABELS + list(COLLECTIVES):
+def collective(name, target):
+    for label, pattern in COMM_LABELS:
+        if re.search(pattern, target):
+            return label
+    for label, pattern in COLLECTIVES:
         if re.search(pattern, name):
             return label
     return "other comm"
@@ -190,11 +207,12 @@ def account(rank, lo, hi, categories, comm, args):
     rows = defaultdict(float)
     acts = [g for g in rank.gpu if g[1] > lo and g[0] < hi]
     labels = []
-    for s, e, name, _, _ in acts:
+    for s, e, name, _, _, context in acts:
+        target = f"{context} : {name}" if args.category_context else name
         if comm.search(name):
-            labels.append(("comm", "exposed comm: " + collective(name)))
+            labels.append(("comm", "exposed comm: " + collective(name, target)))
         else:
-            label = next((lab for lab, pat in categories if pat.search(name)), "other compute")
+            label = next((lab for lab, pat in categories if pat.search(target)), "other compute")
             labels.append(("compute", "compute: " + label))
     points = sorted({lo, hi} | {max(lo, min(hi, x)) for g in acts for x in (g[0], g[1])})
     by_start = sorted(range(len(acts)), key=lambda i: acts[i][0])
@@ -259,6 +277,8 @@ def main():
     parser.add_argument("--category", action="append", default=[], help="LABEL:REGEX for compute kernels")
     parser.add_argument("--comm", default=r"nccl|NCCL", help="regex of communication kernels")
     parser.add_argument("--comm-label", action="append", default=[], help="LABEL:REGEX naming comm kernels")
+    parser.add_argument("--category-context", action="store_true",
+                        help="match --category and --comm-label against '<host stack> [<dims>] : <name>'")
     parser.add_argument("--untraced", action="append", default=[], help="LABEL=SECONDS untraced median step")
     parser.add_argument("--ranks", default=None, help="comma list of ranks (file order or deviceId) to include")
     parser.add_argument("--host-depth", type=int, default=1)
@@ -281,7 +301,8 @@ def main():
         files = sorted(glob.glob(pattern), key=lambda p: int(re.search(r"(\d+)\D*$", p).group(1)))
         if not files:
             parser.error(f"--trace {spec}: no files match")
-        ranks = {i: load_torch(p, args.host_depth) for i, p in enumerate(files) if wanted is None or i in wanted}
+        ranks = {i: load_torch(p, args.host_depth, args.category_context) for i, p in enumerate(files)
+                 if wanted is None or i in wanted}
         arms.append((label, ranks))
     for spec in args.nsys:
         label, path = spec.split("=", 1)

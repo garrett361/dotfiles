@@ -3,7 +3,7 @@
 # ///
 """Shared loading helpers for torch.profiler chrome traces, plus a CLI that lists host ranges in a window.
 
-Library (imported by comm_waits.py and timeline_figure.py):
+Library (imported by the other trace scripts):
 - `load_trace(path)` returns a `Trace` with complete events split by category, kernels joined to their launch
   (`cuda_runtime`/`cuda_driver` event with the same `args["correlation"]`), and per-thread host stacks.
 - `Trace.enclosing(launch, pattern)` returns the innermost host event (cpu_op or user_annotation) on the launch's
@@ -15,6 +15,11 @@ Library (imported by comm_waits.py and timeline_figure.py):
   above; `pick(events, index, what)` indexes a list or exits with a message naming what was missing.
 - `Trace.main_stream(kernels, exclude)` is the (pid, tid) with the most kernel time among `kernels`, ignoring
   kernels matching `exclude` (pass the NCCL pattern when communication can outweigh compute).
+- `launch_stacks(events, correlations, categories, skip)` maps each launch's correlation id to the host events
+  enclosing the launch on its thread, outermost first; `launch_context(stack)` renders one as
+  `<names joined by " > "> [<innermost cpu_op's first 3 Input Dims>]`, the text `--category-context` matches.
+- `latest_marks(events, correlations, pattern)` maps each launch's correlation id to `(event, match)` for the most
+  recent host event on its thread that started at or before the launch and whose name matches `pattern`.
 
 CLI: print every host range on the busiest host thread inside a window, indented by nesting, to learn a
 trace's annotation structure before writing category or label regexes. `--list-annotations REGEX` instead
@@ -141,6 +146,66 @@ def pick(events, index, what):
 
 def load_trace(path, extra_host_categories=()):
     return Trace(read_trace(path)["traceEvents"], extra_host_categories)
+
+
+def _launches_by_thread(events, correlations):
+    by_thread = defaultdict(list)
+    for e in events:
+        if e.get("cat") in LAUNCH_CATEGORIES and "correlation" in e.get("args", {}):
+            if correlations is None or e["args"]["correlation"] in correlations:
+                by_thread[(e["pid"], e["tid"])].append(e)
+    for launches in by_thread.values():
+        launches.sort(key=lambda e: e["ts"])
+    return by_thread
+
+
+def launch_stacks(events, correlations=None, categories=HOST_CATEGORIES, skip=()):
+    """Host events (of `categories`, names not in `skip`) enclosing each launch on its thread, outermost first."""
+    by_thread = _launches_by_thread(events, correlations)
+    host = defaultdict(list)
+    for e in events:
+        key = (e.get("pid"), e.get("tid"))
+        if e.get("cat") in categories and key in by_thread and e["name"] not in skip:
+            host[key].append(e)
+    stacks = {}
+    for key, launches in by_thread.items():
+        ops = sorted(host[key], key=lambda e: (e["ts"], -e["dur"]))
+        stack, i = [], 0
+        for launch in launches:
+            while i < len(ops) and ops[i]["ts"] <= launch["ts"]:
+                while stack and stack[-1]["ts"] + stack[-1]["dur"] < ops[i]["ts"]:
+                    stack.pop()
+                stack.append(ops[i])
+                i += 1
+            stacks[launch["args"]["correlation"]] = [o for o in stack if o["ts"] + o["dur"] >= launch["ts"]]
+    return stacks
+
+
+def launch_context(stack):
+    names = " > ".join(e["name"] for e in stack)
+    dims = stack[-1].get("args", {}).get("Input Dims") if stack and stack[-1].get("cat") == "cpu_op" else None
+    return names + (" " + json.dumps(dims[:3], separators=(",", ":"))[1:-1] if dims else "")
+
+
+def latest_marks(events, correlations, pattern):
+    """(event, match) of the latest host event on each launch's thread, at or before it, whose name matches."""
+    by_thread = _launches_by_thread(events, correlations)
+    marks = defaultdict(list)
+    for e in events:
+        key = (e.get("pid"), e.get("tid"))
+        if e.get("cat") in HOST_CATEGORIES and key in by_thread:
+            found = pattern.search(e["name"])
+            if found:
+                marks[key].append((e["ts"], e, found))
+    out = {}
+    for key, launches in by_thread.items():
+        thread_marks = sorted(marks[key], key=lambda m: m[0])
+        times = [t for t, _, _ in thread_marks]
+        for launch in launches:
+            j = bisect.bisect_right(times, launch["ts"]) - 1
+            if j >= 0:
+                out[launch["args"]["correlation"]] = thread_marks[j][1:]
+    return out
 
 
 def main():

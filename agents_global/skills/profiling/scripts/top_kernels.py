@@ -29,6 +29,11 @@ window runs from the first such kernel's start to the last one's end.
 annotate each micro-batch (e.g. prime-rl RL's `forward` with 2 micro-batches per step: `--annotation-index -4
 --annotation-span 2` is the second-to-last whole step). `--category LABEL:REGEX` (repeatable, first match wins on the raw
 kernel name, unmatched kernels go to "other") adds a per-category table with summed and union time.
+`--category-context` matches the rules against `<host stack> [<dims>] : <kernel name>` instead, as in
+`step_accounting.py`: the host stack is every cpu_op and user_annotation enclosing the launch, outermost first, and dims
+are the innermost cpu_op's first 3 Input Dims. Use it to classify by launching op, since names mislead: the profiler
+can report a custom op's Triton kernel under the name of an Inductor kernel (`triton_poi_fused_...`), so a name-only
+`^triton_` rule (or reading `--by name` rows as Inductor's) books custom-op time as Inductor's.
 
 `--marker REGEX` (site grouping only) prefixes each call site with `[M]`, where M is the most recent host event
 (`cpu_op` or `user_annotation`) on the launch's thread that started at or before the launch and whose name matches
@@ -47,14 +52,13 @@ and exposed NCCL time (when an NCCL kernel runs and no non-NCCL kernel does, i.e
 Usage: uv run --script top_kernels.py <trace.json.gz> [--by name|site|both] [--top 15] [--stream main|<tid>]
          [--annotation forward [--annotation-index -1] | --whole-trace | --from-annotation NAME [--from-index -1]
           [--to-annotation NAME] | --launched-in NAME [--launched-in-index -1]] [--min-calls 1] [--minmax] [--name-width 55] [--csv out.csv]
-         [--decimals 1] [--marker REGEX] [--arg-bytes]
+         [--decimals 1] [--marker REGEX] [--arg-bytes] [--category LABEL:REGEX ... [--category-context]]
   e.g. layer 12's recompute and backward in the last step of a prime-rl SFT trace:
     --from-annotation "FSDP::all_gather_copy_out (model.layers.12) [pg=16]" --from-index -1 \\
     --to-annotation "FSDP::all_gather_copy_out (model.layers.11) [pg=16]"
 """
 
 import argparse
-import bisect
 import csv
 import json
 import math
@@ -64,10 +68,9 @@ import sys
 import textwrap
 from collections import defaultdict
 
-from trace_events import is_marker, pick, read_trace
+from trace_events import is_marker, latest_marks, launch_context, launch_stacks, pick, read_trace
 
 GPU_CATS = ("kernel", "gpu_memcpy", "gpu_memset")
-LAUNCH_CATS = ("cuda_runtime", "cuda_driver")
 WRAPPER_OPS = ("PythonDispatchMode", "PythonSubclass", "detach")
 NAME_REWRITES = [
     (r"\b(at::native::|at::cuda::detail::|at::cuda::|at::|c10::|std::|binary_internal::|detail::)", ""),
@@ -121,6 +124,8 @@ def parse_args():
     p.add_argument("--csv", default=None)
     p.add_argument("--category", action="append", default=[], metavar="LABEL:REGEX",
                    help="ordered rules matched against raw kernel names; adds a per-category table (repeatable)")
+    p.add_argument("--category-context", action="store_true",
+                   help="match --category against '<host stack> [<dims>] : <kernel name>' instead of the name")
     p.add_argument("--decimals", type=int, default=1, help="decimal places for ms totals (e.g. 3 for op-level traces)")
     p.add_argument("--annotation-span", type=int, default=1,
                    help="with --annotation: end the window at the Nth later step annotation instead of the next one")
@@ -232,40 +237,18 @@ def union_length(intervals):
 def call_sites(xs, kernels, marker=None, bytes_out=None):
     """Map each kernel's correlation id to its site label, and fill `bytes_out` (if given) with arg_bytes."""
     wanted = {k["args"].get("correlation") for k in kernels}
-    launches = [e for e in xs if e.get("cat") in LAUNCH_CATS and e.get("args", {}).get("correlation") in wanted]
-    launch_tids = {e["tid"] for e in launches}
-    ops_by_tid, launches_by_tid, marks_by_tid = defaultdict(list), defaultdict(list), defaultdict(list)
-    marker_rx = re.compile(marker) if marker else None
-    for e in xs:
-        if e.get("cat") == "cpu_op" and e["tid"] in launch_tids and e["name"] not in WRAPPER_OPS:
-            ops_by_tid[e["tid"]].append(e)
-        if marker_rx and e.get("cat") in ("cpu_op", "user_annotation") and e["tid"] in launch_tids:
-            found = marker_rx.search(e["name"])
-            if found:
-                text = next((g for g in found.groups() if g is not None), found.group(0))
-                marks_by_tid[e["tid"]].append((e["ts"], text))
-    for e in launches:
-        launches_by_tid[e["tid"]].append(e)
+    chains = launch_stacks(xs, wanted, ("cpu_op",), WRAPPER_OPS)
+    marks = latest_marks(xs, wanted, re.compile(marker)) if marker else {}
     site_by_corr = {}
-    for tid, tid_launches in launches_by_tid.items():
-        ops = sorted(ops_by_tid[tid], key=lambda e: (e["ts"], -e["dur"]))
-        marks = sorted(marks_by_tid[tid])
-        mark_times = [t for t, _ in marks]
-        stack, i = [], 0
-        for launch in sorted(tid_launches, key=lambda e: e["ts"]):
-            while i < len(ops) and ops[i]["ts"] <= launch["ts"]:
-                while stack and stack[-1]["ts"] + stack[-1]["dur"] < ops[i]["ts"]:
-                    stack.pop()
-                stack.append(ops[i])
-                i += 1
-            chain = [o for o in stack if o["ts"] + o["dur"] >= launch["ts"]]
-            site = describe_site(chain)
-            if marker_rx:
-                j = bisect.bisect_right(mark_times, launch["ts"]) - 1
-                site = f"[{marks[j][1] if j >= 0 else '-'}] {site}"
-            site_by_corr[launch["args"]["correlation"]] = site
-            if bytes_out is not None:
-                bytes_out[launch["args"]["correlation"]] = arg_bytes(chain[-1]) if chain else 0
+    for corr, chain in chains.items():
+        site = describe_site(chain)
+        if marker:
+            found = marks[corr][1] if corr in marks else None
+            text = next((g for g in found.groups() if g is not None), found.group(0)) if found else "-"
+            site = f"[{text}] {site}"
+        site_by_corr[corr] = site
+        if bytes_out is not None:
+            bytes_out[corr] = arg_bytes(chain[-1]) if chain else 0
     return site_by_corr
 
 
@@ -357,14 +340,18 @@ def make_labels(keys):
     return labels
 
 
-def category_table(gpu, end, busy, window, specs, d=1):
+def category_table(gpu, end, busy, window, specs, d=1, contexts=None):
     rules = [(label, re.compile(regex)) for label, regex in (spec.split(":", 1) for spec in specs)]
     durs, intervals = defaultdict(list), defaultdict(list)
     for e in gpu:
-        label = next((lab for lab, rx in rules if rx.search(e["name"])), "other")
+        target = e["name"]
+        if contexts is not None:
+            target = f"{contexts.get(e.get('args', {}).get('correlation'), '')} : {target}"
+        label = next((lab for lab, rx in rules if rx.search(target)), "other")
         durs[label].append(e["dur"])
         intervals[label].append((e["ts"], min(e["ts"] + e["dur"], end)))
-    lines = ["\n## By category (first matching `--category` rule on the raw kernel name)\n",
+    matched = "`<host stack> [dims] : <kernel name>`" if contexts is not None else "the raw kernel name"
+    lines = [f"\n## By category (first matching `--category` rule on {matched})\n",
              "| category | total ms | union ms | % busy | % win | calls |", "|---|---|---|---|---|---|"]
     for label in [lab for lab, _ in rules] + ["other"]:
         if label not in durs:
@@ -472,7 +459,11 @@ def main():
     print("\n## NCCL (durations include waiting for peers)\n")
     print(table(sorted(comm, key=lambda r: -r["total_us"])[: args.top], busy, window, labels, args))
     if args.category:
-        print(category_table(gpu, end, busy, window, args.category, d))
+        contexts = None
+        if args.category_context:
+            stacks = launch_stacks(xs, {e.get("args", {}).get("correlation") for e in gpu})
+            contexts = {corr: launch_context(stack) for corr, stack in stacks.items()}
+        print(category_table(gpu, end, busy, window, args.category, d, contexts))
     print()
     print(textwrap.fill(
         "Legend: total = summed durations in the window; % busy = total / GPU busy time and % win = total /"

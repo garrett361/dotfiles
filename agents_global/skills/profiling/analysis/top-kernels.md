@@ -51,8 +51,8 @@ plus the tensor dims (`prime_rl_collectives::all_to_all_single [196608,4096]`).
   `prime_rl_dsv4_mhc_post_bda (bwd) > aten::cat [...]` (recompute) with equal time: add both for the op's
   real cost.
 - A site can launch several kernels, so its mean and median mix them; use `--by both` for per-kernel rows.
-- Conversely, one kernel name can serve several modes (e.g. one Triton GEMM for forward and for the input
-  gradient). `--category` regexes see only the name and cannot split it; `--by both` splits it by launching op.
+- Conversely, one kernel name can serve several modes (e.g. one Triton GEMM for forward and for the input gradient). Name-only `--category` regexes cannot split it; `--by both` splits it by launching op, and `--category-context` matches the regexes against the launching host stack and dims as well as the name.
+- Kernel names can mislead. In a prime-pt trace the profiler reported `prime_rl::scatter_slots`'s hand-written Triton kernel under an Inductor kernel's name (`triton_poi_fused_ones_like_scatter_add_view_zeros_12`), so a name-only `^triton_` rule booked about 26 ms per step of custom-op time as Inductor's. Classify by launching op: `--category-context` (also in `step_accounting.py`), `--by both`, or `scripts/layer_inventory.py`'s classes.
 - `--minmax` adds min and max per row. A minimum near 1 us on a heavy kernel means some launches exit at once
   (work predicated off on the device), e.g. a recompute that is launched but skipped; check call counts before
   reading the mean.
