@@ -64,6 +64,7 @@ End to end, from traces:
   reconciled with untraced step time? `scripts/step_accounting.py`, then `scripts/accounting_figure.py`. On
   per-rank op traces from `bench_ops.py --distributed --trace`: `tools/torch-profiler.md`.
 - How much host work (launches, thread busy time, named ops) does each arm issue per step? `scripts/host_ops.py`.
+- Per layer type and pass (forward, backward, AC recompute), how much time goes to Inductor, eager ATen, custom-op and GEMM kernels, and which runs of small kernels could one fused kernel replace? `scripts/layer_inventory.py`.
 - Do host-side stream waits (e.g. FSDP's reduce-scatter cap) stall the GPU, and how much does labeled
   communication overlap compute? `scripts/comm_waits.py`, figure via `scripts/timeline_figure.py --comm-kernel`.
 - Is a slow collective transferring or waiting for a late rank, and which rank arrives last? `scripts/collective_skew.py`
@@ -78,6 +79,7 @@ Runs, host and compiler:
 - Where does the host block on the GPU (syncs), from which Python line? `scripts/find_syncs.py` (costs), then
   `scripts/sync_stacks/`, `sync_stacks_report.py` (file:line) and `join_sync_dumps.py`; `analysis/cuda-syncs.md`.
 - What keeps `torch.compile` recompiling, at which step? `scripts/recompile_reasons.py`.
+- Which ATen ops and source lines does each Inductor kernel cover, and which backward-graph kernels replay the checkpointed forward? `scripts/inductor_kernels.py` over a `TORCH_COMPILE_DEBUG=1` dump.
 - Which rank or node compiled (Dynamo recompile, DeepGEMM or Triton JIT) in which step, and when was the last compile, so
   step time can be reported over all steps and after it? `scripts/compile_events.py`, then `scripts/run_metrics.py
   --steady <last+1> <end>` (and `--stat mean` for the all-step view).
