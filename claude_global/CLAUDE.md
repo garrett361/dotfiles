@@ -35,6 +35,9 @@ These govern your replies to me, prose, and docs alike.
 ## Scratch files
 - `~/tmp/`: put temporary files we work on together here (issue drafts, notes, throwaway scripts), rather than in the repo or in `/tmp`. Create it if it doesn't exist.
 
+## Clusters
+- Hard rule: on any cluster (usually SLURM), never run CPU- or memory-heavy work on a login node, and never let a subagent do so. That covers builds and compiles, `uv sync`, tests, training or eval, data processing, and profiler post-processing. Run it inside an allocation (e.g. `srun --jobid=<id> --overlap`); if none exists, stop and ask me rather than falling back to the login node. Light commands (git, editing, reading files, `squeue`) are fine on the login node.
+
 ## Git
 - Never run `git push` (or otherwise publish commits/branches to a remote) without my explicit verbal approval in the conversation first, every time, even if a push was approved earlier in the same session or for a similar task.
 - Never add a file to `.gitignore` or `.git/info/exclude` just to keep it out of a commit. Ignore rules hide files from search tooling that respects them, which I rely on. Scratch markdown (plans, PR drafts, handoffs, notes) stays visible and untracked: simply don't `git add` it. The exception is a remote handoff's `PLAN.md`, which the git-tree-plan skill commits so another machine can pull it.
