@@ -67,7 +67,7 @@ before weighing in on the user's points, and do not fold their views into it.
   ```
   <user's preamble>
 
-  Generated below, for your agent:
+  Inline comments are mostly agent-written. Generated below, for your agent:
 
   ---
 
@@ -112,6 +112,11 @@ copy it into an inline code comment, or drop it.
     Go longer only when pseudocode or a suggested replacement is needed to explain the change.
   - A comment's line must fall inside a diff hunk. When the code at fault is unchanged (outside the diff), anchor
     the comment on the changed line that calls it.
+  - Before posting, confirm the PR head is still the SHA the line numbers were read at (`gh pr view N --json
+    headRefOid`), and read each anchor line from that SHA to check it holds what the comment is about. If the
+    head moved, re-read the lines at the new head and post against it.
+  - A range comment displays under its last line, so end the range on the line the comment is about (e.g. the
+    second of two paragraphs, not the last bullet of a list that follows them).
   - The user marks items to inline in the review file (e.g. a trailing `GG: inline`). After posting, replace each
     mark with a status tag such as `[posted inline on L130, pending review]`, and keep the item's number unchanged
     so earlier references to it still hold. The tags show which items are covered by the pending review.
@@ -159,6 +164,10 @@ deliverable next to the independent review, not a replacement for it.
 
 - Answer each comment or question against the code and sources, with `file:line`. Push back when the user's
   reading does not hold, and revise earlier findings when a comment exposes a mistake.
+- Comments often arrive in bursts while the user reads the diff, sent mainly so they are not lost. Answer
+  each briefly in chat and leave the review file alone until the user says they are done. Then reconcile
+  the comments with the independent review: merge overlaps, and decide with the user, item by item,
+  what goes top-level, what goes inline, and what is dropped.
 - When the user drafts a GitHub comment, check every claim in it and propose precise wording with
   supporting permalinks, and put it in the review file once agreed.
 - Do not edit the PR's code unless asked; the output is review text.
