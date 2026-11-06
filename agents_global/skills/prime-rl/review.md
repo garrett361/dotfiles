@@ -12,7 +12,7 @@ before weighing in on the user's points, and do not fold their views into it.
   `git merge-base <head> origin/main` after that fetch, since local `main` is often stale. Read from a
   checkout whose `HEAD` equals the head SHA, from `git show <sha>:<path>`, or from a `git archive` snapshot
   in the scratchpad; check `git status` before checking out in the user's worktree. Submodules may belong
-  to another branch, so read pinned dependencies at the PR's pins (`git -C deps/<name> show <sha>:<path>`).
+  to another branch, so read pinned dependencies at the PR's pins (see Submodules under Running code).
   If the user says uncommitted local changes are part of the review, the working tree is the source. Say
   which source the review used.
 - **PR description before the diff:** `gh pr view N --json number,title,body,url,author,headRefOid`. It often
@@ -28,8 +28,10 @@ before weighing in on the user's points, and do not fold their views into it.
 - **The first pass is read-only.** Review from the diff, the PR body, pinned library sources, and upstream issues, without running the PR's tests or project code. After delivering the review, ask whether to run anything that would settle open findings.
 - **The review machine is often the user's laptop** (macOS, no GPUs, and the repo's compute stack is
   linux-only), so even "not gpu" suites and venv builds usually cannot produce meaningful results there. Do
-  not initialize submodules, build venvs, or sync dependencies to try; report such claims as "reported,
-  not checked" instead.
+  not build venvs or sync dependencies to try; report such claims as "reported, not checked" instead.
+- **Submodules follow the PR's pins:** after checking out the PR, run `git submodule update --init` so
+  dependency source matches the pins. Ask first only when that would discard work: a submodule with
+  uncommitted changes, or commits that are on no remote branch.
 - **Trivial scratch scripts are exempt**: a short pure-Python script with preinstalled packages (shape
   math, regexes over sources, small parsers) is fine without asking.
 - **On a cluster, an allocation can run the real thing** (GPU steps, the suite, e2e), but only when the
