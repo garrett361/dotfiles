@@ -62,6 +62,7 @@ The desired big-picture design of the prime-rl RL system, as currently agreed. T
 - Keeping heavy per-token arrays at the inference engine instead of sending them to env servers.
 - Live-state checkpointing of in-flight episodes and sandboxes.
 - Restarting a component, such as the trainer, with new source code mid-run.
+- Explicit per-component state machines: each component reports its state (one endpoint backing health and readiness), and cross-component actions are conditional, epoch-tagged, idempotent requests the state's owner validates. Promising; needs a worked example before deciding.
 
 ## Decision log
 
