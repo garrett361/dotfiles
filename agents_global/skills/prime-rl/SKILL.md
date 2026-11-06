@@ -1,6 +1,6 @@
 ---
 name: prime-rl
-description: Personal conventions for prime-rl work that the repo's own skills don't cover. Use when the user asks for end-to-end tests, A/B comparisons, parity checks, benchmarks, or any other measurement of a prime-rl change. Also use when reviewing a prime-rl PR or branch, or asked for an independent review of one.
+description: Personal conventions for prime-rl work that the repo's own skills don't cover. Use when the user asks for end-to-end tests, A/B comparisons, parity checks, benchmarks, or any other measurement of a prime-rl change. Also use when reviewing a prime-rl PR or branch, or asked for an independent review of one. Also use when discussing or reviewing the RL system's design, resilience, or component responsibilities.
 ---
 
 # prime-rl conventions
@@ -15,3 +15,6 @@ description: Personal conventions for prime-rl work that the repo's own skills d
   user asks for end-to-end tests.
 - `review.md`: how to review a prime-rl PR branch, including a follow-up on the user's earlier comments. Read it
   when the user asks for a review of a PR or the checked-out branch.
+- `north-star.md`: the currently agreed big-picture design of the RL system. Read it before design discussions and before reviewing pipeline or resilience changes; update it, with a dated Decision log line, when a design decision is agreed.
+- `invariants.md`: desired invariants with status. Cross-reference designs and PRs against it, and update statuses as code changes.
+- North Star docs stay short, high level and human readable: no internal model or run names, no hard-to-verify measurements, at least one summarizing ASCII diagram per design doc (not the invariants list), and if a doc passes 100 lines, discuss simplifying or splitting it before adding more.
