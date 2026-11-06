@@ -6,26 +6,20 @@ before weighing in on the user's points, and do not fold their views into it.
 
 ## Gather
 
-- **Independent of where the review is invoked:** the current worktree may be the PR branch, a main
-  checkout, or an unrelated branch. Never read the PR's code, `AGENTS.md`, or `uv.lock` from the working
-  tree, and never use local `main` or `HEAD`. Instead:
-  - Identify the PR by number or URL. If the user gave neither, `gh pr view --json number,url` on the
-    current branch, and confirm with the user if that returns nothing or an unexpected PR.
-  - Fetch into any clone of the repo (`git fetch origin pull/N/head main`; it only adds refs), record the
-    head SHA, and compute the base as `git merge-base FETCH_HEAD origin/main` after that fetch.
-  - Snapshot the head into the scratchpad: `git archive <head> | tar -x -C <scratch>/prN/head`. All reading,
-    including `AGENTS.md`, `uv.lock` and configs, happens there. `git show <sha>:<path>` works for other commits.
-  - The exceptions: when the user says uncommitted local changes are part of the review, the working tree
-    is the source. When the user asks to check out the PR branch in the current worktree, check
-    `git status` first and report anything the checkout would carry over, run `gh pr checkout N`, confirm
-    `HEAD` equals the PR head SHA, and read from that checkout. Submodules keep their local commits, so
-    read a pinned dependency with `git -C deps/<name> show <pinned sha>:<path>`. Say which source the
-    report used.
+- **Read the code under review, at the right commit:** identify the PR (number or URL; else `gh pr view
+  --json number,url` on the current branch, confirming with the user if it is empty or unexpected), fetch
+  (`git fetch origin pull/N/head main`), and record the head SHA. The base is
+  `git merge-base <head> origin/main` after that fetch, since local `main` is often stale. Read from a
+  checkout whose `HEAD` equals the head SHA, from `git show <sha>:<path>`, or from a `git archive` snapshot
+  in the scratchpad; check `git status` before checking out in the user's worktree. Submodules may belong
+  to another branch, so read pinned dependencies at the PR's pins (`git -C deps/<name> show <sha>:<path>`).
+  If the user says uncommitted local changes are part of the review, the working tree is the source. Say
+  which source the review used.
 - **PR description before the diff:** `gh pr view N --json number,title,body,url,author,headRefOid`. It often
   holds the only evidence (measurements, logs, the failing run), and its claims are review targets too.
 - **Scope:** `git diff <base> <head>`, or `gh pr diff N` when it matches. Ignore submodule pointer noise
   (`deps/*`) unless the PR is about them.
-- **Pinned versions:** read dependency versions from the snapshot's `uv.lock`, not the local `.venv`, which
+- **Pinned versions:** read dependency versions from `uv.lock` at the PR head, not the local `.venv`, which
   belongs to whatever worktree the review was invoked from. When the PR leans on library behavior, ask for or
   locate a local checkout of that exact tag (e.g. torch at `v2.13.0`) and check it is clean at the tag.
 
