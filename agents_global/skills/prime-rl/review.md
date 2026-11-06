@@ -117,9 +117,10 @@ copy it into an inline code comment, or drop it.
     head moved, re-read the lines at the new head and post against it.
   - A range comment displays under its last line, so end the range on the line the comment is about (e.g. the
     second of two paragraphs, not the last bullet of a list that follows them).
-  - The user marks items to inline in the review file (e.g. a trailing `GG: inline`). After posting, replace each
-    mark with a status tag such as `[posted inline on L130, pending review]`, and keep the item's number unchanged
-    so earlier references to it still hold. The tags show which items are covered by the pending review.
+  - The user marks items to inline in the review file (e.g. a trailing `GG: inline`). After posting, delete each
+    item moved inline from the review file, with no status tag, so the file never duplicates the pending review.
+    An item the user keeps in both places stays top-level in short form, with the detail in the inline comment.
+    Inline comments name the item's topic rather than its number, since deleting items renumbers the rest.
 - **Side questions** raised during the walkthrough ("is this patch needed?", "did someone already do this?") go to
   subagents; fold the answers into the relevant item rather than adding sections.
 
