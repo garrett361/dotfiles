@@ -17,4 +17,5 @@ description: Personal conventions for prime-rl work that the repo's own skills d
   when the user asks for a review of a PR or the checked-out branch.
 - `north-star.md`: the currently agreed big-picture design of the RL system. Read it before design discussions and before reviewing pipeline or resilience changes; update it, with a dated Decision log line, when a design decision is agreed.
 - `invariants.md`: desired invariants with status. Cross-reference designs and PRs against it, and update statuses as code changes.
-- North Star docs stay short, high level and human readable: no internal model or run names, no hard-to-verify measurements, at least one summarizing ASCII diagram per design doc (not the invariants list), and if a doc passes 100 lines, discuss simplifying or splitting it before adding more.
+- North Star docs stay short, high level and human readable: no internal model or run names, no links to private repos, artifacts or internal documents (only public prime-rl PRs), no hard-to-verify measurements, at least one summarizing ASCII diagram per design doc (not the invariants list), and if a doc passes 100 lines, discuss simplifying or splitting it before adding more.
+- `prs.md`: public prime-rl PRs relevant to the North Star, with their relation to it. Refresh states when reading and update notes as discussions conclude.
