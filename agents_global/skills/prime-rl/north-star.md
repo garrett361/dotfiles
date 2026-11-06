@@ -47,6 +47,7 @@ The desired big-picture design of the prime-rl RL system, as currently agreed. T
 
 - A policy is identified by `(epoch, version)`; the epoch increases whenever a trainer restore recomputes already-published versions. Writes and pulls from an older epoch are rejected.
 - NCCL broadcast is the steady-state weight path; group membership changes only at version boundaries. A durable copy serves joiners and recovery.
+- Direction (soft): the weight transport and inference own when versions switch, inference reports the version it serves, and the orchestrator only bounds run-ahead through when it releases batches. Not to be attempted before a pull-based transport is mature and tested; until then the orchestrator keeps driving updates. With NCCL, all engines switch together when the trainer sends.
 
 ## Health
 
@@ -55,7 +56,7 @@ The desired big-picture design of the prime-rl RL system, as currently agreed. T
 
 ## Open questions
 
-- Who decides when inference switches weight versions: the orchestrator, or inference on arrival with the orchestrator only enforcing staleness.
+- A mature, tested pull-based weight transport, the prerequisite for letting inference install versions on arrival.
 - Mid-transfer NCCL abort versus process restart and reload.
 - How several trainer ranks read the same rollout (one rank pulls and shares, or ref-counted slice pulls).
 - Keeping heavy per-token arrays at the inference engine instead of sending them to env servers.
@@ -74,3 +75,4 @@ The desired big-picture design of the prime-rl RL system, as currently agreed. T
 - 2026-11-05: Components self-exit when certain; `/health` and `/ready` everywhere; SLURM stays exit-based.
 - 2026-11-05: Each component exposes its own control endpoints; a run controller owns cross-component actions.
 - 2026-11-05: Live-state checkpointing of in-flight episodes and sandboxes moved into nearer-term scope.
+- 2026-11-05: Soft decision: inference installs versions on arrival and the orchestrator only bounds run-ahead, gated on a mature, tested pull-based weight transport.
