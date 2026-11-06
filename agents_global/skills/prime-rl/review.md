@@ -15,8 +15,12 @@ before weighing in on the user's points, and do not fold their views into it.
     head SHA, and compute the base as `git merge-base FETCH_HEAD origin/main` after that fetch.
   - Snapshot the head into the scratchpad: `git archive <head> | tar -x -C <scratch>/prN/head`. All reading,
     including `AGENTS.md`, `uv.lock` and configs, happens there. `git show <sha>:<path>` works for other commits.
-  - The only exception is when the user says uncommitted local changes are part of the review; then the
-    working tree is the source, and say so in the report.
+  - The exceptions: when the user says uncommitted local changes are part of the review, the working tree
+    is the source. When the user asks to check out the PR branch in the current worktree, check
+    `git status` first and report anything the checkout would carry over, run `gh pr checkout N`, confirm
+    `HEAD` equals the PR head SHA, and read from that checkout. Submodules keep their local commits, so
+    read a pinned dependency with `git -C deps/<name> show <pinned sha>:<path>`. Say which source the
+    report used.
 - **PR description before the diff:** `gh pr view N --json number,title,body,url,author,headRefOid`. It often
   holds the only evidence (measurements, logs, the failing run), and its claims are review targets too.
 - **Scope:** `git diff <base> <head>`, or `gh pr diff N` when it matches. Ignore submodule pointer noise
