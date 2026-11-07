@@ -10,32 +10,40 @@ torch.optim's step range) is assigned:
 - a segment: the latest host event on the launch's thread, at or before the launch, matching `--segment`. Its named
   group `segment` names the segment (a layer), and its named group `pass` sets the pass: backward if that text
   contains "backward", else forward. The default matches FSDP2's per-module hooks `FSDP::pre_forward (<module>)` and
-  `FSDP::pre_backward (<module>)`. Kernels launched before the first segment are dropped.
+  `FSDP::pre_backward (<module>)`. Kernels launched before the first segment are dropped, and so are kernels whose
+  latest such host event matches `--segment-end` instead (e.g. a range the caller opens after the layers' backward).
 - a layer type: the first `--layer-type REGEX=LABEL` whose regex matches the segment name, else the segment name.
 - a class, first match wins: `nccl` (kernel name matches `--comm`); each `--class LABEL:REGEX`, matched against
   `<host stack> [<dims>] : <kernel name>` as in `top_kernels.py --category-context`; `gemm` (name matches `--gemm`,
   or the innermost cpu_op is an ATen GEMM); `custom` (launched inside a namespaced op outside torch's namespaces,
   e.g. `prime_rl::...`, `flash_attn_3::...`); `inductor` (`triton_*`); `copy` (memcpy, memset); `eager` (the rest).
   Custom comes before inductor because the profiler can name a custom op's Triton kernel like an Inductor kernel.
-- a recompute flag (activation checkpointing): a backward-pass kernel moves to pass `recompute` when its custom op's
-  name does not match `--backward-op`, when it is a GEMM whose input dims equal a forward GEMM's in the same layer
-  type, or when it is an Inductor kernel listed for its layer type in `--recompute-kernels` (JSON
+- a recompute flag (activation checkpointing): a backward-pass kernel moves to pass `recompute` when it is launched
+  inside a custom op (whatever its class) whose name does not match `--backward-op`, when it is a GEMM whose input
+  dims equal a forward GEMM's in the same layer type, or when it is an Inductor kernel listed for its layer type in
+  `--recompute-kernels` (JSON
   `{"<layer type>": [kernel names]}`, from `inductor_kernels.py --recompute-json`). The GEMM rule misfiles gradient
-  GEMMs shaped like forward ones, so totals over passes are exact and the pass split is approximate.
+  GEMMs shaped like forward ones, so totals over passes are exact and the pass split is approximate. With
+  `--recompute-gemms` (JSON `{"<layer type>": [true if recompute, per GEMM call]}`, from `inductor_kernels.py
+  --gemm-sequence-json`), the GEMM ops a compiled backward launches directly (`CompiledFunctionBackward > aten::mm`
+  etc., no custom op between) take their flag by call order within each segment invocation instead, which is exact.
 
-Output, per step if the window is one step (with K micro-batches per step, `--annotation-index -K`): launches / GPU ms
+Output, per step if the window is one step (with K micro-batches per step, `--annotation-index -K`; or pass
+`--steps N` for a window of N steps, which divides launches and times by N): launches / GPU ms
 per (layer type, pass) and class, with a total over the classes not in `--total-skip` and the share launched outside
 compiled regions; the same per layer type over all passes; then chains: maximal runs of at least `--min-chain`
 consecutive kernels on the main compute stream within one segment invocation, each of a class in `--chain-classes` and
 shorter than `--small-us`, grouped by (layer type, pass, kernel sequence) with the kernel or custom op before and after.
+`--top-per-class K` prints the K kernels (by name) with the most time per (layer type, pass, class).
 Each chain gets a fused-pass floor, its largest kernel's argument bytes (`top_kernels.py --arg-bytes`) read once at
 `--hbm-tbps`; recoverable = chain time minus that floor, an upper bound on what one fused kernel saves. `--csv-prefix P`
 writes `P_inventory.csv`, `P_chains.csv` and `P_kernels.csv` (one row per kernel).
 
 Usage: uv run --script layer_inventory.py <trace.json.gz> [--annotation forward] [--annotation-index -1]
-         [--end-annotation '^Optimizer\\.step'] [--segment REGEX] [--layer-type REGEX=LABEL ...]
+         [--end-annotation '^Optimizer\\.step'] [--segment REGEX] [--segment-end REGEX] [--layer-type REGEX=LABEL ...]
          [--class LABEL:REGEX ...] [--comm nccl] [--gemm REGEX] [--backward-op 'backward|bwd']
-         [--recompute-kernels recompute.json] [--total-skip nccl] [--chain-classes inductor,eager,copy]
+         [--recompute-kernels recompute.json] [--recompute-gemms gemms.json] [--steps 1] [--top-per-class 0]
+         [--total-skip nccl] [--chain-classes inductor,eager,copy]
          [--small-us 50] [--min-chain 2] [--hbm-tbps 3.0] [--top-chains 40] [--csv-prefix PREFIX]
   prime-rl classes: projects/prime-rl.md.
 """
@@ -64,6 +72,8 @@ def parse_args():
     p.add_argument("--end-annotation", default=r"^Optimizer\.step", help="regex of the user_annotation closing it")
     p.add_argument("--segment", default=r"^FSDP::pre_(?P<pass>forward|backward) \((?P<segment>[^)]*)\)",
                    help="regex of host events opening a segment, with named groups `segment` and `pass`")
+    p.add_argument("--segment-end", default=None,
+                   help="regex of host events closing the current segment on their thread (later launches dropped)")
     p.add_argument("--layer-type", action="append", default=[], help="REGEX=LABEL on the segment name (repeatable)")
     p.add_argument("--class", dest="classes", action="append", default=[], metavar="LABEL:REGEX",
                    help="class rule on '<host stack> [<dims>] : <kernel name>', checked after nccl (repeatable)")
@@ -72,6 +82,9 @@ def parse_args():
                    help="regex (case-insensitive) of GEMM kernel names")
     p.add_argument("--backward-op", default="backward|bwd", help="regex (case-insensitive) of backward custom ops")
     p.add_argument("--recompute-kernels", default=None, help='JSON {"<layer type>": [Inductor kernel names]}')
+    p.add_argument("--recompute-gemms", default=None, help='JSON {"<layer type>": [recompute flag per GEMM call]}')
+    p.add_argument("--steps", type=int, default=1, help="steps in the window; launches and times are divided by it")
+    p.add_argument("--top-per-class", type=int, default=0, help="kernels listed per (layer type, pass, class)")
     p.add_argument("--total-skip", default="nccl", help="comma list of classes left out of the totals")
     p.add_argument("--chain-classes", default="inductor,eager,copy", help="comma list of classes chains may hold")
     p.add_argument("--small-us", type=float, default=50.0, help="chain kernels are shorter than this")
@@ -125,7 +138,8 @@ def kernel_rows(args):
     gpu = sorted((e for e in xs if e.get("cat") in GPU_CATS and e.get("args", {}).get("correlation") in corrs),
                  key=lambda e: e["ts"])
     stacks = launch_stacks(xs, corrs)
-    segments = latest_marks(xs, corrs, re.compile(args.segment))
+    pattern = args.segment if args.segment_end is None else f"(?:{args.segment})|(?P<segment_end>{args.segment_end})"
+    segments = latest_marks(xs, corrs, re.compile(pattern))
     layer_types = [(re.compile(spec.split("=", 1)[0]), spec.split("=", 1)[1]) for spec in args.layer_type]
     class_rules = [(spec.split(":", 1)[0], re.compile(spec.split(":", 1)[1])) for spec in args.classes]
     rows = []
@@ -134,6 +148,8 @@ def kernel_rows(args):
         if corr not in segments:
             continue
         mark, found = segments[corr]
+        if args.segment_end is not None and found.group("segment_end") is not None:
+            continue
         stack = stacks.get(corr, [])
         chain = [o for o in stack if o.get("cat") == "cpu_op" and o["name"] not in WRAPPER_OPS]
         segment = found.group("segment")
@@ -147,6 +163,8 @@ def kernel_rows(args):
             compiled=any(o["name"].startswith(COMPILED) for o in stack),
             gemm_dims=json.dumps(chain[-1].get("args", {}).get("Input Dims")) if cls == "gemm" and chain else None,
             bytes=arg_bytes(chain[-1]) if chain else 0,
+            compiled_gemm=(chain[-1]["ts"] if chain and GEMM_OP.match(chain[-1]["name"]) and not custom
+                           and any(o["name"].startswith("CompiledFunctionBackward") for o in chain) else None),
         ))
     return rows, start, end
 
@@ -160,17 +178,37 @@ def mark_recompute(rows, args):
     for r in rows:
         if r["pass_"] == "forward" and r["gemm_dims"]:
             forward_gemms[r["ltype"]].add(r["gemm_dims"])
+    gemm_flags = {}
+    if args.recompute_gemms:
+        with open(args.recompute_gemms) as f:
+            gemm_flags = json.load(f)
+    calls = defaultdict(set)
+    for r in rows:
+        if r["pass_"] == "backward" and r["compiled_gemm"] is not None and r["ltype"] in gemm_flags:
+            calls[(r["segment"], r["seg_start"])].add(r["compiled_gemm"])
+    sequenced = {}
+    for (segment, seg_start), ops in calls.items():
+        ltype = next(r["ltype"] for r in rows if r["segment"] == segment)
+        if len(ops) != len(gemm_flags[ltype]):
+            sys.exit(f"{segment} backward at {seg_start}: {len(ops)} compiled-backward GEMM ops against "
+                     f"{len(gemm_flags[ltype])} flags in --recompute-gemms for {ltype}")
+        sequenced.update({((segment, seg_start), op): flag for op, flag in zip(sorted(ops), gemm_flags[ltype])})
     for r in rows:
         if r["pass_"] != "backward":
             continue
-        forward_custom = r["cls"] in ("custom", "gemm") and r["custom"] and not re.search(args.backward_op, r["custom"], re.I)
+        key = ((r["segment"], r["seg_start"]), r["compiled_gemm"])
+        if key in sequenced:
+            if sequenced[key]:
+                r["pass_"] = "recompute"
+            continue
+        forward_custom = bool(r["custom"]) and not re.search(args.backward_op, r["custom"], re.I)
         forward_gemm = r["cls"] == "gemm" and r["gemm_dims"] in forward_gemms[r["ltype"]]
         listed = r["cls"] == "inductor" and r["name"] in recompute_names[r["ltype"]]
         if forward_custom or forward_gemm or listed:
             r["pass_"] = "recompute"
 
 
-def inventory(rows, classes, skip, by_pass):
+def inventory(rows, classes, skip, by_pass, steps):
     cells = defaultdict(lambda: [0, 0.0])
     for r in rows:
         key = (r["ltype"], r["pass_"] if by_pass else "all")
@@ -184,8 +222,9 @@ def inventory(rows, classes, skip, by_pass):
     lines = ["| layer type | pass | " + " | ".join(cols) + " |", "|---|---|" + "---|" * len(cols)]
     for key in sorted({c[:2] for c in cells}):
         values = [cells.get(key + (c,), (0, 0.0)) for c in cols]
-        lines.append(f"| {key[0]} | {key[1]} | " + " | ".join(f"{n} / {d / 1e3:.2f}" for n, d in values) + " |")
-    csv_rows = [dict(layer_type=key[0], pass_=key[1], cls=c, launches=n, ms=round(d / 1e3, 3))
+        lines.append(f"| {key[0]} | {key[1]} | " + " | ".join(f"{n / steps:g} / {d / 1e3 / steps:.2f}"
+                                                               for n, d in values) + " |")
+    csv_rows = [dict(layer_type=key[0], pass_=key[1], cls=c, launches=round(n / steps, 2), ms=round(d / 1e3 / steps, 3))
                 for (*key, c), (n, d) in sorted(cells.items())]
     return "\n".join(lines), csv_rows
 
@@ -208,11 +247,11 @@ def find_chains(rows, args):
         names = tuple(re.sub(r"_\d+$", "", r["short"]) for r in run)
         c = chains[(run[0]["ltype"], run[0]["pass_"], names, label(before), label(after))]
         biggest = max(r["bytes"] for r in run)
-        c["n"] += 1
-        c["ms"] += sum(r["dur"] for r in run) / 1e3
-        c["launches"] += len(run)
+        c["n"] += 1 / args.steps
+        c["ms"] += sum(r["dur"] for r in run) / 1e3 / args.steps
+        c["launches"] += len(run) / args.steps
         c["max_bytes"] = max(c["max_bytes"], biggest)
-        c["floor_ms"] += biggest / (args.hbm_tbps * 1e12) * 1e3
+        c["floor_ms"] += biggest / (args.hbm_tbps * 1e12) * 1e3 / args.steps
         c["sites"] = c["sites"] or [r["site"][:140] for r in run]
         c["outside"] = not any(r["compiled"] for r in run)
 
@@ -257,18 +296,29 @@ def main():
           f"`{args.end_annotation}` ({(end - start) / 1e3:.1f} ms host), {len(rows)} GPU events in segments")
     print("- layer types: " + "; ".join(f"{t}: {', '.join(sorted(s))}" for t, s in sorted(instances.items())))
     print(f"- cells: launches / GPU ms; total skips {', '.join(sorted(skip)) or 'nothing'}")
-    by_pass, inventory_csv = inventory(rows, classes, skip, by_pass=True)
+    by_pass, inventory_csv = inventory(rows, classes, skip, by_pass=True, steps=args.steps)
     print(f"\n## Per layer type and pass\n\n{by_pass}")
-    print(f"\n## Per layer type, all passes\n\n{inventory(rows, classes, skip, by_pass=False)[0]}")
+    print(f"\n## Per layer type, all passes\n\n{inventory(rows, classes, skip, False, args.steps)[0]}")
+    if args.top_per_class:
+        print(f"\n## Top {args.top_per_class} kernels per layer type, pass and class (launches / GPU ms per step)\n")
+        by_group = defaultdict(lambda: defaultdict(lambda: [0, 0.0]))
+        for r in rows:
+            cell = by_group[(r["ltype"], r["pass_"], r["cls"])][r["short"]]
+            cell[0] += 1
+            cell[1] += r["dur"]
+        for (ltype, pass_, cls), kernels in sorted(by_group.items()):
+            top = sorted(kernels.items(), key=lambda kv: -kv[1][1])[: args.top_per_class]
+            print(f"- {ltype} {pass_} {cls}: " + "; ".join(
+                f"`{name[:70]}` {n / args.steps:g} / {d / 1e3 / args.steps:.2f}" for name, (n, d) in top))
 
     main_stream, ranked = find_chains(rows, args)
     print(f"\n## Chains of >= {args.min_chain} consecutive small kernels (< {args.small_us:g} us, "
           f"{args.chain_classes}) on stream {main_stream}\n")
-    print(f"- {len(ranked)} distinct chains, {sum(c['ms'] for _, c in ranked):.2f} ms in chains\n")
+    print(f"- {len(ranked)} distinct chains, {sum(c['ms'] for _, c in ranked):.2f} ms in chains per step\n")
     print("| # | layer type | pass | kernels | n / ms | recoverable ms | before -> after | outside compiled |")
     print("|---|---|---|---|---|---|---|---|")
     for i, ((t, p, names, before, after), c) in enumerate(ranked[: args.top_chains]):
-        print(f"| {i} | {t} | {p} | {len(names)} | {c['n']} / {c['ms']:.2f} | {c['ms'] - c['floor_ms']:.2f} |"
+        print(f"| {i} | {t} | {p} | {len(names)} | {c['n']:g} / {c['ms']:.2f} | {c['ms'] - c['floor_ms']:.2f} |"
               f" {before} -> {after} | {'yes' if c['outside'] else 'no'} |")
     print()
     for i, ((t, p, names, before, after), c) in enumerate(ranked[: args.top_chains]):
