@@ -225,6 +225,14 @@ command -v bjobs  >/dev/null 2>&1 && [ -f "$HOME/.lsf_fns.sh" ]   && source "$HO
 # every shell until install.sh reruns. Unconditional: git is always present.
 [ -f "$DOTFILES/.git_fns.sh" ] && source "$DOTFILES/.git_fns.sh"
 
+# No claude.ai connectors on remote machines. --settings outranks user and project
+# settings, and a true disableClaudeAiConnectors from any source cannot be overridden.
+if [ "$(uname -s)" != "Darwin" ]; then
+    claude() {
+        command claude --settings '{"disableClaudeAiConnectors":true,"syncClaudeAiSkills":false,"syncClaudeAiPlugins":false}' "$@"
+    }
+fi
+
 # Set in .commonprofile too, since neither alone reaches every shell type: zsh reads .zprofile only
 # when login and .zshrc only when interactive.
 [ -f "$HOME/.localrc" ] && . "$HOME/.localrc"
