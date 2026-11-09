@@ -15,6 +15,7 @@ REPOS=(
     verifiers
     prime-pt
     prime-mega-moe
+    router
 )
 
 # git refuses to check out main twice, so the clone parks on a detached HEAD and the -main worktree
