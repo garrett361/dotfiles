@@ -19,11 +19,15 @@ torch.optim's step range) is assigned:
   e.g. `prime_rl::...`, `flash_attn_3::...`); `inductor` (`triton_*`); `copy` (memcpy, memset); `eager` (the rest).
   Custom comes before inductor because the profiler can name a custom op's Triton kernel like an Inductor kernel.
 - a recompute flag (activation checkpointing): a backward-pass kernel moves to pass `recompute` when it is launched
-  inside a custom op (whatever its class) whose name does not match `--backward-op`, when it is a GEMM whose input
-  dims equal a forward GEMM's in the same layer type, or when it is an Inductor kernel listed for its layer type in
-  `--recompute-kernels` (JSON
-  `{"<layer type>": [kernel names]}`, from `inductor_kernels.py --recompute-json`). The GEMM rule misfiles gradient
-  GEMMs shaped like forward ones, so totals over passes are exact and the pass split is approximate. With
+  inside a custom op (whatever its class) whose name does not match `--backward-op`, when it is a GEMM whose launching
+  op's `Input Dims` and `Input Strides` both equal a forward GEMM's in the same layer type, or when it is an Inductor
+  kernel listed for its layer type in `--recompute-kernels` (JSON
+  `{"<layer type>": [kernel names]}`, from `inductor_kernels.py --recompute-json`). Strides matter because a dgrad GEMM
+  often has a forward GEMM's dims (`dx = dy @ W` for one linear has the dims of `x @ W.T` for another linear in the
+  layer, or for the same linear when it is square), but reads the weight in its stored layout, where the forward reads
+  a transposed view; the recompute replays the forward call, strides included. A gradient GEMM whose dims and strides
+  both equal a forward GEMM's still counts as recompute, so totals over passes are exact and the pass split can be
+  approximate. With
   `--recompute-gemms` (JSON `{"<layer type>": [true if recompute, per GEMM call]}`, from `inductor_kernels.py
   --gemm-sequence-json`), the GEMM ops a compiled backward launches directly (`CompiledFunctionBackward > aten::mm`
   etc., no custom op between) take their flag by call order within each segment invocation instead, which is exact.
@@ -41,7 +45,7 @@ writes `P_inventory.csv`, `P_chains.csv` and `P_kernels.csv` (one row per kernel
 
 Usage: uv run --script layer_inventory.py <trace.json.gz> [--annotation forward] [--annotation-index -1]
          [--end-annotation '^Optimizer\\.step'] [--segment REGEX] [--segment-end REGEX] [--layer-type REGEX=LABEL ...]
-         [--class LABEL:REGEX ...] [--comm nccl] [--gemm REGEX] [--backward-op 'backward|bwd']
+         [--class LABEL:REGEX ...] [--comm nccl] [--gemm REGEX] [--backward-op 'backward|bwd|dgrad|wgrad']
          [--recompute-kernels recompute.json] [--recompute-gemms gemms.json] [--steps 1] [--top-per-class 0]
          [--total-skip nccl] [--chain-classes inductor,eager,copy]
          [--small-us 50] [--min-chain 2] [--hbm-tbps 3.0] [--top-chains 40] [--csv-prefix PREFIX]
@@ -80,7 +84,8 @@ def parse_args():
     p.add_argument("--comm", default="nccl", help="regex (case-insensitive) of communication kernel names")
     p.add_argument("--gemm", default=r"nvjet|xmma|cutlass|gemm|GroupProblemShape|Kernel2|cublas",
                    help="regex (case-insensitive) of GEMM kernel names")
-    p.add_argument("--backward-op", default="backward|bwd", help="regex (case-insensitive) of backward custom ops")
+    p.add_argument("--backward-op", default="backward|bwd|dgrad|wgrad",
+                   help="regex (case-insensitive) of backward custom ops")
     p.add_argument("--recompute-kernels", default=None, help='JSON {"<layer type>": [Inductor kernel names]}')
     p.add_argument("--recompute-gemms", default=None, help='JSON {"<layer type>": [recompute flag per GEMM call]}')
     p.add_argument("--steps", type=int, default=1, help="steps in the window; launches and times are divided by it")
@@ -161,7 +166,8 @@ def kernel_rows(args):
             ltype=next((label for rx, label in layer_types if rx.search(segment)), segment),
             pass_="backward" if "backward" in found.group("pass") else "forward",
             compiled=any(o["name"].startswith(COMPILED) for o in stack),
-            gemm_dims=json.dumps(chain[-1].get("args", {}).get("Input Dims")) if cls == "gemm" and chain else None,
+            gemm_operands=json.dumps([chain[-1].get("args", {}).get(k) for k in ("Input Dims", "Input Strides")])
+            if cls == "gemm" and chain else None,
             bytes=arg_bytes(chain[-1]) if chain else 0,
             compiled_gemm=(chain[-1]["ts"] if chain and GEMM_OP.match(chain[-1]["name"]) and not custom
                            and any(o["name"].startswith("CompiledFunctionBackward") for o in chain) else None),
@@ -176,8 +182,8 @@ def mark_recompute(rows, args):
             recompute_names.update((label, set(names)) for label, names in json.load(f).items())
     forward_gemms = defaultdict(set)
     for r in rows:
-        if r["pass_"] == "forward" and r["gemm_dims"]:
-            forward_gemms[r["ltype"]].add(r["gemm_dims"])
+        if r["pass_"] == "forward" and r["gemm_operands"]:
+            forward_gemms[r["ltype"]].add(r["gemm_operands"])
     gemm_flags = {}
     if args.recompute_gemms:
         with open(args.recompute_gemms) as f:
@@ -202,7 +208,7 @@ def mark_recompute(rows, args):
                 r["pass_"] = "recompute"
             continue
         forward_custom = bool(r["custom"]) and not re.search(args.backward_op, r["custom"], re.I)
-        forward_gemm = r["cls"] == "gemm" and r["gemm_dims"] in forward_gemms[r["ltype"]]
+        forward_gemm = r["cls"] == "gemm" and r["gemm_operands"] in forward_gemms[r["ltype"]]
         listed = r["cls"] == "inductor" and r["name"] in recompute_names[r["ltype"]]
         if forward_custom or forward_gemm or listed:
             r["pass_"] = "recompute"

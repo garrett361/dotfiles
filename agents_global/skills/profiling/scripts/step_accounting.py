@@ -52,7 +52,9 @@ innermost cpu_op's first 3 Input Dims. Use it to split kernels that one name ser
 dense layers and the optimizer) by launching op, annotation or shape, and to keep a custom op's kernels out of a
 name-based category (see `top_kernels.py --category-context`). `--comm` detection and `--step-boundary` stay name-only.
 
-The header also reports the number of GPU activities (kernels, memcpys, memsets) per step.
+The header also reports the number of GPU activities (kernels, memcpys, memsets) per step. `--csv` writes the table's
+rows, ending with the same total rows as the printed table ("traced step window", then with `--untraced` the residual
+and "untraced median step"), so a consumer that sums the partition must skip those (`TOTAL_ROWS`).
 
 Usage:
   uv run --script step_accounting.py --trace "bf16=traces/bf16/trace_*.json.gz" \\
@@ -80,6 +82,10 @@ BLOCKING = re.compile(
     r"cudaStreamSynchronize|cudaDeviceSynchronize|cudaEventSynchronize|cudaMemcpy(?!Async)|cuStreamSynchronize|"
     r"cuCtxSynchronize|cuEventSynchronize|cuMemcpyDtoH(?!Async)"
 )
+WINDOW_ROW = "traced step window"
+RESIDUAL_ROW = "tracing overhead / residual (untraced minus traced window)"
+UNTRACED_ROW = "untraced median step"
+TOTAL_ROWS = (WINDOW_ROW, RESIDUAL_ROW, UNTRACED_ROW)
 COLLECTIVES = (
     ("AllGather", r"AllGather"),
     ("ReduceScatter", r"ReduceScatter"),
@@ -401,20 +407,21 @@ def main():
     for row in table:
         print(f"| {row[0][:150]} | " + " | ".join(f"{v:.2f}" for v in row[1:]) + " |")
     windows = [w for _, _, w, _ in results]
-    print("| **traced step window** | " + " | ".join(f"**{w:.2f}**" for w in windows)
-          + (f" | **{windows[1] - windows[0]:.2f}** |" if two else " |"))
+    totals = [(WINDOW_ROW, windows, True)]
     if untraced and all(label in untraced for label, _, _, _ in results):
         un = [untraced[label] for label, _, _, _ in results]
-        over = [u - w for u, w in zip(un, windows)]
-        print("| tracing overhead / residual (untraced minus traced window) | " + " | ".join(f"{v:.2f}" for v in over)
-              + (f" | {over[1] - over[0]:.2f} |" if two else " |"))
-        print("| **untraced median step** | " + " | ".join(f"**{v:.2f}**" for v in un)
-              + (f" | **{un[1] - un[0]:.2f}** |" if two else " |"))
+        totals += [(RESIDUAL_ROW, [u - w for u, w in zip(un, windows)], False), (UNTRACED_ROW, un, True)]
+    total_rows = []
+    for name, vals, bold in totals:
+        row = [name] + vals + ([vals[1] - vals[0]] if two else [])
+        total_rows.append(row)
+        cells = [f"**{v:.2f}**" if bold else f"{v:.2f}" for v in row[1:]]
+        print(f"| {f'**{name}**' if bold else name} | " + " | ".join(cells) + " |")
     if args.csv:
         with open(args.csv, "w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(["row"] + [label for label, _, _, _ in results] + (["delta"] if two else []))
-            writer.writerows(table)
+            writer.writerows(table + total_rows)
         print(f"wrote {args.csv}")
 
 

@@ -27,6 +27,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from step_accounting import TOTAL_ROWS
 
 ADD, SAVE, INK, MUTED, SURFACE = "#e34948", "#2a78d6", "#1f1f1e", "#6b6b68", "#fcfcfb"
 
@@ -38,6 +39,8 @@ def load(path, folds):
         if next(reader)[-1] != "delta":
             raise SystemExit(f"{path} has no delta column: pass a step_accounting.py CSV from a two-arm run")
         for row in reader:
+            if row[0] in TOTAL_ROWS:
+                continue
             label, delta = row[0], float(row[-1])
             for prefix in folds:
                 if label.startswith(prefix):

@@ -19,7 +19,8 @@ kernel names. `--recompute-json OUT` writes `{LABEL: [Triton kernels with a reco
 for `layer_inventory.py --recompute-kernels`; Inductor kernel names repeat across graphs, so label each backward graph
 with the layer type it compiles (`DIR=LABEL`, default the directory name). `--gemm-sequence-json OUT` writes
 `{LABEL: [true if recompute, per extern GEMM call (mm, addmm, bmm, _grouped_mm, ...) in call order]}` over the backward
-graphs for `layer_inventory.py --recompute-gemms`, which needs it where gradient GEMMs share a forward GEMM's shapes.
+graphs for `layer_inventory.py --recompute-gemms`, which needs it where gradient GEMMs share a forward GEMM's dims and
+strides.
 
 Usage: uv run --script inductor_kernels.py GRAPH_DIR[=LABEL] [GRAPH_DIR[=LABEL] ...] [--kernel REGEX]
          [--strip PREFIX] [--recompute-json recompute.json] [--gemm-sequence-json gemms.json]
