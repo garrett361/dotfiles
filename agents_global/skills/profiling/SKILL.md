@@ -30,7 +30,7 @@ This skill measures. To change a kernel (Triton or CuTe DSL authoring, fusion de
 Read only what the matching line names. A script named without a doc is documented by its module docstring at the top of
 the file. Run each script as its docstring says: `uv run --script` by default (each file's header declares its
 dependencies), and the project's interpreter (`uv run --no-sync python`) for the few that import torch or the project
-(`bench_ops.py`, `prime_rl_logprob_ab.py`).
+(`bench_ops.py`, `prime_rl_logprob_ab.py`, and `node_check.py` under torchrun).
 
 Op level:
 - Is this op faster, and by how much (median, p20, p80, peak memory, output check)? `scripts/bench_ops.py`
@@ -43,6 +43,10 @@ Op level:
   --query-gpu=timestamp,index,clocks.sm,power.draw,temperature.gpu,clocks_event_reasons.active --format=csv -lms 100`
   in the background during each timing run, then `scripts/gpu_clocks.py`; `tools/do-bench.md` (power cap, which
   also covers one clock log per arm in one process, and fused arms that intrinsically run at lower clocks).
+- Is this node or node pair healthy, can I trust its timings or put it in a multi-node job (GEMM TFLOP/s short and
+  sustained, HBM, NVLink and InfiniBand bandwidth, all-reduce/all-gather/all-to-all busbw, ECC, row remaps, IB port
+  state), judged against per-GPU-model bands and the fleet median? `scripts/node_check.py` under torchrun, then
+  `--summarize` over every node's and pair's results.
 - How long does a region of my code take, per call? Copy `scripts/cuda_timer.py` into the project (meant to be copied,
   not run, like `scripts/triton_event_recorder.py`).
 - Which kernels inside an op cost the time? `bench_ops.py --trace`, then `scripts/top_kernels.py --whole-trace
@@ -155,8 +159,8 @@ An op-level win that disappears end to end is a finding, not noise: go to layer 
   should be exact, otherwise loss/grad-norm curves that track step by step. Poisoned destinations, bitwise A/B of
   env-selected variants in one process, proving a device-predicated branch ran, and proving a fused path did not silently
   fall back: `tools/do-bench.md` (correctness).
-- Run arms on the same hardware class, serially or in parallel as the user asks (ask if unclear); never
-  share GPUs between a timing run and anything else.
+- Run arms on the same hardware class, on nodes that pass `scripts/node_check.py`, serially or in parallel as the user
+  asks (ask if unclear); never share GPUs between a timing run and anything else.
 - Time the op in its production calling convention (the same operand kinds, offsets, capacity bounds and flags
   the real caller passes), not only with plain tensors; a per-launch win measured one way can be a regression the
   other way (record-and-replay recipe: `tools/do-bench.md`). Confirm every op-level result end to end, where the gain
