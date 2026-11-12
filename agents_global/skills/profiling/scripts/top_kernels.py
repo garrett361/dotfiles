@@ -35,7 +35,8 @@ are the innermost cpu_op's first 3 Input Dims. Use it to classify by launching o
 can report a custom op's Triton kernel under the name of an Inductor kernel (`triton_poi_fused_...`), so a name-only
 `^triton_` rule (or reading `--by name` rows as Inductor's) books custom-op time as Inductor's.
 
-`--marker REGEX` (site grouping only) prefixes each call site with `[M]`, where M is the most recent host event
+`--grid` splits each row by the kernel's launch grid (`args["grid"]`), prefixed to its name as `gridXxYxZ`, e.g. to
+check how many CTAs an NCCL kernel ran with. `--marker REGEX` (site grouping only) prefixes each call site with `[M]`, where M is the most recent host event
 (`cpu_op` or `user_annotation`) on the launch's thread that started at or before the launch and whose name matches
 REGEX (its first capture group if it has one), or `[-]` if none did. It splits rows by layer or phase, e.g. prime-rl's
 FSDP2 hooks, which fire on the forward thread and on autograd's thread:
@@ -108,6 +109,7 @@ def parse_args():
     p.add_argument("trace")
     p.add_argument("--by", choices=("name", "site", "both"), default="name")
     p.add_argument("--top", type=int, default=15)
+    p.add_argument("--grid", action="store_true", help="split rows by launch grid (prefix gridXxYxZ to the name)")
     p.add_argument("--stream", default=None, help="'main' (most kernel time) or a stream tid")
     p.add_argument("--annotation", default="forward")
     p.add_argument("--annotation-index", type=int, default=-1, help="which step annotation opens the window")
@@ -426,7 +428,10 @@ def main():
 
     def key_of(e):
         site = sites.get(e["args"].get("correlation"), "<no launch event>")
-        return (None if args.by == "name" else site, None if args.by == "site" else e["name"])
+        name = e["name"]
+        if args.grid and e["args"].get("grid"):
+            name = "grid" + "x".join(str(g) for g in e["args"]["grid"]) + " " + name
+        return (None if args.by == "name" else site, None if args.by == "site" else name)
 
     groups = {False: defaultdict(list), True: defaultdict(list)}
     full_names = defaultdict(set)
