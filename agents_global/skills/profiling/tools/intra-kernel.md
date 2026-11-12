@@ -148,6 +148,24 @@ explanations and design variants, then let untraced timing of the variants decid
   whatever the issue order.
 - Commands: the investigation's `commands.sh` under `~/tmp/profiling/dsv4-cute-trace/`.
 
+## CUDA C++: hand-rolled phase timers
+
+Verified 2026-11-12 on H100 (sm90) on an ahead-of-time compiled CUDA extension and a JIT-compiled one, where neither IKET nor ncu counters were available.
+
+- Instrument a copy of the kernel on a scratch branch and load it in place of the installed one without touching the venv: for a JIT library that compiles from its package's headers, put a copy of the package with the headers replaced first on `PYTHONPATH` (and give it its own JIT cache dir); for an AOT extension, build in place and put the build directory first on `PYTHONPATH`.
+- Per warp, keep phase accumulators in registers: `long long t = clock64();` before a phase, `acc[k] += clock64() - t;` after it, plus an iteration count. Read the clock after a `__syncwarp()` so every lane agrees on the phase boundary. A wait inside an `elect_one_sync()` branch is timed only on the elected lane (lane 0 in a converged warp), so print from that lane.
+- Stamp role boundaries (warp start, loop end, after the final grid sync) with `%globaltimer` (`asm volatile("mov.u64 %0, %globaltimer;" : "=l"(t));`). It is comparable across the SMs of one GPU, not across GPUs, so take each rank's own earliest stamp as its origin.
+- Convert each warp's cycles to time with that warp's own ratio, `(globaltimer end - start) / (clock64 end - start)`, since SM clocks move under load.
+- Emit once per launch: a `static __device__ int` launch counter read at kernel start and incremented by one thread after the kernel's last grid-wide sync, and one `printf` line per warp (lane 0) only when the counter equals a launch index past warmup. A few hundred lines per GPU fit the default printf buffer; give each line a fixed prefix and the kernel's identifying template values, and parse every rank's stdout into per-role medians with p20 and p80 over all warps.
+- Validate as in the checklist above: the instrumented build's untraced op time against the original's (about 1.00), and the effect between arms preserved. With one profiled launch per arm, read phase shares, not absolute sums, when that launch's span differs from the untraced median.
+
+Pitfalls hit:
+
+- In an AOT build, a `static __device__` counter is shared by every kernel and instantiation in the translation unit, so other kernels' launches advance it; tag each line with the instantiation and filter.
+- Without a final grid-wide sync, incrementing the counter from block 0 at its end is only safe when the whole grid is resident at once (grid no larger than the SM count, one block per SM), so no block reads the counter after another has finished.
+- Phase sums show where a warp spends its time, not who it waits for: a warp idle in a barrier or a data-arrival spin needs the matching producer's phases on the other side (another role, SM or GPU) to name the bottleneck.
+- Timing the instrumented runs from the torch profiler's kernel time over a handful of calls was too noisy to rank arms; time with CUDA events over 20 or more calls.
+
 ## Other languages
 
 - Triton: Proton (`triton.profiler`) has intra-kernel instrumentation. Not yet verified here.
@@ -157,7 +175,8 @@ explanations and design variants, then let untraced timing of the variants decid
   to a global buffer and written out as `intra_kernel_events.py`'s table.
 - TileLang: IKET support landed upstream (TileLang PR #2515, merged 2026-07-12). prime-rl pins 0.1.12,
   which predates it.
-- CUDA C++: hand-rolled probes writing `globaltimer` or `clock64` plus `%smid` into a global buffer, in the style of
-  DeepGEMM's `deep_gemm/include/deep_gemm/common/probe.cuh`. Not tried here. `globaltimer` is
-  GPU-wide (32 ns steps on H200), `clock64` is per SM and not comparable across SMs.
+- CUDA C++: per-warp `clock64` phase timers printed once per launch, verified above ("CUDA C++: hand-rolled phase
+  timers"). The alternative, writing `globaltimer` or `clock64` plus `%smid` per event into a global buffer in the style
+  of DeepGEMM's `deep_gemm/include/deep_gemm/common/probe.cuh`, is not tried here. `globaltimer` is GPU-wide (32 ns
+  steps on H200), `clock64` is per SM and not comparable across SMs.
 - Binary level, no source changes: NVBit-based tools and Xtrace. Not tried here.
