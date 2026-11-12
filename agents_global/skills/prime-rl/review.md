@@ -77,12 +77,14 @@ before weighing in on the user's points, and do not fold their views into it.
 - Answer the user's comments and questions in conversation, and fold agreed wording into the file.
 - Write the review body for whoever acts on it, often another agent rather than the PR author: just enough to
   be actionable, no more.
-  - Lead every top-level item and inline comment with the core issue in one sentence, often the missing guarantee or broken invariant (e.g. "the gradient receive pool should be sized from the action lists that run"), then the mechanism and evidence, then the fix. A reader who stops after the first sentence should know what is wrong.
+  - Lead every top-level item and inline comment with the core issue in one plain sentence, the way you would say it to the author, before any API names, mechanism or numbers (e.g. "this doesn't test the layout real FSDP checkpoints have"); then the mechanism and evidence, then the fix. A reader who stops after the first sentence should know what is wrong.
   - Describe only the code at head. Do not cite commit messages, earlier revisions, or where a claim was first
     written; link the current line that makes or contradicts it.
   - Corrections and bugs: a GitHub permalink at the PR head SHA with line numbers
     (`.../blob/<sha>/<path>#L<a>-L<b>`) for every location, the defect in one or two sentences, and the
-    expected behavior. Permalinks render in the GitHub UI and are precise enough for an agent to act on.
+    expected behavior. When the suggested fix is more than a one-line change, add a few lines of pseudocode
+    showing its intended shape; it states intent more precisely than prose. Permalinks render in the GitHub
+    UI and are precise enough for an agent to act on.
     GitHub expands a raw prime-rl permalink into a code snippet, so put it at the end of a sentence, never
     inside parentheses or markdown link syntax.
   - Design changes: the design goal, the main shortcomings of the current code (with permalinks), and
