@@ -23,7 +23,9 @@ the next) is swept on one GPU. Every instant goes to exactly one row:
 kernel (e.g. grad clipping's `_foreach_norm`), so it only works when none run mid-step: on a prime-rl trace it
 cut 4 real steps into 70 windows. Check with `--per-rank`, which prints each rank's window count and mean
 window; both should match the traced steps. Boundary kernels less than `--cluster-gap-ms` (default 20) apart merge
-into one cluster, so for steps shorter than that, lower it.
+into one cluster, so for steps shorter than that, lower it. `--whole-trace` instead takes one window per rank, from its
+first GPU activity's start to its last one's end, for a capture of exactly one step (e.g. a `profile.kernels` trace of
+a single step, which holds one optimizer cluster and so no boundary-to-boundary window).
 
 `--step-annotation NAME` (torch traces only) replaces `--step-boundary`: each window is the GPU-side projection
 (`gpu_user_annotation`) of an annotation named NAME or `NAME#<suffix>`, e.g. `ProfilerStep` for a
@@ -310,6 +312,7 @@ def main():
     parser.add_argument("--step-boundary", default=None, help="regex of the kernels whose cluster ends a step")
     parser.add_argument("--step-annotation", default=None, help="GPU-side annotation whose projections are the windows")
     parser.add_argument("--step-end-annotation", default=None, help="GPU-side annotation whose start ends each window")
+    parser.add_argument("--whole-trace", action="store_true", help="one window per rank: the whole trace")
     parser.add_argument("--cluster-gap-ms", type=float, default=20.0)
     parser.add_argument("--steps", default="-2:", help="slice of step windows to average (default last two)")
     parser.add_argument("--category", action="append", default=[], help="LABEL:REGEX for compute kernels")
@@ -328,8 +331,8 @@ def main():
     categories = [(c.split(":", 1)[0], re.compile(c.split(":", 1)[1])) for c in args.category]
     comm = re.compile(args.comm)
     COMM_LABELS.extend((c.split(":", 1)[0], c.split(":", 1)[1]) for c in args.comm_label)
-    if (args.step_boundary is None) == (args.step_annotation is None):
-        parser.error("pass exactly one of --step-boundary and --step-annotation")
+    if sum(x is not None for x in (args.step_boundary, args.step_annotation)) + args.whole_trace != 1:
+        parser.error("pass exactly one of --step-boundary, --step-annotation and --whole-trace")
     if args.step_annotation and args.nsys:
         parser.error("--step-annotation works on torch traces only")
     if args.step_end_annotation and not args.step_annotation:
@@ -359,7 +362,9 @@ def main():
         total = defaultdict(float)
         windows, launch_counts, n = [], [], 0
         for rank_id, rank in ranks.items():
-            if args.step_annotation:
+            if args.whole_trace:
+                found = [(min(g[0] for g in rank.gpu), max(g[1] for g in rank.gpu))]
+            elif args.step_annotation:
                 found = annotation_windows(rank, args.step_annotation, args.step_end_annotation)
             else:
                 found = step_windows(rank, boundary, args.cluster_gap_ms * 1e3)
