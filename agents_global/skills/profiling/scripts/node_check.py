@@ -20,8 +20,9 @@ separated, default all):
 - `comm`: all_reduce (float32 sum), all_gather, reduce_scatter and all_to_all over all ranks at 64 MiB, 256 MiB and
   1 GiB, timed with CUDA events around back-to-back calls after warmup, taking the slowest rank's mean. Sizes and
   bus bandwidth follow nccl-tests: the size is the full buffer (all_gather: output, reduce_scatter: input, all_to_all:
-  one rank's send buffer), `algbw = size / time`, and `busbw = algbw * 2(n-1)/n` for all_reduce and
-  `algbw * (n-1)/n` for the others, where n is the rank count. busbw is comparable to link bandwidth across n.
+  one rank's send buffer, rounded so each rank's share is a multiple of 64 elements: unaligned shares at GPU counts
+  that are not a power of two read all_gather and reduce_scatter about 2x low), `algbw = size / time`, and
+  `busbw = algbw * 2(n-1)/n` for all_reduce and `algbw * (n-1)/n` for the others, where n is the rank count. busbw is comparable to link bandwidth across n.
 - `health`: nvidia-smi power limit, max SM clock, uncorrectable ECC (volatile, aggregate), remapped rows
   (uncorrectable, pending, failure), PCIe width (current vs max), active NVLinks per GPU, kernel XID lines when
   `dmesg` is readable without root (`xid: null` otherwise), and InfiniBand ports from /sys/class/infiniband (state,
@@ -254,7 +255,7 @@ def collectives(world):
     reduce_scatter = getattr(dist, "reduce_scatter_single", dist.reduce_scatter_tensor)
     rows = []
     for size in SIZES:
-        elems = size // 4 // world * world
+        elems = size // 4 // (world * 64) * (world * 64)
         size = elems * 4
         full, part = torch.ones(elems, device="cuda"), torch.ones(elems // world, device="cuda")
         a2a_out = torch.empty(elems, device="cuda")
