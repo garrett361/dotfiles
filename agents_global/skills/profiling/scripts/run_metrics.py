@@ -12,7 +12,9 @@ Missing values are skipped.
 Lines: each `--lines METRIC` draws, per group, that metric over steps for every run named in the CSV's `run_dir`
 column, with `--steady LO HI` shaded. A run dir is read as prime-rl's `<run_dir>/monitors/file/metrics.jsonl`; a
 path to a `.jsonl` file is read directly, so any repo can log one JSON object per line with a `step` key and
-metric keys (records of the same step are merged, and the last record carrying a metric wins). `--prefer KEY=VALUE`
+metric keys (records of the same step are merged, and the last record carrying a metric wins). A path to a `.json`
+file is read as one record at step 0 (its own `step` key if it has one), with nested keys joined by `/`
+(`{"forward_ms": {"median": 2.9}}` gives `forward_ms/median`), for benchmarks that write one result object per run. `--prefer KEY=VALUE`
 makes a record with that key value win instead, for logs where two processes write the same metric at a step.
 
 Summary: `--summarize COLUMN=METRIC` (repeatable) writes the per-run summary CSV that the bar mode reads: one row per
@@ -171,14 +173,29 @@ def draw_bars(rows, args):
     return fig
 
 
+def flatten(record, prefix=""):
+    flat = {}
+    for key, value in record.items():
+        if isinstance(value, dict):
+            flat.update(flatten(value, f"{prefix}{key}/"))
+        else:
+            flat[f"{prefix}{key}"] = value
+    return flat
+
+
+def read_records(path):
+    if path.suffix == ".json":
+        return [{"step": 0, **flatten(json.loads(path.read_text()))}]
+    return [json.loads(line) for line in path.read_text().splitlines()]
+
+
 def load_steps(run_dir, metric, prefer=None):
     """Per-step values of METRIC. The last record of a step wins, unless a record matches PREFER (KEY, VALUE)."""
     values = {}
     path = Path(run_dir)
     if not path.is_file():
         path = path / "monitors/file/metrics.jsonl"
-    for line in path.read_text().splitlines():
-        record = json.loads(line)
+    for record in read_records(path):
         step = record.get("step")
         if step is None or metric not in record:
             continue
