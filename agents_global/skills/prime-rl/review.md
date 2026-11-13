@@ -113,7 +113,8 @@ copy it into an inline code comment, or drop it.
   - Keep each inline comment to one or two sentences, about as long as the matching bullet in the review file.
     Go longer only when pseudocode or a suggested replacement is needed to explain the change.
   - A comment's line must fall inside a diff hunk. When the code at fault is unchanged (outside the diff), anchor
-    the comment on the changed line that calls it.
+    the comment on the nearest related diff line (e.g. the changed line that calls it) and end a sentence in the
+    comment with a raw prime-rl permalink to the out-of-diff lines, so GitHub renders them as a snippet in the thread.
   - Before posting, confirm the PR head is still the SHA the line numbers were read at (`gh pr view N --json
     headRefOid`), and read each anchor line from that SHA to check it holds what the comment is about. If the
     head moved, re-read the lines at the new head and post against it.
