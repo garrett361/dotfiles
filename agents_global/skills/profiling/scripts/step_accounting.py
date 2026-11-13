@@ -25,6 +25,16 @@ cut 4 real steps into 70 windows. Check with `--per-rank`, which prints each ran
 window; both should match the traced steps. Boundary kernels less than `--cluster-gap-ms` (default 20) apart merge
 into one cluster, so for steps shorter than that, lower it.
 
+`--step-annotation NAME` (torch traces only) replaces `--step-boundary`: each window is the GPU-side projection
+(`gpu_user_annotation`) of an annotation named NAME or `NAME#<suffix>`, e.g. `ProfilerStep` for a
+`torch.profiler.schedule` capture with a single active step, which has no second optimizer cluster to close a
+boundary window. `--step-end-annotation NAME2` (same matching, so `Optimizer.step` matches
+`Optimizer.step#DistMuon.step`) instead ends each window at the start of the first GPU-side NAME2 after its start
+(windows with none are dropped), e.g. `--step-annotation ProfilerStep --step-end-annotation
+Optimizer.step` for forward plus backward without the optimizer, or `--step-annotation forward` with
+`--step-end-annotation Optimizer.step` for prime-rl (one window per micro batch, each running to its step's optimizer,
+so pick the step's first micro batch with `--steps`).
+
 Inputs, repeatable, one per arm: `--trace LABEL=GLOB` (torch.profiler chrome traces, one file per rank) or
 `--nsys LABEL=SQLITE` (one export with every rank; ranks are deviceIds). `--steps LO:HI` picks step windows by
 index (Python slice over each rank's windows; default the last two complete steps; write negative bounds as
@@ -83,9 +93,10 @@ class Rank:
     """GPU activity and host context for one rank: `gpu` rows are (start, end, name, launch_end, launch_thread,
     launch_context)."""
 
-    def __init__(self, gpu, host_at):
+    def __init__(self, gpu, host_at, annotations=()):
         self.gpu = sorted(gpu)
         self.host_at = host_at
+        self.annotations = sorted(annotations)
 
 
 def load_torch(path, host_depth, with_context=False):
@@ -105,6 +116,7 @@ def load_torch(path, host_depth, with_context=False):
     contexts = {}
     if with_context:
         contexts = {corr: launch_context(stack) for corr, stack in launch_stacks(events).items()}
+    annotations = [(e["ts"], e["ts"] + e["dur"], e["name"]) for e in events if e.get("cat") == "gpu_user_annotation"]
     gpu = []
     for e in events:
         if e.get("cat") not in ("kernel", "gpu_memcpy", "gpu_memset"):
@@ -141,7 +153,7 @@ def load_torch(path, host_depth, with_context=False):
             return f"blocked in {blocking}: {label}"
         return label
 
-    return Rank(gpu, host_at)
+    return Rank(gpu, host_at, annotations)
 
 
 def load_nsys(path):
@@ -188,6 +200,24 @@ def step_windows(rank, boundary, gap_us):
     marks = sorted((s, e) for s, e, name, *_ in rank.gpu if boundary.search(name))
     ends = [e for (_, e), (ns, _) in zip(marks, marks[1:] + [(float("inf"), 0)]) if ns - e > gap_us]
     return list(zip(ends[:-1], ends[1:]))
+
+
+def annotation_windows(rank, name, end_name):
+    def matches(label, wanted):
+        return label == wanted or label.startswith(wanted + "#")
+
+    end_starts = [s for s, _, label in rank.annotations if end_name and matches(label, end_name)]
+    windows = []
+    for start, end, label in rank.annotations:
+        if not matches(label, name):
+            continue
+        if end_name:
+            later = [s for s in end_starts if s > start]
+            if not later:
+                continue
+            end = later[0]
+        windows.append((start, end))
+    return windows
 
 
 COMM_LABELS = []
@@ -271,7 +301,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--trace", action="append", default=[], help="LABEL=GLOB of torch.profiler traces")
     parser.add_argument("--nsys", action="append", default=[], help="LABEL=SQLITE nsys export")
-    parser.add_argument("--step-boundary", required=True, help="regex of the kernels whose cluster ends a step")
+    parser.add_argument("--step-boundary", default=None, help="regex of the kernels whose cluster ends a step")
+    parser.add_argument("--step-annotation", default=None, help="GPU-side annotation whose projections are the windows")
+    parser.add_argument("--step-end-annotation", default=None, help="GPU-side annotation whose start ends each window")
     parser.add_argument("--cluster-gap-ms", type=float, default=20.0)
     parser.add_argument("--steps", default="-2:", help="slice of step windows to average (default last two)")
     parser.add_argument("--category", action="append", default=[], help="LABEL:REGEX for compute kernels")
@@ -290,7 +322,13 @@ def main():
     categories = [(c.split(":", 1)[0], re.compile(c.split(":", 1)[1])) for c in args.category]
     comm = re.compile(args.comm)
     COMM_LABELS.extend((c.split(":", 1)[0], c.split(":", 1)[1]) for c in args.comm_label)
-    boundary = re.compile(args.step_boundary)
+    if (args.step_boundary is None) == (args.step_annotation is None):
+        parser.error("pass exactly one of --step-boundary and --step-annotation")
+    if args.step_annotation and args.nsys:
+        parser.error("--step-annotation works on torch traces only")
+    if args.step_end_annotation and not args.step_annotation:
+        parser.error("--step-end-annotation needs --step-annotation")
+    boundary = re.compile(args.step_boundary) if args.step_boundary else None
     lo_s, hi_s = (args.steps.split(":") + [""])[:2]
     step_slice = slice(int(lo_s) if lo_s else None, int(hi_s) if hi_s else None)
     wanted = {int(r) for r in args.ranks.split(",")} if args.ranks else None
@@ -315,7 +353,10 @@ def main():
         total = defaultdict(float)
         windows, launch_counts, n = [], [], 0
         for rank_id, rank in ranks.items():
-            found = step_windows(rank, boundary, args.cluster_gap_ms * 1e3)
+            if args.step_annotation:
+                found = annotation_windows(rank, args.step_annotation, args.step_end_annotation)
+            else:
+                found = step_windows(rank, boundary, args.cluster_gap_ms * 1e3)
             chosen = found[step_slice]
             if not chosen:
                 print(f"{label} rank {rank_id}: --steps {args.steps} selects none of its {len(found)} step windows, "
