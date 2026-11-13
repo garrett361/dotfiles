@@ -34,6 +34,8 @@
 - Without `[slurm]`, `uv run sft` runs single-node locally under torchrun, so it can run inside an `srun`/`sbatch`
   allocation. To inject code into the trainer processes without editing the repo (e.g. the sync-stack hooks), put
   a `sitecustomize.py` directory on `PYTHONPATH`; `analysis/cuda-syncs.md` has the tested recipe.
+- Launching the trainer entrypoint directly (torchrun or a harness script, not `rl`/`sft`) needs
+  `--no-monitors.prime`: the prime monitor is on by default and raises without the launcher.
 
 ## Logprob, step time and peak memory A/B
 
