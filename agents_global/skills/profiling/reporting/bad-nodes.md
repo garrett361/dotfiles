@@ -14,11 +14,13 @@ Use this when `scripts/node_check.py` or a slow run singles out a node, and the 
 One command line, run from a login node, needing only cluster access and `uv`:
 
 ```
-srun -p <partition> -N 2 -w <bad node>,<healthy node> --gres=gpu:8 --exclusive -t 10 bash -c 'uv run --no-project --python 3.12 --with torch==<version> torchrun --nnodes 2 --nproc-per-node 8 --rdzv-backend c10d --rdzv-endpoint <bad node>:29500 --rdzv-id check <script>.py'
+srun -p <partition> -N 2 -w <bad node>,<healthy node> --gres=gpu:<gpus per node> --exclusive -t 10 bash -c 'uv run --no-project --python 3.12 --with torch==<version> torchrun --nnodes 2 --nproc-per-node <gpus per node> --rdzv-backend c10d --rdzv-endpoint <bad node>:29500 --rdzv-id check <script>.py'
 ```
 
+For a single-node check, `-N 1 -w <node>` and `torchrun --standalone --nproc-per-node <gpus per node>`. Save the script in a directory every node can read (a shared home or project filesystem), and run the command from there.
+
 - The script uses only the standard library and torch, and the page shows it inline with a copy button. Nothing refers to a repo, a virtual environment or a path in anyone's home directory.
-- Starting points in `scripts/`: `node_pair_check.py` (per-GPU send rate to the same GPU on another node, and NVLink inside each node), `gemm_brake_check.py` (short against sustained GEMM rate, and the power-brake counter, one node), `nic_share_check.py` (NICs shared by concurrent one-GPU-per-node groups, `tools/nccl.md`). Each prints one table per GPU and a verdict line per node.
+- Starting points in `scripts/`: `node_pair_check.py` (per-GPU send rate to the same GPU on another node, and NVLink inside each node), `gemm_brake_check.py` (short against sustained GEMM rate, and the power-brake counter, one node), `nic_share_check.py` (NICs shared by concurrent one-GPU-per-node groups, `tools/nccl.md`). Each prints the GPU model, the versions it ran with, one row per GPU (or per group) and a verdict; thresholds are flags whose defaults are labeled for the hardware they suit.
 - Pitfalls these scripts avoid: `dist.all_gather_object` needs numpy, which a plain torch environment lacks, so gather results as tensors; NVLink rates measured through a communicator that spans several nodes read far low (fewer channels per peer), so measure inside a per-node communicator; and `torch.cuda.nccl.version()` reports the compiled-in NCCL, not the loaded one.
 - Run the exact command on the bad node and a healthy partner before publishing, and paste the real output into the page. The first `uv` run downloads torch, which can take a while; say so in the page.
 

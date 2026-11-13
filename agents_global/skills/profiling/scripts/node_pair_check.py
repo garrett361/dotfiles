@@ -1,4 +1,4 @@
-"""Measure, per GPU on two 8-GPU nodes, the NCCL send rate to the same GPU index on the other node and the median NVLink send rate to each other GPU on its own node.
+"""Measure, per GPU on two nodes, the NCCL send rate to the same GPU index on the other node and the median NVLink send rate to each other GPU on its own node.
 
 Self-contained (standard library and torch) for pasting into a bad-node report (`../reporting/bad-nodes.md`).
 
@@ -6,6 +6,7 @@ Usage, under torchrun on exactly 2 nodes: node_pair_check.py [--mib 256] [--iter
 """
 
 import argparse
+import ctypes
 import os
 import socket
 import statistics
@@ -13,9 +14,14 @@ import statistics
 import torch
 import torch.distributed as dist
 
-CROSS_NODE_MIN_GBS = 30.0
 HOST_BYTES = 64
-NVLINK_MIN_GBS = 260.0
+
+
+def loaded_nccl_version():
+    version = ctypes.c_int()
+    ctypes.CDLL("libnccl.so.2").ncclGetVersion(ctypes.byref(version))
+    major, rest = divmod(version.value, 10000)
+    return f"{major}.{rest // 100}.{rest % 100}"
 
 
 def exchange_gbs(send, recv, dst, src, warmup, iters, group=None):
@@ -40,6 +46,10 @@ def main():
     parser.add_argument("--mib", type=int, default=256, help="bf16 message size per send, MiB")
     parser.add_argument("--iters", type=int, default=10, help="timed iterations per measurement; the median is reported")
     parser.add_argument("--warmup", type=int, default=3, help="untimed iterations before each measurement")
+    parser.add_argument("--cross-node-min", type=float, default=30.0,
+                        help="flag GPUs below this cross-node GB/s (default for 400 Gb/s NICs, one per GPU)")
+    parser.add_argument("--nvlink-min", type=float, default=260.0,
+                        help="flag GPUs below this NVLink GB/s (default for H100 SXM)")
     args = parser.parse_args()
 
     local_rank, per_node = int(os.environ["LOCAL_RANK"]), int(os.environ["LOCAL_WORLD_SIZE"])
@@ -70,32 +80,31 @@ def main():
     nvlink_median = statistics.median(nvlink_per_peer)
 
     name = socket.gethostname().split(".")[0].encode()[:HOST_BYTES].ljust(HOST_BYTES)
-    mine = torch.tensor(list(name) + [local_rank, cross_node, nvlink_median], dtype=torch.float64, device="cuda")
-    gathered = [torch.empty_like(mine) for _ in range(world)]
-    dist.all_gather(gathered, mine)
+    result = torch.tensor(list(name) + [local_rank, cross_node, nvlink_median], dtype=torch.float64, device="cuda")
+    gathered = [torch.empty_like(result) for _ in range(world)]
+    dist.all_gather(gathered, result)
     rows = [(bytes(int(b) for b in t[:HOST_BYTES].tolist()).decode().strip(), int(t[HOST_BYTES]), t[HOST_BYTES + 1].item(),
              t[HOST_BYTES + 2].item()) for t in gathered]
     if rank == 0:
-        nccl = torch.cuda.nccl.version()
-        nccl = ".".join(map(str, nccl)) if isinstance(nccl, tuple) else str(nccl)
-        print(f"NCCL {nccl}, torch {torch.__version__}, {args.mib} MiB bf16 per send, "
+        nccl = loaded_nccl_version()
+        print(f"{torch.cuda.get_device_name()}, NCCL {nccl}, torch {torch.__version__}, {args.mib} MiB bf16 per send, "
               f"median of {args.iters} iterations after {args.warmup} warmup")
         print("cross-node: GPU k sends to GPU k on the other node while receiving from it (GB/s per direction);")
         print("  both ends of a slow link read slow, so pair a suspect node with a known-good one")
         print(f"NVLink: median over the {per_node - 1} other GPUs on the same node, same exchange in a per-node communicator")
-        print(f"flagged: cross-node below {CROSS_NODE_MIN_GBS:.0f} GB/s or NVLink below {NVLINK_MIN_GBS:.0f} GB/s")
+        print(f"flagged: cross-node below {args.cross_node_min:.0f} GB/s or NVLink below {args.nvlink_min:.0f} GB/s")
         print(f"{'host':<32} {'gpu':>3} {'cross-node GB/s':>16} {'NVLink median GB/s':>19}")
         for host, gpu, cross, nvlink in rows:
             print(f"{host:<32} {gpu:>3} {cross:>16.1f} {nvlink:>19.1f}")
         for host in dict.fromkeys(row[0] for row in rows):
-            mine = [row for row in rows if row[0] == host]
-            slow_cross = [gpu for _, gpu, cross, _ in mine if cross < CROSS_NODE_MIN_GBS]
-            slow_nvlink = [gpu for _, gpu, _, nvlink in mine if nvlink < NVLINK_MIN_GBS]
+            node_rows = [row for row in rows if row[0] == host]
+            slow_cross = [gpu for _, gpu, cross, _ in node_rows if cross < args.cross_node_min]
+            slow_nvlink = [gpu for _, gpu, _, nvlink in node_rows if nvlink < args.nvlink_min]
             problems = []
             if slow_cross:
-                problems.append(f"cross-node below {CROSS_NODE_MIN_GBS:.0f} GB/s on GPUs {slow_cross}")
+                problems.append(f"cross-node below {args.cross_node_min:.0f} GB/s on GPUs {slow_cross}")
             if slow_nvlink:
-                problems.append(f"NVLink below {NVLINK_MIN_GBS:.0f} GB/s on GPUs {slow_nvlink}")
+                problems.append(f"NVLink below {args.nvlink_min:.0f} GB/s on GPUs {slow_nvlink}")
             print(f"{host}: " + ("SLOW, " + "; ".join(problems) if problems else "OK"))
     dist.destroy_process_group()
 

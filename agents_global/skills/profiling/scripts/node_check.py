@@ -24,7 +24,7 @@ separated, default all):
   that are not a power of two read all_gather and reduce_scatter about 2x low), `algbw = size / time`, and
   `busbw = algbw * 2(n-1)/n` for all_reduce and `algbw * (n-1)/n` for the others, where n is the rank count. busbw
   is comparable to link bandwidth across n. On more than one node it also times a 1 GiB all_gather in
-  one-GPU-per-node groups, one group per local GPU index (the expert-weight FSDP pattern under EP 8): all groups at
+  one-GPU-per-node groups, one group per local GPU index (e.g. expert-weight FSDP under expert parallelism): all groups at
   once (`rail_all_gather`) and local GPU 0's group alone (`rail_all_gather_solo`). Concurrent well below solo means
   groups share NICs (`tools/nccl.md`). Each GPU record also holds the NCCL version actually loaded (`nccl`).
 - `health`: nvidia-smi power limit, max SM clock, uncorrectable ECC (volatile, aggregate), remapped rows
@@ -530,6 +530,11 @@ def summarize(records):
     for h in sorted(per_host):
         for level, text in per_host[h]:
             print(f"{level} {h}: {text}")
+    shared = [p for p in pairs if p["metrics"].get("rail_all_gather_solo")
+              and p["metrics"].get("rail_all_gather", 0) < RAIL_SHARE_RATIO * p["metrics"]["rail_all_gather_solo"]]
+    if shared:
+        print(f"WARN shared NICs on {len(shared)}/{len(pairs)} pairs: concurrent one-GPU-per-node all_gather below "
+              f"{RAIL_SHARE_RATIO}x the solo rate; an NCCL version or topology effect, not a node fault (tools/nccl.md)")
     for p in pairs:
         print(f"pair {'+'.join(p['hosts'])}: " + ", ".join(f"{k} {fmt(v)}" for k, v in p["metrics"].items())
               + (f"  LOW: {'; '.join(p['problems'])}" if p["problems"] else ""))
@@ -553,9 +558,6 @@ def pair_results(by_kind, expect):
             metrics["rail_p2p_min"] = min(rail)
         results.append({"hosts": list(hosts), "metrics": metrics, "problems": []})
     for p in results:
-        concurrent, solo = p["metrics"].get("rail_all_gather"), p["metrics"].get("rail_all_gather_solo")
-        if concurrent and solo and concurrent < RAIL_SHARE_RATIO * solo:
-            p["problems"].append(f"rail_all_gather {fmt(concurrent)} < {RAIL_SHARE_RATIO} x solo {fmt(solo)} (shared NICs)")
         for metric, value in p["metrics"].items():
             band = expect.get("rail_p2p") if metric == "rail_p2p_min" else expect.get("comm", {}).get(2, {}).get(metric)
             found = []
