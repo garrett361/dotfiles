@@ -2,7 +2,7 @@
 
 usage (one node, under torchrun, from the arm's worktree):
   uv run --no-sync torchrun --nproc-per-node 8 prime_rl_logprob_ab.py dump OUT.pt --tokens-per-gpu N
-      [--steps S] [--warmup W] [--text-glob GLOB] [--module-types REGEX]
+      [--steps S] [--warmup W] [--text-glob GLOB] [--module-types REGEX] [--matmul-precision P] [--forward-only]
       -- <trainer ModelConfig CLI args, e.g. --name X --ep 8; `-- --help` lists them>
   uv run --no-sync python prime_rl_logprob_ab.py compare A.pt B.pt
   uv run --no-sync python prime_rl_logprob_ab.py table --row LABEL REF.pt ARM.pt [REF2.pt] [--row ...]
@@ -15,9 +15,14 @@ gathers every rank's step-1 logprobs and writes them with the step times to OUT.
 allocated and reserved CUDA memory over all steps (max over ranks, GiB). With --module-types, rank 0 also
 prints and stores the count of module class names among modules whose qualified name matches REGEX, after
 setup_model's replacement passes (e.g. 'o_a_proj$' to check which class a projection became).
+--matmul-precision sets `torch.set_float32_matmul_precision` before the model is built, as the trainer's
+`matmul_precision` does (torch's own default, "highest", applies without it). --forward-only runs the steps under
+`torch.no_grad()` with no backward, so a model too large to train on one node can still be compared on logprobs.
 
 `compare` prints the step-time medians and peak memory of both dumps, how many tokens' logprobs differ at all, and
-the per-token logprob difference (mean absolute, max absolute, signed mean, B minus A) over all gathered tokens.
+the per-token logprob difference (mean absolute, max absolute, signed mean, B minus A) over all gathered tokens, and
+the mean of prime-rl's per-token mismatch KL estimator `expm1(r) - r` in both directions, quantiles of the absolute
+difference, and the share of tokens that moved by more than 0.1 and 1 nat.
 
 `table` prints one markdown row per --row: the arm's median step time (ms) and peak allocated memory (GiB), its
 mean absolute and signed mean logprob difference against REF (arm minus REF), and, when REF2 is given (a rerun
@@ -26,6 +31,7 @@ of the reference arm), the same two numbers for REF2 against REF as the run-to-r
 
 import argparse
 import collections
+import contextlib
 import glob
 import re
 import statistics
@@ -48,6 +54,8 @@ def dump(args, model_args):
     from prime_rl.utils.config import cli
 
     config = cli(ModelConfig, args=model_args)
+    if args.matmul_precision is not None:
+        torch.set_float32_matmul_precision(args.matmul_precision)
     paths = sorted(glob.glob(args.text_glob, recursive=True))
     if not paths:
         sys.exit(f"--text-glob {args.text_glob!r} matched no files (relative paths resolve from the working directory)")
@@ -80,8 +88,10 @@ def dump(args, model_args):
     for step in range(args.steps):
         begin, end = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
         begin.record()
-        out = forward(model, input_ids, position_ids, seq_lens=seq_lens, labels=labels, temperature=temperature)
-        out["logprobs"].sum().backward()
+        with torch.no_grad() if args.forward_only else contextlib.nullcontext():
+            out = forward(model, input_ids, position_ids, seq_lens=seq_lens, labels=labels, temperature=temperature)
+        if not args.forward_only:
+            out["logprobs"].sum().backward()
         end.record()
         torch.cuda.synchronize()
         times.append(begin.elapsed_time(end))
@@ -134,6 +144,11 @@ def compare(args):
     print(f"mean |logprob B - A|: {diff.abs().mean():.6f}")
     print(f"max |logprob B - A|: {diff.abs().max():.6f}")
     print(f"mean (logprob B - A): {diff.mean():.6f}")
+    print(f"mean mismatch KL expm1(r) - r, r = B - A: {(torch.expm1(diff) - diff).mean():.6g}, r = A - B: {(torch.expm1(-diff) - (-diff)).mean():.6g}")
+    abs_diff = diff.abs()
+    quantiles = torch.quantile(abs_diff, torch.tensor([0.5, 0.9, 0.99, 0.999]))
+    print("|logprob B - A| quantiles p50/p90/p99/p99.9: " + " / ".join(f"{q:.4g}" for q in quantiles.tolist()))
+    print(f"tokens with |logprob B - A| > 0.1: {(abs_diff > 0.1).float().mean():.4%}, > 1: {(abs_diff > 1).float().mean():.4%}")
     print(f"mean logprob A: {a['logprobs'].mean():.4f}, B: {b['logprobs'].mean():.4f}")
 
 
@@ -171,6 +186,8 @@ def main():
     dump_parser.add_argument("--warmup", type=int, default=2)
     dump_parser.add_argument("--text-glob", default="src/**/*.py")
     dump_parser.add_argument("--module-types", default=None)
+    dump_parser.add_argument("--matmul-precision", choices=["highest", "high", "medium"], default=None)
+    dump_parser.add_argument("--forward-only", action="store_true")
     compare_parser = sub.add_parser("compare")
     compare_parser.add_argument("a")
     compare_parser.add_argument("b")
