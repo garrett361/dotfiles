@@ -35,8 +35,9 @@ Seen in prime-rl #4086: 14 to 25% faster at cp=1, but 42 to 55 s per step agains
 - **No checkpoints:** leave `[ckpt]` unset. Saves add I/O to step time and fill disk.
 - **About 20 steps per run:** enough for a steady state after compile warmup. Take medians over the steps
   after warmup.
-- **Set `model.ep` explicitly:** `"auto"` resolves to the world size. Default to the expert parallelism used
-  in practice, not ep=1.
+- **Set `model.ep` explicitly:** `"auto"` resolves to the largest degree up to 8 that divides both the FSDP
+  group size and the expert count, so it changes with the layout. Default to the expert parallelism used in
+  practice, not ep=1.
 - **Same hardware for every arm:** prefer one exclusive node running all arms serially over parallel jobs on
   different nodes.
 - **Frozen arms:** give each arm its own worktree, checked out detached at the commit under test (base at its
