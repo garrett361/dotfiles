@@ -76,6 +76,8 @@ End to end, from traces:
 - What annotations and host ranges does a trace have; where does one op's host time go, down to Python frames?
   `scripts/trace_events.py` (`--include-python` on a `with_stack=True` trace).
 - Host gaps, stream overlap and NCCL across a whole step, with no code change? `tools/nsight-systems.md`.
+- Is a collective slower than its links allow, which NIC does each rank use, did a torch or NCCL upgrade change
+  collective rates, and which NCCL version actually loaded? `tools/nccl.md`.
 
 Runs, host and compiler:
 - How do arms compare on step time, memory, loss (prime-rl run dirs or any `.jsonl` with a step key)?
@@ -148,6 +150,9 @@ An op-level win that disappears end to end is a finding, not noise: go to layer 
 ## 3. A/B hygiene
 
 - Freeze each arm's code in its own worktree or commit; never time against a tree you are editing.
+- A torch upgrade is also an NCCL (and cuDNN, cuBLAS) upgrade: compare torch versions with everything else held
+  fixed, and record the loaded NCCL version and `env | grep ^NCCL_` per arm (`tools/nccl.md`). A torch 2.13 run with
+  fp32 gradient reduce against a 2.14 run with bf16 reduce read equal and hid a 2x collective regression.
 - Identical config, data, seed, step count, and rank for every arm. Change one thing.
 - Fresh compile caches per arm (`TRITON_CACHE_DIR`, `TORCHINDUCTOR_CACHE_DIR`, `TILELANG_CACHE_DIR`,
   `CUTE_DSL_CACHE_DIR`), or JIT warmth biases the comparison.

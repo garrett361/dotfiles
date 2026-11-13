@@ -22,7 +22,11 @@ separated, default all):
   bus bandwidth follow nccl-tests: the size is the full buffer (all_gather: output, reduce_scatter: input, all_to_all:
   one rank's send buffer, rounded so each rank's share is a multiple of 64 elements: unaligned shares at GPU counts
   that are not a power of two read all_gather and reduce_scatter about 2x low), `algbw = size / time`, and
-  `busbw = algbw * 2(n-1)/n` for all_reduce and `algbw * (n-1)/n` for the others, where n is the rank count. busbw is comparable to link bandwidth across n.
+  `busbw = algbw * 2(n-1)/n` for all_reduce and `algbw * (n-1)/n` for the others, where n is the rank count. busbw
+  is comparable to link bandwidth across n. On more than one node it also times a 1 GiB all_gather in
+  one-GPU-per-node groups, one group per local GPU index (the expert-weight FSDP pattern under EP 8): all groups at
+  once (`rail_all_gather`) and local GPU 0's group alone (`rail_all_gather_solo`). Concurrent well below solo means
+  groups share NICs (`tools/nccl.md`). Each GPU record also holds the NCCL version actually loaded (`nccl`).
 - `health`: nvidia-smi power limit, max SM clock, uncorrectable ECC (volatile, aggregate), remapped rows
   (uncorrectable, pending, failure), PCIe width (current vs max), active NVLinks per GPU, kernel XID lines when
   `dmesg` is readable without root (`xid: null` otherwise), and InfiniBand ports from /sys/class/infiniband (state,
@@ -55,6 +59,7 @@ Usage: torchrun ... node_check.py --out FILE [--checks gpu,p2p,comm,health] [--s
 """
 
 import argparse
+import ctypes
 import glob
 import json
 import os
@@ -94,6 +99,7 @@ EXPECT = {
 }
 SIZES = (64 << 20, 256 << 20, 1 << 30)
 FLEET_TOLERANCE = 0.05
+RAIL_SHARE_RATIO = 0.8
 
 
 def timed_ms(fn, iters, warmup):
@@ -247,6 +253,32 @@ def shift_gbs(shift, nbytes=256 << 20):
     return nbytes / (mine * 1e-3) / 1e9
 
 
+def loaded_nccl_version():
+    version = ctypes.c_int()
+    ctypes.CDLL("libnccl.so.2").ncclGetVersion(ctypes.byref(version))
+    major, rest = divmod(version.value, 10000)
+    return f"{major}.{rest // 100}.{rest % 100}"
+
+
+def rail_collectives(local_rank, local_world, nnodes):
+    import torch
+    import torch.distributed as dist
+
+    groups = [dist.new_group([lr + local_world * n for n in range(nnodes)]) for lr in range(local_world)]
+    elems = SIZES[-1] // 4 // (nnodes * 64) * (nnodes * 64)
+    full, part = torch.empty(elems, device="cuda"), torch.ones(elems // nnodes, device="cuda")
+    rows = []
+    for op, active in (("rail_all_gather", True), ("rail_all_gather_solo", local_rank == 0)):
+        def gather():
+            if active:
+                dist.all_gather_into_tensor(full, part, group=groups[local_rank])
+
+        ms, _ = mean_ms_slowest_rank(gather, agreed_iters(gather))
+        algbw = elems * 4 / (ms * 1e-3) / 1e9
+        rows.append({"op": op, "bytes": elems * 4, "ms": ms, "algbw": algbw, "busbw": algbw * (nnodes - 1) / nnodes})
+    return rows
+
+
 def collectives(world):
     import torch
     import torch.distributed as dist
@@ -349,6 +381,9 @@ def run(args):
             mine["p2p_median"] = statistics.median(r["gbs"] for r in p2p)
             mine["p2p_min"] = min(r["gbs"] for r in p2p)
     comm = collectives(world) if "comm" in checks else []
+    if "comm" in checks and nnodes > 1:
+        comm += rail_collectives(local_rank, local_world, nnodes)
+    mine["nccl"] = loaded_nccl_version()
     gpus, node = health() if "health" in checks and local_rank == 0 else ({}, None)
     gathered = [None] * world
     dist.all_gather_object(gathered, (mine, p2p, clocks, gpus, node))
@@ -444,6 +479,9 @@ def summarize(records):
     name = next((g["name"] for g in by_kind["gpu"]), "")
     expect = EXPECT.get(name, {})
     print(f"GPU model: {name}; expectations: {expect.get('source', 'none for this model, fleet checks only')}")
+    versions = sorted({g["nccl"] for g in by_kind["gpu"] if "nccl" in g})
+    if versions:
+        print(f"NCCL loaded: {', '.join(versions)}")
     per_host = {h: node_problems(h, gpus_by_host[h], nodes.get(h), by_kind["comm"], expect) for h in hosts}
     metrics = {}
     for h in hosts:
@@ -515,6 +553,9 @@ def pair_results(by_kind, expect):
             metrics["rail_p2p_min"] = min(rail)
         results.append({"hosts": list(hosts), "metrics": metrics, "problems": []})
     for p in results:
+        concurrent, solo = p["metrics"].get("rail_all_gather"), p["metrics"].get("rail_all_gather_solo")
+        if concurrent and solo and concurrent < RAIL_SHARE_RATIO * solo:
+            p["problems"].append(f"rail_all_gather {fmt(concurrent)} < {RAIL_SHARE_RATIO} x solo {fmt(solo)} (shared NICs)")
         for metric, value in p["metrics"].items():
             band = expect.get("rail_p2p") if metric == "rail_p2p_min" else expect.get("comm", {}).get(2, {}).get(metric)
             found = []
