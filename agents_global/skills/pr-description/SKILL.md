@@ -100,6 +100,10 @@ down; a bullet that will not fit is usually two bullets or a detail worth
 dropping. Show the draft in chat and revise based on feedback. Do not
 write anything to disk until the user explicitly agrees on the text.
 
+If you cannot reach the user (a subagent or non-interactive run), write
+the draft to the file in step 4 anyway, never post it to a PR, and say in
+your report that it is unreviewed so whoever can ask the user iterates it.
+
 Perf numbers, scope caveats, and rejected alternatives are the usual overflow.
 Offer them to the user as a follow-up PR comment rather than dropping them
 silently.
