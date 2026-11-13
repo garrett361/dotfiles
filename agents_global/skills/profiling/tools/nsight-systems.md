@@ -69,6 +69,10 @@ report with both ranks. Both showed `ncclDevKernel_AllReduce_Sum_bf16_RING_LL` i
   `vectorized_elementwise_kernel`). It counts kernels only, not the memcpys and memsets that `top_kernels.py`
   includes. `--device` takes the CUDA ordinal the process saw (0 under `CUDA_VISIBLE_DEVICES=4`).
 
+- Compute-stream waits on side-stream transfers (copy engines, NCCL's stream) without torch.profiler's host overhead:
+  `scripts/stream_stalls.py <out>.sqlite --device 0 --tail-ms <window>`. A `cuMemcpyBatchAsync` call is one
+  `CUPTI_ACTIVITY_KIND_MEMCPY` row (`copyKind` 10 for peer-to-peer) with the call's total bytes, as in torch traces.
+
 ## Gotchas
 
 - CPU sampling and context-switch tracing need `perf_event_paranoid` at 2 or below. Check with `nsys status -e`;

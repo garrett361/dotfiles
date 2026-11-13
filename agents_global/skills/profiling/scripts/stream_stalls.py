@@ -35,9 +35,14 @@ duration, the part covered by main-stream compute (main-stream kernels not match
 (no compute kernel on any stream). Transfer time that the main stream did not wait for costs nothing even when exposed;
 the stalls are the cost.
 
+Input: a torch trace, or an nsys SQLite export (`.sqlite`, one `--device`), whose activities join their runtime or
+driver call by correlation id; it has no host ops, so every op label is `-` and a wait is labeled by the name of the
+activity it waited for (e.g. `wait:memcpy:Memcpy PtoP`). Use it to check a torch trace's stalls without the
+profiler's host overhead.
+
 Window: the whole trace, or from the `--annotation-index`th CPU-side `user_annotation` named `--annotation` (also
-`<name>#<n>`) to the start of the next one matching `--end-annotation`, selected by launch time. `--steps N` divides
-the totals by N.
+`<name>#<n>`) to the start of the next one matching `--end-annotation`, selected by launch time; `--tail-ms T`
+keeps only the last T ms (for a capture without annotations). `--steps N` divides the totals by N.
 
 `--during REGEX` adds, per pass and cause kind (host, wait:memcpy, wait:nccl, ...), how much of the stall time a
 side-stream activity matching REGEX was running: a metric that counts a GPU as busy whenever any kernel runs books
@@ -61,7 +66,9 @@ import argparse
 import bisect
 import csv
 import json
+import pathlib
 import re
+import sqlite3
 import sys
 from collections import defaultdict
 
@@ -78,6 +85,9 @@ def parse_args():
     p.add_argument("--annotation-index", type=int, default=-1)
     p.add_argument("--end-annotation", default=r"^Optimizer\.step")
     p.add_argument("--steps", type=float, default=1.0)
+    p.add_argument("--tail-ms", type=float, default=None,
+                   help="keep only activities launched in this many ms before the last activity's end")
+    p.add_argument("--device", type=int, default=0, help="nsys SQLite input: the CUDA device to analyze")
     p.add_argument("--comm", default=r"^nccl", help="regex of communication kernel names (not compute)")
     p.add_argument("--op", default=DEFAULT_OP, help="regex of host ops that label an activity (innermost wins)")
     p.add_argument("--op-strip", default=r"\s*[\[(].*$", help="regex removed from op labels (module, group suffixes)")
@@ -125,13 +135,51 @@ def kind(name, comm):
     return "nccl" if comm.search(name) else "kernel"
 
 
+MEMCPY_KINDS = {1: "HtoD", 2: "DtoH", 8: "DtoD", 10: "PtoP"}
+
+
+def load_nsys(path, device):
+    """An nsys SQLite export as chrome-trace events: kernels, memcpys and memsets of ``device`` (CUDA ordinal) on
+    pid 0 with the stream as tid, and every runtime or driver call as a launch with its correlation id."""
+    db = sqlite3.connect(pathlib.Path(path).resolve().as_uri() + "?mode=ro", uri=True)
+    names = dict(db.execute("select id, value from StringIds"))
+    events = []
+    for start, end, stream, corr, name in db.execute(
+        "select start, end, streamId, correlationId, demangledName from CUPTI_ACTIVITY_KIND_KERNEL where deviceId = ?",
+        (device,),
+    ):
+        events.append({"ph": "X", "cat": "kernel", "name": names[name], "pid": 0, "tid": stream, "ts": start / 1e3,
+                       "dur": (end - start) / 1e3, "args": {"correlation": corr}})
+    for start, end, stream, corr, kind, nbytes in db.execute(
+        "select start, end, streamId, correlationId, copyKind, bytes from CUPTI_ACTIVITY_KIND_MEMCPY where deviceId = ?",
+        (device,),
+    ):
+        events.append({"ph": "X", "cat": "gpu_memcpy", "name": f"Memcpy {MEMCPY_KINDS.get(kind, kind)}", "pid": 0,
+                       "tid": stream, "ts": start / 1e3, "dur": (end - start) / 1e3,
+                       "args": {"correlation": corr, "bytes": nbytes}})
+    for start, end, stream, corr in db.execute(
+        "select start, end, streamId, correlationId from CUPTI_ACTIVITY_KIND_MEMSET where deviceId = ?", (device,)
+    ):
+        events.append({"ph": "X", "cat": "gpu_memset", "name": "Memset", "pid": 0, "tid": stream, "ts": start / 1e3,
+                       "dur": (end - start) / 1e3, "args": {"correlation": corr}})
+    for start, end, tid, corr, name in db.execute(
+        "select start, end, globalTid, correlationId, nameId from CUPTI_ACTIVITY_KIND_RUNTIME"
+    ):
+        events.append({"ph": "X", "cat": "cuda_runtime", "name": names[name], "pid": 1, "tid": tid, "ts": start / 1e3,
+                       "dur": (end - start) / 1e3, "args": {"correlation": corr}})
+    return events
+
+
 def main():
     args = parse_args()
     comm, op_re, seg_re = re.compile(args.comm), re.compile(args.op), re.compile(args.segment)
     strip_re = re.compile(args.op_strip)
     recompute_re = re.compile(args.recompute_op) if args.recompute_op else None
     side_re = re.compile(args.side) if args.side else None
-    events = [e for e in read_trace(args.trace)["traceEvents"] if e.get("ph") == "X"]
+    if args.trace.endswith(".sqlite"):
+        events = load_nsys(args.trace, args.device)
+    else:
+        events = [e for e in read_trace(args.trace)["traceEvents"] if e.get("ph") == "X"]
     launches = {e["args"]["correlation"]: e for e in events
                 if e.get("cat") in LAUNCH_CATEGORIES and "correlation" in e.get("args", {})}
     gpu = [e for e in events if e.get("cat") in GPU_CATS and "dur" in e]
@@ -156,6 +204,8 @@ def main():
         end_re = re.compile(args.end_annotation)
         hi = min((e["ts"] for e in events if e.get("cat") == "user_annotation" and e["ts"] > lo
                   and end_re.search(e["name"])), default=float("inf"))
+    if args.tail_ms is not None:
+        lo = max(lo, max(e["ts"] + e["dur"] for e in gpu) - args.tail_ms * 1e3)
     acts = []
     for e in gpu:
         launch = launches.get(e.get("args", {}).get("correlation"))
@@ -209,7 +259,8 @@ def main():
                         break
                     j -= 1
                 if best is not None:
-                    cause = f"wait:{best['kind']}:{best['op']}"
+                    label = best["op"] if best["op"] != "-" else short_name(best["name"])[:40]
+                    cause = f"wait:{best['kind']}:{label}"
             stalls.append({"start": prev_end, "gap": gap, "host": host, "rest": rest, "cause": cause,
                            "pass": b["pass"], "segment": b["segment"], "op": f"{prev_op} > {b['op']}", "next": short_name(b["name"]),
                            "inv": b["inv"]})
