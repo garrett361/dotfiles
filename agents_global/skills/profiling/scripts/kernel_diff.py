@@ -15,11 +15,12 @@ Labels that `top_kernels.py` numbered `#2`, `#3` (distinct kernels that shorten 
 the number plus the raw kernel name, since the numbering depends on which kernels each file contains.
 `--filter REGEX` keeps only rows whose key matches (e.g. one kernel family across all its call sites).
 `--iters N` divides every time by N, so a trace of N iterations of an op (e.g. `bench_ops.py --trace-iters N`) reads per
-iteration; call counts stay raw.
+iteration; call counts stay raw. `--before-iters` / `--after-iters` override it per side, for windows that hold different
+numbers of iterations (e.g. a whole 8-micro-batch step against a 2-micro-batch step, both read per micro batch).
 
 Usage: uv run --script kernel_diff.py before.csv after.csv [--top 30] [--name-width 90] [--group compute]
        [--category "expert GEMM:sm90_fp8_gemm_1d"] [--before-label A] [--after-label B] [--key label] [--filter REGEX]
-       [--decimals 1] [--iters 1]
+       [--decimals 1] [--iters 1] [--before-iters N] [--after-iters N]
 """
 
 import argparse
@@ -71,6 +72,8 @@ def main():
     parser.add_argument("--filter", default=None, help="keep only rows whose key matches this regex")
     parser.add_argument("--decimals", type=int, default=1, help="decimal places for ms (e.g. 3 for op-level traces)")
     parser.add_argument("--iters", type=int, default=1, help="divide times by this many traced iterations")
+    parser.add_argument("--before-iters", type=int, default=None, help="override --iters for the before file")
+    parser.add_argument("--after-iters", type=int, default=None, help="override --iters for the after file")
     args = parser.parse_args()
 
     column = "kernel_names" if args.key == "kernel" else "label"
@@ -79,8 +82,8 @@ def main():
     numbered = {
         NUMBERED_LABEL.sub("", r["label"]) for r in before_rows + after_rows if NUMBERED_LABEL.search(r["label"])
     }
-    before = load(before_rows, column, numbered, keep, args.iters)
-    after = load(after_rows, column, numbered, keep, args.iters)
+    before = load(before_rows, column, numbered, keep, args.before_iters or args.iters)
+    after = load(after_rows, column, numbered, keep, args.after_iters or args.iters)
     keys = set(before) | set(after)
     rows = []
     for key in keys:
