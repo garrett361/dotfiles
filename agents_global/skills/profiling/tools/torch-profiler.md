@@ -68,6 +68,15 @@ step time.
 5. **Sync cost.** Blocking calls (`cudaStreamSynchronize`, `.item()`, a D2H copy into pageable memory) and
    the GPU idle they cause: `scripts/find_syncs.py`, see `analysis/cuda-syncs.md`.
 
+## Transfers the compute stream waits for (copy engines, peer copies, collectives on side streams)
+
+Verified 2026-11-13 on 8x H100 (torch 2.14, prime-pt's copy-engine all-to-all, `scripts/stream_stalls.py`).
+
+- A `cuMemcpyBatchAsync` call shows up as one `gpu_memcpy` event, `Memcpy PtoP (Device -> Device)`, on the issuing stream, with the call's total `bytes` and the first copy's `fromDevice`, not one event per copy. The driver call itself is not recorded, so its `correlation` joins no launch; `args["External id"]` names the cpu_op that issued it.
+- Stream memory operations (`cuStreamBatchMemOp` waits and writes) and `cudaStreamWaitEvent` leave no GPU event. A wait shows only as a gap on the waiting stream that ends when the awaited copy ends; a transfer that waits for its peers shows as a delay between its producer kernel's end and the copy's start.
+- Measure the cost as stalls on the compute stream, not as transfer time outside a busy union: a long collective beside it (an FSDP all-gather ring kernel runs for tens of ms) makes a union-based "exposed" metric book the wait as exposed collective time and the copy as hidden. On a 128-GPU FSDP + EP8 trace, a union metric read 4 ms of exposed copies where the compute stream waited 357 ms on them, 355 ms of it beside FSDP kernels. `stream_stalls.py` splits each gap into host time and the side-stream activity it waited for, labeled by op and pass, and `--during` shows how much of it overlapped a given collective.
+- A small collective on the compute stream (e.g. an all-to-all of counts) lasts until the slowest peer arrives, so it times load imbalance, not the transfer. Compare against a run with equal work per rank (one document per row there: 19 ms per call fell to 7 us) before calling it communication.
+
 ## Trace format (for extending the scripts)
 
 `trace_events.read_trace(path)` loads `.json` or `.json.gz`; complete events (`ph == "X"`) carry `cat`:

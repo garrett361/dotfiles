@@ -73,6 +73,9 @@ End to end, from traces:
 - Per layer type and pass (forward, backward, AC recompute), how much time goes to Inductor, eager ATen, custom-op and GEMM kernels, and which runs of small kernels could one fused kernel replace? `scripts/layer_inventory.py`.
 - Do host-side stream waits (e.g. FSDP's reduce-scatter cap) stall the GPU, and how much does labeled
   communication overlap compute? `scripts/comm_waits.py`, figure via `scripts/timeline_figure.py --comm-kernel`.
+- Does the compute stream wait for side-stream transfers it should overlap (copy engines, peer copies, collectives on
+  NCCL's stream), how much of each transfer runs beside compute, per op, layer and pass, and what does one layer's
+  timeline look like? `scripts/stream_stalls.py`; how such transfers appear in traces: `tools/torch-profiler.md`.
 - Is a slow collective transferring or waiting for a late rank, and which rank arrives last? `scripts/collective_skew.py`
   over every rank's trace from one node.
 - What annotations and host ranges does a trace have; where does one op's host time go, down to Python frames?
