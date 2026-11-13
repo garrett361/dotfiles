@@ -34,7 +34,8 @@ per-layer-kind view, totals (ideal ms, compute- vs bandwidth-bound share, ideal 
 a communication table, and every op's formulas. With `--measured CSV` (e.g. `step_accounting.py --csv`: first
 column row names, one column of ms), `--map LABEL:REGEX` (repeatable; CSV rows whose name matches REGEX, first map
 wins, are summed into LABEL, a value of `--measured-by FIELD`, default the group-by field) adds measured vs ideal
-per label. `--measured-column` picks the CSV column (default the first data column) and `--measured-scale`
+per label, with each label's achieved TFLOP/s (its ops' FLOPs over the measured time, so FLOPs the ops file
+does not count, such as recompute it leaves out, lower it). `--measured-column` picks the CSV column (default the first data column) and `--measured-scale`
 multiplies measured values (e.g. 0.5 for a two-micro-batch step).
 
 Usage:
@@ -383,28 +384,31 @@ def measured_section(args, ops: list[Op], total_s: float) -> list[str]:
         else:
             measured[label] += value
     by = args.measured_by or args.group_by
-    ideal = defaultdict(float)
+    ideal, flops = defaultdict(float), defaultdict(float)
     for op in ops:
         ideal[op.field(by)] += op.seconds * 1e3
+        flops[op.field(by)] += op.total_flops
     labels = list(dict.fromkeys(label for label, _ in maps))
     lines = [
         f"## Measured vs ideal by {by}",
         "",
         f"Measured: `{args.measured}` column `{header[column]}` x {num(args.measured_scale)}.",
         "",
-        "| label | measured ms | ideal ms | measured / ideal | gap ms |",
-        "|---|---:|---:|---:|---:|",
+        "| label | measured ms | ideal ms | measured / ideal | gap ms | measured TFLOP/s |",
+        "|---|---:|---:|---:|---:|---:|",
     ]
     for label in sorted(labels, key=lambda label: -(measured[label] - ideal[label])):
         ratio = f"{measured[label] / ideal[label]:.2f}x" if ideal[label] else "-"
+        rate = f"{flops[label] / measured[label] / 1e9:.0f}" if measured[label] and flops[label] else "-"
         lines.append(
-            f"| {label} | {measured[label]:.3f} | {ideal[label]:.3f} | {ratio} | {measured[label] - ideal[label]:.3f} |"
+            f"| {label} | {measured[label]:.3f} | {ideal[label]:.3f} | {ratio} | {measured[label] - ideal[label]:.3f} "
+            f"| {rate} |"
         )
     mapped_ms, ideal_mapped = sum(measured.values()), sum(ideal[label] for label in labels)
     ratio = f"{mapped_ms / ideal_mapped:.2f}x" if ideal_mapped else "-"
     lines += [
         f"| **mapped total** | **{mapped_ms:.3f}** | **{ideal_mapped:.3f}** | **{ratio}** | "
-        f"**{mapped_ms - ideal_mapped:.3f}** |",
+        f"**{mapped_ms - ideal_mapped:.3f}** | |",
         "",
     ]
     unmatched_ideal = [label for label in ideal if label not in labels]
