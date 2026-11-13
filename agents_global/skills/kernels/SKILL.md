@@ -15,6 +15,8 @@ Many kernel regressions are silent: the kernel stays correct and only gets slowe
 
 Before writing a new kernel or producer design, do the arithmetic: bytes over the link or memory rate, the per-SM rate times the SMs the design can spare, and how many SMs stay co-resident for the rest of the work. Then measure the critical path alone (for example the operand loads without the MMA). If that floor already loses to the current kernel, stop: one such floor measurement ruled out a cluster-multicast GEMM in about an hour (`fusion.md`).
 
+For data that crosses nodes, the floor uses the per-GPU network rate measured with every GPU of the node sending at once in the production group pattern, not one GPU's line rate or a solo benchmark: NIC sharing can halve it (`../profiling/tools/nccl.md`). A kernel with its own transport (NVSHMEM or IBGDA, as in DeepEP) picks NICs itself, outside NCCL: map GPU to NIC by PCIe topology and confirm the mapping in the transport's trace log.
+
 ## Pick the doc by the question
 
 Read only what the matching line names.
