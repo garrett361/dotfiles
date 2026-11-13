@@ -16,6 +16,10 @@ picks the step (default -1, the last).
 Usage:
   uv run --script nsys_kernels.py report.sqlite --device 0 --step-boundary FusedAdamMathFunctor --top 20
   uv run --script nsys_kernels.py report.sqlite --group short --csv kernels.csv
+  uv run --script nsys_kernels.py report.sqlite --group short --min-ms 0.5 --max-ms 2   # one kernel by its size
+
+`--min-ms` / `--max-ms` keep only launches whose duration lies in that range (after the step window), to find a
+kernel of known cost hidden under a generic name (e.g. one large elementwise cast among many small ones).
 """
 
 import argparse
@@ -39,6 +43,8 @@ def parse_args():
     parser.add_argument("--name-width", type=int, default=80)
     parser.add_argument("--csv", default=None, help="also write every kernel to this CSV path")
     parser.add_argument("--decimals", type=int, default=1, help="decimals for ms totals")
+    parser.add_argument("--min-ms", type=float, default=None, help="keep only launches at least this long")
+    parser.add_argument("--max-ms", type=float, default=None, help="keep only launches at most this long")
     return parser.parse_args()
 
 
@@ -84,6 +90,11 @@ def main():
         lo, hi = step_window(kernels, args.step_boundary, args.cluster_gap_ms * 1e6, args.step_index)
         kernels = [k for k in kernels if k[1] > lo and k[2] <= hi]
         print(f"step window {(hi - lo) / 1e6:.{args.decimals}f} ms ({len(kernels)} kernels)")
+    if args.min_ms is not None or args.max_ms is not None:
+        lo_ns = -1 if args.min_ms is None else args.min_ms * 1e6
+        hi_ns = float("inf") if args.max_ms is None else args.max_ms * 1e6
+        kernels = [k for k in kernels if lo_ns <= k[2] - k[1] <= hi_ns]
+        print(f"launches with duration in [{args.min_ms}, {args.max_ms}] ms: {len(kernels)}")
     durations = defaultdict(list)
     for name, start, end in kernels:
         durations[name].append((end - start) / 1e6)
