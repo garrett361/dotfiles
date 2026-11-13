@@ -37,6 +37,12 @@ Optimizer.step` for forward plus backward without the optimizer, or `--step-anno
 `--step-end-annotation Optimizer.step` for prime-rl (one window per micro batch, each running to its step's optimizer,
 so pick the step's first micro batch with `--steps`).
 
+`--step-launched-in NAME` (torch traces only) instead makes one window per CPU-side `user_annotation` named NAME or
+`NAME#<suffix>`, running from the first to the last GPU activity whose launch call started inside that annotation's
+host time range on any thread (as `top_kernels.py --launched-in`). torch projects an annotation onto the GPU only from
+kernels launched on its own thread, so a `ProfilerStep` projection misses the backward that autograd's thread launches;
+this window keeps it.
+
 Inputs, repeatable, one per arm: `--trace LABEL=GLOB` (torch.profiler chrome traces, one file per rank) or
 `--nsys LABEL=SQLITE` (one export with every rank; ranks are deviceIds). `--steps LO:HI` picks step windows by
 index (Python slice over each rank's windows; default the last two complete steps; write negative bounds as
@@ -101,10 +107,12 @@ class Rank:
     """GPU activity and host context for one rank: `gpu` rows are (start, end, name, launch_end, launch_thread,
     launch_context)."""
 
-    def __init__(self, gpu, host_at, annotations=()):
+    def __init__(self, gpu, host_at, annotations=(), host_annotations=(), launched=()):
         self.gpu = sorted(gpu)
         self.host_at = host_at
         self.annotations = sorted(annotations)
+        self.host_annotations = sorted(host_annotations)
+        self.launched = sorted(launched)
 
 
 def load_torch(path, host_depth, with_context=False):
@@ -125,7 +133,8 @@ def load_torch(path, host_depth, with_context=False):
     if with_context:
         contexts = {corr: launch_context(stack) for corr, stack in launch_stacks(events).items()}
     annotations = [(e["ts"], e["ts"] + e["dur"], e["name"]) for e in events if e.get("cat") == "gpu_user_annotation"]
-    gpu = []
+    host_annotations = [(e["ts"], e["ts"] + e["dur"], e["name"]) for e in events if e.get("cat") == "user_annotation"]
+    gpu, launched = [], []
     for e in events:
         if e.get("cat") not in ("kernel", "gpu_memcpy", "gpu_memset"):
             continue
@@ -134,6 +143,8 @@ def load_torch(path, host_depth, with_context=False):
         launch_end = launch["ts"] + launch.get("dur", 0) if launch else None
         thread = (launch["pid"], launch["tid"]) if launch else None
         gpu.append((e["ts"], e["ts"] + e["dur"], e["name"], launch_end, thread, contexts.get(corr, "")))
+        if launch:
+            launched.append((launch["ts"], e["ts"], e["ts"] + e["dur"]))
     starts = {}
     for key, evs in host.items():
         evs.sort(key=lambda e: (e["ts"], -e.get("dur", 0)))
@@ -161,7 +172,7 @@ def load_torch(path, host_depth, with_context=False):
             return f"blocked in {blocking}: {label}"
         return label
 
-    return Rank(gpu, host_at, annotations)
+    return Rank(gpu, host_at, annotations, host_annotations, launched)
 
 
 def load_nsys(path):
@@ -210,10 +221,11 @@ def step_windows(rank, boundary, gap_us):
     return list(zip(ends[:-1], ends[1:]))
 
 
-def annotation_windows(rank, name, end_name):
-    def matches(label, wanted):
-        return label == wanted or label.startswith(wanted + "#")
+def matches(label, wanted):
+    return label == wanted or label.startswith(wanted + "#")
 
+
+def annotation_windows(rank, name, end_name):
     end_starts = [s for s, _, label in rank.annotations if end_name and matches(label, end_name)]
     windows = []
     for start, end, label in rank.annotations:
@@ -229,6 +241,17 @@ def annotation_windows(rank, name, end_name):
 
 
 COMM_LABELS = []
+
+
+def launched_windows(rank, name):
+    windows = []
+    for lo, hi, label in rank.host_annotations:
+        if not matches(label, name):
+            continue
+        inside = [(start, end) for launch, start, end in rank.launched if lo <= launch < hi]
+        if inside:
+            windows.append((min(s for s, _ in inside), max(e for _, e in inside)))
+    return windows
 
 
 def collective(name, target):
@@ -312,6 +335,8 @@ def main():
     parser.add_argument("--step-boundary", default=None, help="regex of the kernels whose cluster ends a step")
     parser.add_argument("--step-annotation", default=None, help="GPU-side annotation whose projections are the windows")
     parser.add_argument("--step-end-annotation", default=None, help="GPU-side annotation whose start ends each window")
+    parser.add_argument("--step-launched-in", default=None,
+                        help="CPU-side annotation; each window spans the GPU activity launched inside one of them")
     parser.add_argument("--whole-trace", action="store_true", help="one window per rank: the whole trace")
     parser.add_argument("--cluster-gap-ms", type=float, default=20.0)
     parser.add_argument("--steps", default="-2:", help="slice of step windows to average (default last two)")
@@ -331,10 +356,11 @@ def main():
     categories = [(c.split(":", 1)[0], re.compile(c.split(":", 1)[1])) for c in args.category]
     comm = re.compile(args.comm)
     COMM_LABELS.extend((c.split(":", 1)[0], c.split(":", 1)[1]) for c in args.comm_label)
-    if sum(x is not None for x in (args.step_boundary, args.step_annotation)) + args.whole_trace != 1:
-        parser.error("pass exactly one of --step-boundary, --step-annotation and --whole-trace")
-    if args.step_annotation and args.nsys:
-        parser.error("--step-annotation works on torch traces only")
+    window_modes = (args.step_boundary, args.step_annotation, args.step_launched_in)
+    if sum(x is not None for x in window_modes) + args.whole_trace != 1:
+        parser.error("pass exactly one of --step-boundary, --step-annotation, --step-launched-in and --whole-trace")
+    if (args.step_annotation or args.step_launched_in) and args.nsys:
+        parser.error("--step-annotation and --step-launched-in work on torch traces only")
     if args.step_end_annotation and not args.step_annotation:
         parser.error("--step-end-annotation needs --step-annotation")
     boundary = re.compile(args.step_boundary) if args.step_boundary else None
@@ -366,6 +392,8 @@ def main():
                 found = [(min(g[0] for g in rank.gpu), max(g[1] for g in rank.gpu))]
             elif args.step_annotation:
                 found = annotation_windows(rank, args.step_annotation, args.step_end_annotation)
+            elif args.step_launched_in:
+                found = launched_windows(rank, args.step_launched_in)
             else:
                 found = step_windows(rank, boundary, args.cluster_gap_ms * 1e3)
             chosen = found[step_slice]

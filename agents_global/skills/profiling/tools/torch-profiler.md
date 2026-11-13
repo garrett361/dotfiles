@@ -35,8 +35,9 @@ Per-category accounting over all ranks treats each call as a step (verified 2026
   schedule=schedule(wait=1, warmup=2, active=3, repeat=1), record_shapes=True,
   on_trace_ready=lambda p: p.export_chrome_trace(f"{out}/trace_{rank}.json.gz"))` and call `prof.step()` at the
   end of every step. Each step becomes a CPU-side `ProfilerStep#<n>` range: pass `--launched-in ProfilerStep` to
-  `top_kernels.py` (see the window pitfall below), `--annotation ProfilerStep` to `trim_last_step.py`, and
-  `--step-marker ProfilerStep` to `timeline_figure.py`. Without `repeat=1` the schedule cycles and each
+  `top_kernels.py` (see the window pitfall below), `--step-launched-in ProfilerStep` to `step_accounting.py` (its
+  `--step-annotation ProfilerStep` window drops the backward, which autograd's thread launches), `--annotation
+  ProfilerStep` to `trim_last_step.py`, and `--step-marker ProfilerStep` to `timeline_figure.py`. Without `repeat=1` the schedule cycles and each
   cycle's export overwrites the last. Projects with their own annotation use it instead (prime-rl: `forward`,
   the scripts' default, once per micro-batch; see `projects/prime-rl.md`).
 - `record_shapes` puts `Input Dims` on CPU ops, which identifies call sites and shapes. `with_stack=True` adds
