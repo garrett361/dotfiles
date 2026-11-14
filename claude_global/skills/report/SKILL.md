@@ -53,3 +53,7 @@ A reader should get the answer in the first screen and the evidence for it in th
 - Have a subagent check every number and derived claim against the data and the code that produced it. Give it the claims and file pointers, not your conclusions, and ask for OK or WRONG with evidence; repo docs can be wrong.
 - Have a separate subagent read only for tone: blame, judgment words (mistakenly, failed, broken) and claims stronger than the evidence.
 - Fix what they confirm, then publish.
+
+## Keeping this skill current
+
+- While iterating on a report, when the user corrects something that would likely recur, states a new preference, or uses a report in a way this skill does not cover, offer a concrete edit to this skill: the proposed wording and the correction that prompted it. Raise it at a natural break, and edit only after the user approves.
