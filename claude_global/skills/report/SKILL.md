@@ -21,16 +21,16 @@ A reader should get the answer in the first screen and the evidence for it in th
 - When the answer depends on a few quantities, map the decision space: put them on the axes, shade the regions (works, fails, does not fit), draw the boundary from a simple model, and place each concrete design as a point, with an arrow where a design moves.
 - Draw comparisons on one scale, and add a zoomed copy when one part is too small to see.
 - Compare against a reference design or a known baseline, so each number has something beside it.
-- Mark measured against predicted everywhere: a callout where predictions begin, filled against hollow points, dashed lines where a regime changes. Say what a model was checked against and what it never was.
-- Label a schematic as not to scale, and say which run, hardware and step a measured figure comes from. Keep a chart's numbers in a collapsed table beneath it.
+- Mark measured against predicted everywhere, and say what a model was checked against and what it never was.
+- Label a schematic as not to scale, and say which run, hardware and step a measured figure comes from.
 
 ## Words
 
 - Keep prose light: short sentences, plain words, and bullets instead of a dense paragraph.
-- Use plain words over jargon. When a term is unavoidable, define it inline at first use, and don't coin a term used only once.
+- Use plain words over jargon. When a term is unavoidable, define it inline at first use.
 - A simple model that yields a rule of thumb is worth including: name the few quantities, write the formulas in a code-style block, plug in the numbers, and end with the rule.
 - Give every number its unit and say whether it is measured or derived. Keep the same name for the same thing everywhere.
-- Prose and lists run the full width of the tables and figures, even where general design guidance suggests about 65 characters per line: set the width once on the content wrapper and give `p`, `ul` and `ol` no `max-width`.
+- Prose and lists run the full width of the tables and figures, even where general design guidance suggests about 65 characters per line.
 
 ## Terms
 
