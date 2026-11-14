@@ -56,4 +56,5 @@ A reader should get the answer in the first screen and the evidence for it in th
 
 ## Keeping this skill current
 
-- While iterating on a report, when the user corrects something that would likely recur, states a new preference, or uses a report in a way this skill does not cover, offer a concrete edit to this skill: the proposed wording and the correction that prompted it. Raise it at a natural break, and edit only after the user approves.
+- This skill holds high-level guidance: how a report is ordered, what it shows, and how it is checked. Small wording or styling preferences (a particular phrasing, a number format) do not belong here: don't propose them, and propose cutting any that have crept in.
+- While iterating on a report, when the user corrects something at that level that would likely recur, states a new preference at that level, or uses a report in a way this skill does not cover, offer a concrete edit: the proposed wording and the correction that prompted it. Raise it at a natural break, and edit or cut only after the user approves.
