@@ -33,7 +33,7 @@ separated, default all):
   rate). Run after the load checks, so ECC errors raised during them count.
 
 Rank 0 writes one JSON line per GPU (`kind: gpu`), per node (`node`), per shift rank (`p2p`) and per collective size
-(`comm`, with its host list) to `--out`, then prints a PASS/WARN/FAIL verdict per node against EXPECT, the table of
+(`comm`, with its host list) to `--out`, then prints a PASS/WARN/FAIL verdict per node against EXPECT (INFO lines, such as a lifetime-only ECC count, do not change it), the table of
 normal bands and fail floors keyed by GPU name (each with its source and date). `--summarize FILE...` reads the files
 of several runs and adds fleet checks: a node more than 5% below the fleet median on any metric (the slowest GPU's
 value for per-GPU metrics, plus its active IB port count and slowest IB rate) is WARN, and each 2-node run is a pair
@@ -439,7 +439,9 @@ def node_problems(host, gpus, node, comm_rows, expect):
         if g.get("ecc_unc_volatile", 0) not in (0, "[N/A]"):
             problems.append(("FAIL", f"{tag} {g['ecc_unc_volatile']} volatile uncorrectable ECC errors"))
         if g.get("ecc_unc_aggregate", 0) not in (0, "[N/A]"):
-            problems.append(("WARN", f"{tag} {g['ecc_unc_aggregate']} aggregate uncorrectable ECC errors"))
+            live = g.get("ecc_unc_volatile", 0) not in (0, "[N/A]") or "Yes" in (g.get("remap_pending"), g.get("remap_failure"))
+            problems.append(("WARN" if live else "INFO", f"{tag} {g['ecc_unc_aggregate']} aggregate uncorrectable ECC errors"
+                             + ("" if live else " (lifetime count only: volatile 0, no pending or failed row remaps)")))
         if g.get("remap_failure") == "Yes":
             problems.append(("FAIL", f"{tag} row remapping failed"))
         if g.get("remap_pending") == "Yes":
@@ -522,7 +524,8 @@ def summarize(records):
     for h in sorted(per_host):
         cells = [f"{metrics.get(h, {})[c]:.0f}" if c in metrics.get(h, {}) else "-" for c in columns]
         low = sum(1 for p in low_pairs.get(h, []) if p)
-        verdict = "FAIL" if any(l == "FAIL" for l, _ in per_host[h]) else "WARN" if per_host[h] else "PASS"
+        levels = {l for l, _ in per_host[h]}
+        verdict = "FAIL" if "FAIL" in levels else "WARN" if "WARN" in levels else "PASS"
         ib = [p for p in nodes[h]["ib_ports"] if p["link_layer"] == "InfiniBand"] if h in nodes else []
         active = f"{sum(p['state'] == '4: ACTIVE' for p in ib)}/{len(ib)}" if h in nodes else "-"
         print(f"| {h} | " + " | ".join(cells) + f" | {active} | {low}/{len(low_pairs.get(h, []))} | {verdict} |")
