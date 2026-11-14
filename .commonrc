@@ -225,11 +225,11 @@ command -v bjobs  >/dev/null 2>&1 && [ -f "$HOME/.lsf_fns.sh" ]   && source "$HO
 # every shell until install.sh reruns. Unconditional: git is always present.
 [ -f "$DOTFILES/.git_fns.sh" ] && source "$DOTFILES/.git_fns.sh"
 
-# No claude.ai connectors on remote machines. --settings outranks user and project
-# settings, and a true disableClaudeAiConnectors from any source cannot be overridden.
+# No synced claude.ai skills on remote machines. Connectors and synced plugins are off on every
+# host via claude_global/settings.json; skills stay on the Mac, so this flag is remote-only.
 if [ "$(uname -s)" != "Darwin" ]; then
     claude() {
-        command claude --settings '{"disableClaudeAiConnectors":true,"syncClaudeAiSkills":false,"syncClaudeAiPlugins":false}' "$@"
+        command claude --settings '{"syncClaudeAiSkills":false}' "$@"
     }
 fi
 

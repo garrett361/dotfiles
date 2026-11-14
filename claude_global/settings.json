@@ -1,6 +1,12 @@
 {
+  "disableClaudeAiConnectors": true,
+  "syncClaudeAiPlugins": false,
+  "crossSessionInbound": "refuse",
+  "isolatePeerMachines": true,
   "permissions": {
     "allow": [
+      "WebSearch",
+      "mcp__linear__save_issue",
       "Read(~/.claude/**)",
       "Read(~/tmp/**)",
       "Edit(~/tmp/**)",
