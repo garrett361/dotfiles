@@ -146,3 +146,6 @@ reports op chain mismatches (0 of 121 here).
 - Two `.tolist()` in a row: only the first waits (tens to hundreds of ms of host time), the second takes about
   20 us, yet the second often has more exposed idle, because the host then has to refill an empty queue.
 - If the process crashes, loguru-style tracebacks that print tensor values add thousands of syncs to the record.
+- Under `torch.compile`, `.tolist()` or `int()` on a tensor inside a compiled region becomes one `aten::item` per
+  element (about 3 us each) in the compiled host timeline, where an eager profile shows a single call: look for runs
+  of `aten::item` (`trace_events.py --min-us 0`). Seen as 64 item calls (about 0.2 ms) per MoE dispatch.
