@@ -7,7 +7,7 @@ what a reader learning the system needs. Draw one for every A/B whose mechanism 
 
 - **Chat: always, once.** Show the diagram the first time you report an A/B result, next to the table.
   Don't repeat it in later replies unless the mechanism changes.
-- **PR descriptions and write-ups: case by case.** Include it when the mechanism is in the weeds and merits
+- **PR descriptions: case by case.** Include it when the mechanism is in the weeds and merits
   explanation. Leave it out when the change is well known (a fused op, a larger tile). A PNG figure
   (`reporting/figures.md`) can replace it when the mechanism is visual in a real trace.
 
