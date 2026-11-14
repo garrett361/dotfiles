@@ -51,7 +51,7 @@ A reader should get the answer in the first screen and the evidence for it in th
 ## Before publishing
 
 - Have a subagent check every number and derived claim against the data and the code that produced it. Give it the claims and file pointers, not your conclusions, and ask for OK or WRONG with evidence; repo docs can be wrong.
-- Have a separate subagent read only for tone: blame, judgment words (mistakenly, failed, broken) and claims stronger than the evidence.
+- Have a separate subagent read only for tone: blame, judgment words and claims stronger than the evidence.
 - Fix what they confirm, then publish.
 
 ## Keeping this skill current
