@@ -22,7 +22,7 @@ A reader should get the answer in the first screen and the evidence for it in th
 - Draw comparisons on one scale, and add a zoomed copy when one part is too small to see.
 - Compare against a reference design or a known baseline, so each number has something beside it.
 - Mark measured against predicted everywhere, and say what a model was checked against and what it never was.
-- Label a schematic as not to scale, and say which run, hardware and step a measured figure comes from.
+- Say which run, hardware and step a measured figure comes from.
 
 ## Words
 
