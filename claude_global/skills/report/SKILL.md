@@ -30,6 +30,7 @@ A reader should get the answer in the first screen and the evidence for it in th
 - Avoid jargon, including the project's internal names (code names, option labels, design letters, version tags): name a thing by what it does. When a term is unavoidable, define it inline at first use.
 - A simple model that yields a rule of thumb is worth including: name the few quantities, write the formulas in a code-style block, plug in the numbers, and end with the rule.
 - Give every number its unit and say whether it is measured or derived. Keep the same name for the same thing everywhere.
+- When the report maximizes one quantity, state every effect in its unit throughout the main line of the report. A component's own units (an optimizer's time, a kernel's speedup) belong where that component is explained in detail.
 - Prose and lists run the full width of the tables and figures, even where general design guidance suggests about 65 characters per line.
 
 ## Terms
