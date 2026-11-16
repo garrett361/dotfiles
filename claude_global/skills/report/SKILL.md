@@ -23,6 +23,7 @@ A reader should get the answer in the first screen and the evidence for it in th
 - Draw comparisons on one scale, and add a zoomed copy when one part is too small to see.
 - Put the full data behind a chart, and any detail the main text already summarizes, in a collapsed "Show as table" block right under it: the main line stays short and the evidence stays one click away.
 - Compare against a reference design or a known baseline, so each number has something beside it.
+- When items have a status (adopted, partial, ruled out, untried), color-code it the same way in every diagram and table, with hues that read in order and stay far apart.
 - Mark measured against predicted everywhere, and say what a model was checked against and what it never was.
 - Say which run, hardware and step a measured figure comes from.
 
