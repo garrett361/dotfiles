@@ -28,7 +28,7 @@ A reader should get the answer in the first screen and the evidence for it in th
 
 ## Words
 
-- Keep prose light: short sentences, plain words, and bullets instead of a dense paragraph.
+- Keep prose light: short sentences, plain words, and bullets instead of a dense paragraph. Prefer spelling out a long comma-separated list as bullets, one item per line.
 - Avoid jargon, including the project's internal names (code names, option labels, design letters, version tags): name a thing by what it does. When a term is unavoidable, define it inline at first use.
 - A simple model that yields a rule of thumb is worth including: name the few quantities, write the formulas in a code-style block, plug in the numbers, and end with the rule.
 - Give every number its unit and say whether it is measured or derived. Keep the same name for the same thing everywhere.
