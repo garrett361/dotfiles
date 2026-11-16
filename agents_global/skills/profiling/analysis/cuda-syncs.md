@@ -148,4 +148,6 @@ reports op chain mismatches (0 of 121 here).
 - If the process crashes, loguru-style tracebacks that print tensor values add thousands of syncs to the record.
 - Under `torch.compile`, `.tolist()` or `int()` on a tensor inside a compiled region becomes one `aten::item` per
   element (about 3 us each) in the compiled host timeline, where an eager profile shows a single call: look for runs
-  of `aten::item` (`trace_events.py --min-us 0`). Seen as 64 item calls (about 0.2 ms) per MoE dispatch.
+  of `aten::item` (`trace_events.py --min-us 0`). Seen as 64 item calls (about 0.2 ms) per MoE dispatch. When only a size is
+  needed, reduce on the tensor first (`int(t.sum())`, one item): a 256-element `.tolist()` right after a sync cost
+  about 1 ms per call of GPU idle in an FP8 MoE dispatcher.
