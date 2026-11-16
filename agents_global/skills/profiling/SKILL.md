@@ -49,6 +49,8 @@ Op level:
   `--summarize` over every node's and pair's results.
 - A node failed a check or ran hot or slow in a run: how do I confirm it and report it with a reproducer anyone on the
   cluster can run? `reporting/bad-nodes.md`.
+- A node's power brake fires in training but its short and sustained GEMM checks pass? `scripts/power_swing_check.py`
+  (GEMM bursts and idle gaps at a step cadence); `reporting/bad-nodes.md`.
 - How long does a region of my code take, per call? Copy `scripts/cuda_timer.py` into the project (meant to be copied,
   not run, like `scripts/triton_event_recorder.py`).
 - Which kernels inside an op cost the time? `bench_ops.py --trace`, then `scripts/top_kernels.py --whole-trace

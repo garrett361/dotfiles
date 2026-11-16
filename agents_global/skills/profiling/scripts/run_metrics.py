@@ -33,6 +33,9 @@ Step table: `--step-table METRIC` (repeatable) writes one CSV row per step to `-
 run, and prints each metric as a markdown table, runs side by side, ending in each run's max |diff| from the first
 `--run`. Use it for parity checks (do two arms track step by step?) and to read off per-step stalls; `--steady`
 limits the steps and `--digits` sets the printed precision. METRIC takes the same forms as in `--summarize`.
+`--stall-above X` adds rows with each run's 20th percentile over the table's steps (its unstalled step time while
+fewer than 80% of steps stall) and the steps more than X above it (count, share, range of the excess), for counting
+stalls such as a node's power-brake episodes.
 
 Usage:
   uv run --script run_metrics.py --out parity.csv --step-table optim/grad_norm --step-table time/step \\
@@ -76,6 +79,8 @@ def parse_args():
         "--step-table", action="append", default=[], help="METRIC, write per-step values side by side per run"
     )
     parser.add_argument("--digits", type=int, default=6, help="significant digits in the --step-table markdown")
+    parser.add_argument("--stall-above", type=float, default=None, metavar="X",
+                        help="with --step-table, count steps more than X above the run's 20th percentile over the table's steps")
     parser.add_argument("--prefer", default=None, metavar="KEY=VALUE",
                         help="when several records of a step carry a metric, take the one whose KEY equals VALUE")
     args = parser.parse_args()
@@ -289,6 +294,17 @@ def write_step_table(rows, args):
             shared = [s for s in steps if s in values and s in per_run[0]]
             diffs.append(f"{max(abs(values[s] - per_run[0][s]) for s in shared):.3g}" if shared else "")
         print(f"| max abs diff vs {labels[0]} | " + " | ".join(diffs) + " |")
+        if args.stall_above is not None:
+            bases, stalls = [], []
+            for values in per_run:
+                present = sorted(values[s] for s in steps if s in values)
+                base = present[int(0.2 * (len(present) - 1))] if present else math.nan
+                excess = [values[s] - base for s in steps if s in values and values[s] - base > args.stall_above]
+                bases.append(f"{base:.{args.digits}g}")
+                span = f", +{min(excess):.3g} to +{max(excess):.3g}" if excess else ""
+                stalls.append(f"{len(excess)}/{len(present)} ({100 * len(excess) / max(len(present), 1):.0f}%{span})")
+            print("| p20 | " + " | ".join(bases) + " |")
+            print(f"| steps over p20 + {args.stall_above:g} | " + " | ".join(stalls) + " |")
     print(f"\nwrote {args.out}")
 
 
