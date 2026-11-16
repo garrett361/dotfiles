@@ -16,7 +16,8 @@ gh pr view <num> --repo <owner>/<repo> \
 
 - Team: default "Research" (ask only if it's obviously a different team).
 - Project: ask via AskUserQuestion with options "RL Stack" / "Performance" /
-  "Autonomous AI Research / Pretraining" (P-RES-141, used for prime-pt PRs)
+  "Autonomous AI Research / Pretraining" (P-RES-141, used for prime-pt PRs) /
+  "Prime Agent: Long-Horizon research" (P-RES-140, used for prime-agent PRs)
   (the built-in "Other" choice covers anything else). Skip asking only if
   the user already named the project in their request.
 
@@ -28,7 +29,7 @@ gh pr view <num> --repo <owner>/<repo> \
 - Status: isDraft -> In Progress; open, not draft -> In Review; merged -> Done.
   (If the user wants Backlog for a draft PR, they'll say so explicitly.)
 - Label from conventional-commit type: feat -> Feature, fix -> Bug,
-  refactor/chore/perf/docs -> Improvement; no match -> no label.
+  refactor/chore/perf/docs/ci -> Improvement; no match -> no label.
 - Assignee: default "me". Don't ask -- assume it's Garrett's work unless
   the request says otherwise.
 - Attach the PR with `links: [{url, title}]` on `save_issue` -- never
