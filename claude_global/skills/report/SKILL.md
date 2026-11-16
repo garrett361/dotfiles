@@ -21,6 +21,7 @@ A reader should get the answer in the first screen and the evidence for it in th
 - Show a mechanism as cartoons in sequence: one panel per state, with each arrow labeled by the change between them.
 - When the answer depends on a few quantities, map the decision space: put them on the axes, shade the regions (works, fails, does not fit), draw the boundary from a simple model, and place each concrete design as a point, with an arrow where a design moves.
 - Draw comparisons on one scale, and add a zoomed copy when one part is too small to see.
+- Put the full data behind a chart, and any detail the main text already summarizes, in a collapsed "Show as table" block right under it: the main line stays short and the evidence stays one click away.
 - Compare against a reference design or a known baseline, so each number has something beside it.
 - Mark measured against predicted everywhere, and say what a model was checked against and what it never was.
 - Say which run, hardware and step a measured figure comes from.
