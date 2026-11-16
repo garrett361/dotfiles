@@ -14,18 +14,84 @@ for repo in "${REPOS[@]}"; do
     repo_flags+=(--repo "$ORG/$repo")
 done
 
+ME=$(gh api user --jq .login)
+
+tag_one_pr() {
+    local repo created title url is_draft number pr head requested my_reviews state commit
+    local verdict="" verdict_commit="" comment_commit="" tags
+    IFS=$'\t' read -r repo created title url is_draft <<<"$1"
+    number=${url##*/}
+    pr=$(gh api "repos/$ORG/$repo/pulls/$number" \
+        --jq "[.head.sha, (.requested_reviewers | any(.login == \"$ME\"))] | @tsv")
+    IFS=$'\t' read -r head requested <<<"$pr"
+    my_reviews=$(gh api --paginate "repos/$ORG/$repo/pulls/$number/reviews" \
+        --jq ".[] | select(.user.login == \"$ME\") | \"\(.state) \(.commit_id)\"")
+    while read -r state commit; do
+        case $state in
+            APPROVED | CHANGES_REQUESTED | DISMISSED) verdict=$state verdict_commit=$commit ;;
+            COMMENTED) comment_commit=$commit ;;
+        esac
+    done <<<"$my_reviews"
+
+    if [[ $requested == true ]]; then
+        if [[ -n $verdict || -n $comment_commit ]]; then
+            tags="re-requested"
+        else
+            tags="requested"
+        fi
+    elif [[ $verdict == APPROVED && $verdict_commit == "$head" ]]; then
+        return
+    elif [[ -z $verdict && $comment_commit == "$head" ]]; then
+        return
+    elif [[ $verdict == APPROVED || $verdict == DISMISSED ]]; then
+        tags="approved, stale"
+    elif [[ $verdict == CHANGES_REQUESTED ]]; then
+        tags="changes requested"
+        if [[ $verdict_commit != "$head" ]]; then
+            tags+=", stale"
+        fi
+    elif [[ -n $comment_commit ]]; then
+        tags="commented, stale"
+    else
+        tags="assigned"
+    fi
+    if [[ $is_draft == true ]]; then
+        tags+=", draft"
+    fi
+    printf '%s\t%s\t[%s] %s\t%s\t%s\n' "$repo" "$created" "$tags" "$title" "$url" "$is_draft"
+}
+
+tag_review_state() (
+    local out_dir line pid count=0 index
+    local pids=()
+    out_dir=$(mktemp -d)
+    trap "rm -rf '$out_dir'" EXIT
+    while IFS= read -r line; do
+        tag_one_pr "$line" >"$out_dir/$count" &
+        pids+=("$!")
+        count=$((count + 1))
+    done
+    for pid in ${pids[@]+"${pids[@]}"}; do
+        wait "$pid"
+    done
+    for ((index = 0; index < count; index++)); do
+        cat "$out_dir/$index"
+    done
+)
+
 print_section() {
     local header="$1"
-    shift
+    local annotate="$2"
+    shift 2
     printf '%s\n%s\n\n' "$header" "${header//?/=}"
     for role in "$@"; do
         gh search prs "$role" @me --state open "${repo_flags[@]}" \
-            --json repository,createdAt,title,url \
-            --jq '.[] | "\(.repository.name)\t\(.createdAt)\t\(.title)\t\(.url)"'
-    done | sort -u | sort -t $'\t' -k1,1 -k2,2 |
+            --json repository,createdAt,title,url,isDraft \
+            --jq '.[] | "\(.repository.name)\t\(.createdAt)\t\(.title)\t\(.url)\t\(.isDraft)"'
+    done | sort -u | sort -t $'\t' -k1,1 -k2,2 | "$annotate" |
         awk -F '\t' 'NR > 1 { print "" } { print $3; print $4 } END { if (NR == 0) print "(none)" }'
 }
 
-print_section "My PRs" --author
+print_section "My PRs" cat --author
 echo
-print_section "Reviews" --assignee --review-requested --reviewed-by
+print_section "Reviews" tag_review_state --assignee --review-requested --reviewed-by
