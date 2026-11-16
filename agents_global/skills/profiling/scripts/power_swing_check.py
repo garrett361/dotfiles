@@ -10,11 +10,12 @@ the GEMMs instead of after them. The run lasts --seconds; the counter is read on
 
 Per GPU it prints the brake time the counter added, the GEMM phase's median and maximum time per step, and the steps
 whose GEMM phase took over --slow-factor times its median (a braked GPU slows to about a fifth of its clock for under a
-second). A healthy node adds 0.
+second). A cycle that brakes a GPU on nearly every step leaves no fast median to compare with, so a GPU whose median
+GEMM rate is under --tflops-min is flagged too. A healthy node adds 0.
 
 Usage, under torchrun (--standalone on one node, or --nnodes N with a rendezvous): power_swing_check.py [--n 8192]
        [--busy-ms 200] [--idle-ms 100] [--seconds 120] [--comm none|a2a|allgather|both] [--comm-mb 256] [--overlap]
-       [--slow-factor 1.5]
+       [--slow-factor 1.5] [--tflops-min 550]
 """
 
 import argparse
@@ -53,6 +54,8 @@ def main():
     parser.add_argument("--overlap", action="store_true", help="run the collectives on a second stream beside the GEMMs")
     parser.add_argument("--slow-factor", type=float, default=1.5,
                         help="a step is slow when its GEMM phase takes over this many times the GPU's median")
+    parser.add_argument("--tflops-min", type=float, default=550.0,
+                        help="flag GPUs whose median GEMM rate is below this TFLOP/s (default for H100 SXM bf16)")
     args = parser.parse_args()
 
     local_rank, local_world = int(os.environ["LOCAL_RANK"]), int(os.environ["LOCAL_WORLD_SIZE"])
@@ -142,12 +145,13 @@ def main():
             gpu, added, total, med, worst, slow_steps, steps, step_med, tflops = t[HOST_BYTES:].tolist()
             print(f"{host:<32} {int(gpu):>3} {added:>15.0f} {total:>15.0f} {tflops:>12.0f} {med:>11.1f} {worst:>11.1f} "
                   f"{f'{int(slow_steps)}/{int(steps)}':>10} {step_med:>11.1f}")
-            if added > 0 or slow_steps > 0:
+            if added > 0 or slow_steps > 0 or tflops < args.tflops_min:
                 braked.setdefault(host, []).append(int(gpu))
-        print(f"slow steps = GEMM phase over {args.slow_factor:g}x the GPU's median")
+        print(f"slow steps = GEMM phase over {args.slow_factor:g}x the GPU's median; GEMM TFLOP/s = rate at the median step")
         hosts = sorted({bytes(int(x) for x in t[:HOST_BYTES].tolist()).decode().strip() for t in gathered})
         for host in hosts:
-            print(f"{host}: " + (f"BRAKED or slow on GPUs {braked[host]}" if host in braked else "OK"))
+            print(f"{host}: " + (f"BRAKED or slow on GPUs {braked[host]} (brake added, slow steps, or GEMM rate below "
+                                 f"{args.tflops_min:.0f} TFLOP/s)" if host in braked else "OK"))
     dist.destroy_process_group()
 
 
