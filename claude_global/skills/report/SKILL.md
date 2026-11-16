@@ -12,6 +12,7 @@ A reader should get the answer in the first screen and the evidence for it in th
 - Open with summary cards: three or four, each a short label, the answer in a few words, and one or two supporting lines. A reader who stops after the cards should know the conclusion.
 - Lead every section with its main point in the first sentence, then give the evidence. Never build up to a conclusion.
 - When it matters, state the scope up front (what the numbers do and do not cover), and close with what was not tested yet.
+- Get the reader to the charts and tables fast. Side investigations, no-go explanations, per-run tables and history each get one line in a table or a bullet with a link to their source, never their own multi-paragraph or multi-table section, unless the user asks for one.
 - Split the page into a main body and an appendix after a labeled divider. In the main body every element states a finding or shows the evidence for one, ending with what would change the conclusion or the next step. Supporting material (method, robustness checks, history, how to reproduce, open questions) goes in the appendix.
 
 ## Show, then tell
