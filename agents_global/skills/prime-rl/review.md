@@ -11,7 +11,10 @@ before weighing in on the user's points, and do not fold their views into it.
   (`git fetch origin pull/N/head main`), and record the head SHA. The base is
   `git merge-base <head> origin/main` after that fetch, since local `main` is often stale. Read from a
   checkout whose `HEAD` equals the head SHA, from `git show <sha>:<path>`, or from a `git archive` snapshot
-  in the scratchpad; check `git status` before checking out in the user's worktree. Submodules may belong
+  in the scratchpad; check `git status` before checking out in the user's worktree. When the user asks to
+  check out the PR branch in the current worktree, check out the branch itself with `gh pr checkout N`
+  (it fetches the branch tip; a stale `origin/<branch>` can sit behind it), never a detached SHA, then
+  confirm `HEAD` equals the head SHA. Submodules may belong
   to another branch, so read pinned dependencies at the PR's pins (see Submodules under Running code).
   If the user says uncommitted local changes are part of the review, the working tree is the source. Say
   which source the review used.
