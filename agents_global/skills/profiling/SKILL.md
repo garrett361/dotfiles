@@ -63,6 +63,9 @@ Op level:
 End to end, from traces:
 - Why doesn't an op win show up in step time? Capture both arms (`tools/torch-profiler.md`), then diff them with
   the scripts below.
+- Starting on a code path's speed, especially a new or ported one under `torch.compile` or across ranks: before tuning
+  kernels, check it for host syncs and host-bound gaps (`scripts/find_syncs.py`, `scripts/host_ops.py`); a blocking copy
+  or a per-item `.item()`/`.tolist()` per layer can cost more than the kernels being tuned.
 - Where should I optimize, which kernels cost most and which op launched them? `scripts/top_kernels.py` (torch
   trace) or `scripts/nsys_kernels.py` (nsys SQLite); `analysis/top-kernels.md`.
 - Which kernels changed between two traces, per kernel, category or launching op? `scripts/kernel_diff.py`.
