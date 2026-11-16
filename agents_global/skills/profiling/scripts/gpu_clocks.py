@@ -13,7 +13,12 @@ sampling interval), the SM clock median, p20 and p80, the median power, the maxi
 busy samples with each active throttle reason bit (e.g. 0x4 SW power cap). With a `memory.used` column it also prints
 the maximum device memory in use over all samples, which counts allocations outside PyTorch's allocator.
 
+`--start`/`--end` (HH:MM:SS on the log's clock, or a full `YYYY/MM/DD HH:MM:SS` timestamp) keep only samples inside a
+window. `--with-reason BIT` (e.g. 0x80, HW power brake) adds a row per log or GPU over every sample with that reason
+active, whatever its power, so a throttle that hits short bursts shows its clocks and sample count.
+
 Usage: uv run --script gpu_clocks.py [LABEL=]log.csv [...] [--busy-watts 200] [--per-gpu] [--decimals 0]
+       [--start T] [--end T] [--with-reason BIT]
 """
 
 import argparse
@@ -84,6 +89,18 @@ def read_log(path):
     return samples
 
 
+def in_window(time, start, end):
+    if time is None:
+        return start is None and end is None
+
+    def bound(text):
+        if " " in text:
+            return datetime.strptime(text, "%Y/%m/%d %H:%M:%S")
+        return datetime.combine(time.date(), datetime.strptime(text, "%H:%M:%S").time())
+
+    return (start is None or time >= bound(start)) and (end is None or time <= bound(end))
+
+
 def interval_s(samples):
     gaps = []
     for gpu in {s["gpu"] for s in samples}:
@@ -126,6 +143,10 @@ def main():
     parser.add_argument("--busy-watts", type=float, default=200.0, help="power above which a sample counts as busy")
     parser.add_argument("--per-gpu", action="store_true", help="one row per GPU index instead of one per log")
     parser.add_argument("--decimals", type=int, default=0)
+    parser.add_argument("--start", help="keep samples at or after this time (HH:MM:SS or YYYY/MM/DD HH:MM:SS)")
+    parser.add_argument("--end", help="keep samples at or before this time (HH:MM:SS or YYYY/MM/DD HH:MM:SS)")
+    parser.add_argument("--with-reason", type=lambda text: int(text, 0),
+                        help="also summarize every sample with this throttle reason bit active (e.g. 0x80)")
     args = parser.parse_args()
 
     print(
@@ -135,13 +156,17 @@ def main():
     print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|")
     for spec in args.logs:
         label, _, path = spec.partition("=") if "=" in spec else (spec, "", spec)
-        samples = read_log(path)
+        samples = [s for s in read_log(path) if in_window(s["time"], args.start, args.end)]
+        groups = [(label, samples)]
         if args.per_gpu:
-            for gpu in sorted({s["gpu"] for s in samples}, key=lambda g: (len(g), g)):
-                subset = [s for s in samples if s["gpu"] == gpu]
-                print("| " + " | ".join(summarize(f"{label} GPU {gpu}", subset, args.busy_watts, args.decimals)) + " |")
-        else:
-            print("| " + " | ".join(summarize(label, samples, args.busy_watts, args.decimals)) + " |")
+            groups = [(f"{label} GPU {gpu}", [s for s in samples if s["gpu"] == gpu])
+                      for gpu in sorted({s["gpu"] for s in samples}, key=lambda g: (len(g), g))]
+        for name, subset in groups:
+            print("| " + " | ".join(summarize(name, subset, args.busy_watts, args.decimals)) + " |")
+            if args.with_reason is not None:
+                flagged = [s for s in subset if s["reasons"] & args.with_reason]
+                row = summarize(f"{name} with {args.with_reason:#x}", flagged, float("-inf"), args.decimals)
+                print("| " + " | ".join(row) + " |")
 
 
 if __name__ == "__main__":
