@@ -1,7 +1,7 @@
 """Time GPU callables with triton.testing.do_bench and print a markdown table.
 
 usage: python bench_ops.py CASES.py [--only SUBSTR] [--warmup MS] [--rep MS] [--csv OUT] [--memory] [--check]
-       [--cudagraph] [--trace DIR [--trace-iters N]] [--distributed]
+       [--check-relative] [--cudagraph] [--trace DIR [--trace-iters N]] [--distributed]
        torchrun --nproc-per-node=N bench_ops.py CASES.py --distributed [...]
 
 CASES.py defines `cases()`, returning a list of (case_name, {label: zero-arg callable}). Every callable in a
@@ -14,6 +14,9 @@ memory above what was allocated just before the call (MiB): the transient cost o
 With --check, each callable runs once before timing and the tensors in its return value (any nesting of tuples,
 lists and dicts) are compared with the first label's: shapes, max abs diff, and pass/FAIL under
 torch.testing.assert_close's default tolerances for the dtype. Return gradients too when timing a backward.
+With --check-relative (implies --check), each output's error is reported separately as max abs diff divided by the
+reference output's max abs value, in output order, with no pass/FAIL and no dtype match required: for an error study
+against a higher-precision first label (e.g. an fp64 reference of a mixed-precision op).
 With --cudagraph, timing uses do_bench_cudagraph instead: many calls replayed from one CUDA graph, no L2 flush,
 no per-call event overhead (do_bench adds about 3 us per call, which dominates ops under ~20 us); p20/p80 then
 come from only 10 replays. The callable must be capturable (no host syncs).
@@ -161,7 +164,7 @@ def output_tensors(output):
     return [leaf.detach().clone() for leaf in tree_leaves(output) if isinstance(leaf, torch.Tensor)]
 
 
-def compare_outputs(reference, output):
+def compare_outputs(reference, output, relative=False):
     import torch
 
     if len(reference) != len(output) or any(r.shape != o.shape for r, o in zip(reference, output)):
@@ -172,6 +175,12 @@ def compare_outputs(reference, output):
         )
     if not reference:
         return "no tensor outputs", False, None
+    if relative:
+        errors = [
+            ((r.double() - o.double()).abs().max() / r.double().abs().max()).item() if r.numel() else 0.0
+            for r, o in zip(reference, output)
+        ]
+        return "rel err " + ", ".join(f"{error:.3g}" for error in errors), False, max(errors)
     max_diff = max(
         ((r.double() - o.double()).abs().max().item() if r.numel() else 0.0) for r, o in zip(reference, output)
     )
@@ -192,11 +201,15 @@ def main():
     parser.add_argument("--csv", default=None)
     parser.add_argument("--memory", action="store_true", help="also report peak MiB above the pre-call baseline")
     parser.add_argument("--check", action="store_true", help="compare each output with the case's first label")
+    parser.add_argument(
+        "--check-relative", action="store_true", help="--check, reporting each output's max abs diff / max abs reference"
+    )
     parser.add_argument("--cudagraph", action="store_true", help="time with do_bench_cudagraph (for ops under ~20 us)")
     parser.add_argument("--trace", default=None, help="directory for one torch.profiler chrome trace per callable")
     parser.add_argument("--trace-iters", type=int, default=10)
     parser.add_argument("--distributed", action="store_true", help="run under torchrun; see the usage docstring")
     args = parser.parse_args()
+    args.check = args.check or args.check_relative
     if args.distributed and args.cudagraph:
         parser.error("--cudagraph is not supported with --distributed")
 
@@ -233,7 +246,7 @@ def main():
                     elif reference is None:
                         checks[case_name, label] = "no reference (first label failed)"
                     else:
-                        result = compare_outputs(reference, output)
+                        result = compare_outputs(reference, output, args.check_relative)
                         if args.distributed:
                             result = merge_check_over_ranks(result)
                         checks[case_name, label] = result[0]
