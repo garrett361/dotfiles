@@ -77,7 +77,7 @@ before weighing in on the user's points, and do not fold their views into it.
 - Answer the user's comments and questions in conversation, and fold agreed wording into the file.
 - Write the review body for whoever acts on it, often another agent rather than the PR author: just enough to
   be actionable, no more.
-  - Lead every top-level item and inline comment with the core issue in one plain sentence, the way you would say it to the author, before any API names, mechanism or numbers (e.g. "this doesn't test the layout real FSDP checkpoints have"); then the mechanism and evidence, then the fix. A reader who stops after the first sentence should know what is wrong.
+  - Lead every top-level item and inline comment with the core issue in one plain sentence, the way you would say it to the author, before any API names, mechanism or numbers (e.g. "this doesn't test the layout real FSDP checkpoints have"); then the mechanism and evidence, then the fix. A reader who stops after the first sentence should know what is wrong. Phrase it as a friendly colleague would: a suggestion or question ("I think...", "would it work to...?", "small thing:"), never a verdict such as "this is wrong" or "the claim is off". Soften the tone, not the content: the issue still comes first and stays specific.
   - Describe only the code at head. Do not cite commit messages, earlier revisions, or where a claim was first
     written; link the current line that makes or contradicts it.
   - Corrections and bugs: a GitHub permalink at the PR head SHA with line numbers
