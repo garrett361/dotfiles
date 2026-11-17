@@ -35,6 +35,8 @@ are the innermost cpu_op's first 3 Input Dims. Use it to classify by launching o
 can report a custom op's Triton kernel under the name of an Inductor kernel (`triton_poi_fused_...`), so a name-only
 `^triton_` rule (or reading `--by name` rows as Inductor's) books custom-op time as Inductor's.
 
+`--by category` groups the kernel tables and the CSV by the matched `--category` rule instead (CSV label = category,
+`kernel_names` = every raw name in it), so `kernel_diff.py --key label` diffs categories between traces.
 `--grid` splits each row by the kernel's launch grid (`args["grid"]`), prefixed to its name as `gridXxYxZ`, e.g. to
 check how many CTAs an NCCL kernel ran with. `--marker REGEX` (site grouping only) prefixes each call site with `[M]`, where M is the most recent host event
 (`cpu_op` or `user_annotation`) on the launch's thread that started at or before the launch and whose name matches
@@ -50,7 +52,7 @@ that launches several kernels reports its whole argument list on each.
 The header reports GPU busy time (union of kernel intervals on all selected streams, clipped to the window end), idle time (window minus busy),
 and exposed NCCL time (when an NCCL kernel runs and no non-NCCL kernel does, i.e. busy minus non-NCCL busy).
 
-Usage: uv run --script top_kernels.py <trace.json.gz> [--by name|site|both] [--top 15] [--stream main|<tid>]
+Usage: uv run --script top_kernels.py <trace.json.gz> [--by name|site|both|category] [--top 15] [--stream main|<tid>]
          [--annotation forward [--annotation-index -1] | --whole-trace | --from-annotation NAME [--from-index -1]
           [--to-annotation NAME] | --launched-in NAME [--launched-in-index -1]] [--min-calls 1] [--minmax] [--name-width 55] [--csv out.csv]
          [--decimals 1] [--marker REGEX] [--arg-bytes] [--category LABEL:REGEX ... [--category-context]]
@@ -107,7 +109,8 @@ DTYPE_BYTES = {
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("trace")
-    p.add_argument("--by", choices=("name", "site", "both"), default="name")
+    p.add_argument("--by", choices=("name", "site", "both", "category"), default="name",
+                   help="'category' groups rows by the matched --category rule (CSV label = category)")
     p.add_argument("--top", type=int, default=15)
     p.add_argument("--grid", action="store_true", help="split rows by launch grid (prefix gridXxYxZ to the name)")
     p.add_argument("--stream", default=None, help="'main' (most kernel time) or a stream tid")
@@ -342,14 +345,22 @@ def make_labels(keys):
     return labels
 
 
+def category_rules(specs):
+    return [(label, re.compile(regex)) for label, regex in (spec.split(":", 1) for spec in specs)]
+
+
+def category_of(e, rules, contexts=None):
+    target = e["name"]
+    if contexts is not None:
+        target = f"{contexts.get(e.get('args', {}).get('correlation'), '')} : {target}"
+    return next((lab for lab, rx in rules if rx.search(target)), "other")
+
+
 def category_table(gpu, end, busy, window, specs, d=1, contexts=None):
-    rules = [(label, re.compile(regex)) for label, regex in (spec.split(":", 1) for spec in specs)]
+    rules = category_rules(specs)
     durs, intervals = defaultdict(list), defaultdict(list)
     for e in gpu:
-        target = e["name"]
-        if contexts is not None:
-            target = f"{contexts.get(e.get('args', {}).get('correlation'), '')} : {target}"
-        label = next((lab for lab, rx in rules if rx.search(target)), "other")
+        label = category_of(e, rules, contexts)
         durs[label].append(e["dur"])
         intervals[label].append((e["ts"], min(e["ts"] + e["dur"], end)))
     matched = "`<host stack> [dims] : <kernel name>`" if contexts is not None else "the raw kernel name"
@@ -425,8 +436,18 @@ def main():
     compute_busy = union_length((e["ts"], min(e["ts"] + e["dur"], end)) for e in gpu if not is_comm(e["name"]))
     site_bytes = {}
     sites = call_sites(xs, gpu, args.marker, site_bytes) if args.by in ("site", "both") else {}
+    contexts = None
+    if args.category and args.category_context:
+        stacks = launch_stacks(xs, {e.get("args", {}).get("correlation") for e in gpu})
+        contexts = {corr: launch_context(stack) for corr, stack in stacks.items()}
+    if args.by == "category":
+        if not args.category:
+            sys.exit("--by category needs at least one --category rule")
+        rules = category_rules(args.category)
 
     def key_of(e):
+        if args.by == "category":
+            return (category_of(e, rules, contexts), None)
         site = sites.get(e["args"].get("correlation"), "<no launch event>")
         name = e["name"]
         if args.grid and e["args"].get("grid"):
@@ -464,10 +485,6 @@ def main():
     print("\n## NCCL (durations include waiting for peers)\n")
     print(table(sorted(comm, key=lambda r: -r["total_us"])[: args.top], busy, window, labels, args))
     if args.category:
-        contexts = None
-        if args.category_context:
-            stacks = launch_stacks(xs, {e.get("args", {}).get("correlation") for e in gpu})
-            contexts = {corr: launch_context(stack) for corr, stack in stacks.items()}
         print(category_table(gpu, end, busy, window, args.category, d, contexts))
     print()
     print(textwrap.fill(

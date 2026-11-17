@@ -17,10 +17,12 @@ the number plus the raw kernel name, since the numbering depends on which kernel
 `--iters N` divides every time by N, so a trace of N iterations of an op (e.g. `bench_ops.py --trace-iters N`) reads per
 iteration; call counts stay raw. `--before-iters` / `--after-iters` override it per side, for windows that hold different
 numbers of iterations (e.g. a whole 8-micro-batch step against a 2-micro-batch step, both read per micro batch).
+`--bound-speedup X` adds a column to the category table: the share of the saving an X-fold speedup of the before
+side would give, `(before - after) / (before * (1 - 1/X))` (e.g. X = 2 for an FP8 path against bf16).
 
 Usage: uv run --script kernel_diff.py before.csv after.csv [--top 30] [--name-width 90] [--group compute]
        [--category "expert GEMM:sm90_fp8_gemm_1d"] [--before-label A] [--after-label B] [--key label] [--filter REGEX]
-       [--decimals 1] [--iters 1] [--before-iters N] [--after-iters N]
+       [--decimals 1] [--iters 1] [--before-iters N] [--after-iters N] [--bound-speedup X]
 """
 
 import argparse
@@ -74,6 +76,8 @@ def main():
     parser.add_argument("--iters", type=int, default=1, help="divide times by this many traced iterations")
     parser.add_argument("--before-iters", type=int, default=None, help="override --iters for the before file")
     parser.add_argument("--after-iters", type=int, default=None, help="override --iters for the after file")
+    parser.add_argument("--bound-speedup", type=float, default=None,
+                        help="add each category's share of the saving this speedup of the before side would give")
     args = parser.parse_args()
 
     column = "kernel_names" if args.key == "kernel" else "label"
@@ -121,11 +125,17 @@ def main():
             entry = sums[categorize(key[1])]
             entry[0] += b_ms
             entry[1] += a_ms
-        print(f"\n| category | {args.before_label} ms | {args.after_label} ms | delta ms |")
-        print("|---|---|---|---|")
+        bound = args.bound_speedup
+        bound_col = f" share of {bound:g}x saving |" if bound else ""
+        print(f"\n| category | {args.before_label} ms | {args.after_label} ms | delta ms |{bound_col}")
+        print("|---|---|---|---|" + ("---|" if bound else ""))
         for label in labels:
             b_ms, a_ms = sums[label]
-            print(f"| {label} | {b_ms:.{d}f} | {a_ms:.{d}f} | {a_ms - b_ms:+.{d}f} |")
+            share = ""
+            if bound:
+                possible = b_ms * (1 - 1 / bound)
+                share = f" {100 * (b_ms - a_ms) / possible:.1f}% |" if possible > 0 else " |"
+            print(f"| {label} | {b_ms:.{d}f} | {a_ms:.{d}f} | {a_ms - b_ms:+.{d}f} |{share}")
 
 
 if __name__ == "__main__":
