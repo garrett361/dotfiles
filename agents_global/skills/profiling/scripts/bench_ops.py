@@ -1,6 +1,6 @@
 """Time GPU callables with triton.testing.do_bench and print a markdown table.
 
-usage: python bench_ops.py CASES.py [--only SUBSTR] [--warmup MS] [--rep MS] [--csv OUT] [--memory] [--check]
+usage: python bench_ops.py CASES.py [--only SUBSTR] [--warmup MS] [--rep MS] [--rounds N] [--csv OUT] [--memory] [--check]
        [--check-relative] [--cudagraph] [--trace DIR [--trace-iters N]] [--distributed]
        torchrun --nproc-per-node=N bench_ops.py CASES.py --distributed [...]
 
@@ -17,6 +17,10 @@ torch.testing.assert_close's default tolerances for the dtype. Return gradients 
 With --check-relative (implies --check), each output's error is reported separately as max abs diff divided by the
 reference output's max abs value, in output order, with no pass/FAIL and no dtype match required: for an error study
 against a higher-precision first label (e.g. an fp64 reference of a mixed-precision op).
+With --rounds N (N > 1), for arms that sit at a power cap: each case's labels are timed N times in rounds that
+alternate label order (forward, then reversed), after every label has run once for --warmup ms; the median column is
+the median over rounds of each round's median, and p20 / p80 become the minimum and maximum round medians. Use it
+with a long --warmup (e.g. 4000) so every round runs at the capped steady state. Not supported with --distributed.
 With --cudagraph, timing uses do_bench_cudagraph instead: many calls replayed from one CUDA graph, no L2 flush,
 no per-call event overhead (do_bench adds about 3 us per call, which dominates ops under ~20 us); p20/p80 then
 come from only 10 replays. The callable must be capturable (no host syncs).
@@ -198,6 +202,7 @@ def main():
     parser.add_argument("--only", default=None, help="keep cases whose name contains this substring")
     parser.add_argument("--warmup", type=int, default=25)
     parser.add_argument("--rep", type=int, default=200)
+    parser.add_argument("--rounds", type=int, default=1, help="alternating-order timing rounds per case (see usage)")
     parser.add_argument("--csv", default=None)
     parser.add_argument("--memory", action="store_true", help="also report peak MiB above the pre-call baseline")
     parser.add_argument("--check", action="store_true", help="compare each output with the case's first label")
@@ -212,6 +217,8 @@ def main():
     args.check = args.check or args.check_relative
     if args.distributed and args.cudagraph:
         parser.error("--cudagraph is not supported with --distributed")
+    if args.distributed and args.rounds > 1:
+        parser.error("--rounds is not supported with --distributed")
 
     import torch
     import triton
@@ -251,7 +258,10 @@ def main():
                             result = merge_check_over_ranks(result)
                         checks[case_name, label] = result[0]
                     del output
-                if args.cudagraph:
+                if args.rounds > 1:
+                    triton.testing.do_bench(fn, warmup=args.warmup, rep=args.rep)
+                    p50 = p20 = p80 = None
+                elif args.cudagraph:
                     p50, p20, p80 = triton.testing.do_bench_cudagraph(fn, rep=args.rep, quantiles=[0.5, 0.2, 0.8])
                 elif args.distributed:
                     p50, p20, p80 = do_bench_distributed(fn, args.warmup, args.rep, [0.5, 0.2, 0.8])
@@ -282,6 +292,20 @@ def main():
                 print(f"{f'rank {rank} ' if args.distributed else ''}failed: {failures[-1]}", file=sys.stderr)
                 continue
             rows.append(tuple(row))
+        if args.rounds > 1:
+            timed = [i for i, row in enumerate(rows) if row[0] == case_name and row[2] is None]
+            medians_by_row = {i: [] for i in timed}
+            for round_idx in range(args.rounds):
+                for i in timed if round_idx % 2 == 0 else timed[::-1]:
+                    fn = fns[rows[i][1]]
+                    if args.cudagraph:
+                        median = triton.testing.do_bench_cudagraph(fn, rep=args.rep, quantiles=[0.5])
+                    else:
+                        median = triton.testing.do_bench(fn, warmup=0, rep=args.rep, quantiles=[0.5])
+                    medians_by_row[i].append(median[0] if isinstance(median, (list, tuple)) else median)
+            for i in timed:
+                values = sorted(medians_by_row[i])
+                rows[i] = (*rows[i][:2], values[len(values) // 2], values[0], values[-1], *rows[i][5:])
         del reference
         torch.cuda.empty_cache()
 
@@ -297,6 +321,8 @@ def main():
         if args.cudagraph
         else f"do_bench warmup {args.warmup} ms, rep {args.rep} ms"
     )
+    if args.rounds > 1:
+        timer += f", {args.rounds} alternating rounds (median of round medians; p20/p80 = min/max round median)"
     if args.distributed:
         timer += f", {world_size} ranks, max over ranks"
     print(f"device: {torch.cuda.get_device_name()}, {timer}\n")
