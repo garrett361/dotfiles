@@ -1,6 +1,6 @@
 # Running a perf investigation with subagents
 
-Lessons from coordinating implementation, correctness, tuning and timing subagents on one shared GPU cluster (a night-long Hopper kernel port, 8x H200 nodes). Read this before fanning out work that both edits code and measures it.
+Lessons from coordinating implementation, correctness, tuning and timing subagents on one shared GPU cluster (a night-long Hopper kernel port, 8x H200 nodes). Read this before fanning out work that both edits code and measures it. For the general loop (work streams, terminal states, verification, authority), see the orchestrate skill; this file covers the performance-specific parts.
 
 ## Before any agent starts
 
