@@ -17,6 +17,8 @@ the number plus the raw kernel name, since the numbering depends on which kernel
 `--iters N` divides every time by N, so a trace of N iterations of an op (e.g. `bench_ops.py --trace-iters N`) reads per
 iteration; call counts stay raw. `--before-iters` / `--after-iters` override it per side, for windows that hold different
 numbers of iterations (e.g. a whole 8-micro-batch step against a 2-micro-batch step, both read per micro batch).
+`before` and `after` each take one CSV or a comma-separated list, averaged per row (e.g. several ranks or repeat runs
+of one arm; a row missing from a file counts as 0 there, calls are averaged and rounded).
 `--bound-speedup X` adds a column to the category table: the share of the saving an X-fold speedup of the before
 side would give, `(before - after) / (before * (1 - 1/X))` (e.g. X = 2 for an FP8 path against bf16).
 
@@ -56,6 +58,16 @@ def load(rows, column, numbered, keep=None, iters=1):
     return totals
 
 
+def average(loaded):
+    """Per-key mean of several `load` results (a key missing from one file counts as 0 there); calls are rounded."""
+    keys = set().union(*loaded)
+    n = len(loaded)
+    return {
+        key: (sum(t.get(key, (0.0, 0))[0] for t in loaded) / n, round(sum(t.get(key, (0.0, 0))[1] for t in loaded) / n))
+        for key in keys
+    }
+
+
 def shorten(name, width):
     return name if len(name) <= width else name[: width - 3] + "..."
 
@@ -82,12 +94,16 @@ def main():
 
     column = "kernel_names" if args.key == "kernel" else "label"
     keep = re.compile(args.filter) if args.filter else None
-    before_rows, after_rows = read_rows(args.before, args.group), read_rows(args.after, args.group)
+    before_sets = [read_rows(path, args.group) for path in args.before.split(",")]
+    after_sets = [read_rows(path, args.group) for path in args.after.split(",")]
     numbered = {
-        NUMBERED_LABEL.sub("", r["label"]) for r in before_rows + after_rows if NUMBERED_LABEL.search(r["label"])
+        NUMBERED_LABEL.sub("", r["label"])
+        for rows in before_sets + after_sets
+        for r in rows
+        if NUMBERED_LABEL.search(r["label"])
     }
-    before = load(before_rows, column, numbered, keep, args.before_iters or args.iters)
-    after = load(after_rows, column, numbered, keep, args.after_iters or args.iters)
+    before = average([load(rows, column, numbered, keep, args.before_iters or args.iters) for rows in before_sets])
+    after = average([load(rows, column, numbered, keep, args.after_iters or args.iters) for rows in after_sets])
     keys = set(before) | set(after)
     rows = []
     for key in keys:
