@@ -64,7 +64,8 @@ syncs run on the autograd thread, which has its own `tid` and no `forward`/`back
 | `aten::item > aten::_local_scalar_dense` | `.item()`, `int(t)`, `float(t)`, f-string formatting of a tensor |
 | `aten::is_nonzero > aten::item` | `if t:`, `bool(t)`, `assert t` |
 | `aten::to > aten::_to_copy > aten::copy_` (D2H pageable) | `.tolist()`, `.cpu()` |
-| `aten::to > aten::_to_copy > aten::copy_` (H2D, tiny) | `torch.tensor(python_scalar, device="cuda")` |
+| `aten::to > aten::_to_copy > aten::copy_` (H2D, tiny) | `torch.tensor(python_scalar, device="cuda")`, `torch.as_tensor(int, device="cuda")`, indexing a CUDA tensor with a Python list |
+| `aten::copy_` (H2D, scalar) | `cuda_tensor[i] = python_number` (e.g. `cu_seqlens[0] = 0`) |
 | `aten::index > aten::nonzero` | Boolean-mask indexing `x[mask]` |
 | `IndexBackward0 > aten::_index_put_impl_ > aten::nonzero` | Backward of `x[mask]` |
 | `aten::repeat_interleave > aten::item` | `repeat_interleave` without `output_size` (two syncs) |
@@ -148,6 +149,7 @@ reports op chain mismatches (0 of 121 here).
 ## Pitfalls
 
 - Compare steps 3 to N-1: step 1 has compile and autotuning syncs, and the last step also covers post-loop work.
+- Removing the sync that drains the queue moves the drain, and its exposed idle, to the next sync in the same stretch of host code: judge a fix by the window's total, and remove every sync of such a run together (two data-path syncs at a forward start fell from 5.7 to 0 ms only when both went).
 - Two `.tolist()` in a row: only the first waits (tens to hundreds of ms of host time), the second takes about
   20 us, yet the second often has more exposed idle, because the host then has to refill an empty queue.
 - If the process crashes, loguru-style tracebacks that print tensor values add thousands of syncs to the record.
