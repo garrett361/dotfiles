@@ -7,9 +7,10 @@ Recording starts at the MEMORY_HISTORY_START_CALL-th call (default 1) of MEMORY_
 "torch.cuda.reset_peak_memory_stats", which training loops and benches call where they start measuring a peak), so
 CUDA is initialized and the window matches the peak the run reports; MEMORY_HISTORY_MAX_ENTRIES (default 2000000)
 bounds the ring buffer. At exit, $MEMORY_HISTORY_OUT/memory_rank<RANK>.json holds `torch.cuda.memory._snapshot()`
-(segments, blocks and `device_traces`) plus the hook call at which recording started and `memory_allocated()` then and
-at the dump, and `max_memory_allocated()` read just before each later hook call and at the dump (when the hook is a
-peak reset, the peak of each interval between calls, e.g. each training step). JSON, never pickle. Recording
+(segments, blocks and `device_traces`) plus the hook call at which recording started and `memory_allocated()` and
+`memory_reserved()` then and at the dump, and `max_memory_allocated()` and `max_memory_reserved()` read just before
+each later hook call and at the dump (when the hook is a peak reset, the peak of each interval between calls, e.g.
+each training step). JSON, never pickle. Recording
 python stacks slows allocation-heavy steps; time nothing in a recorded run.
 Shadows the interpreter's own sitecustomize (Ubuntu's only installs apport).
 """
@@ -37,12 +38,15 @@ if (
     _calls = [0]
     _recording = [False]
     _start_allocated = [None]
+    _start_reserved = [None]
 
     _peaks_before_call = []
+    _reserved_peaks_before_call = []
 
     def _hooked(*args, **kwargs):
         if _recording[0]:
             _peaks_before_call.append(torch.cuda.max_memory_allocated())
+            _reserved_peaks_before_call.append(torch.cuda.max_memory_reserved())
         result = _original(*args, **kwargs)
         _calls[0] += 1
         if _calls[0] == _start_call and not _recording[0]:
@@ -51,6 +55,7 @@ if (
             )
             _recording[0] = True
             _start_allocated[0] = torch.cuda.memory_allocated()
+            _start_reserved[0] = torch.cuda.memory_reserved()
         return result
 
     setattr(_module, _attr, _hooked)
@@ -66,6 +71,10 @@ if (
             "end_allocated": torch.cuda.memory_allocated(),
             "peaks_before_call": _peaks_before_call,
             "peak_at_dump": torch.cuda.max_memory_allocated(),
+            "start_reserved": _start_reserved[0],
+            "end_reserved": torch.cuda.memory_reserved(),
+            "reserved_peaks_before_call": _reserved_peaks_before_call,
+            "reserved_peak_at_dump": torch.cuda.max_memory_reserved(),
         }
         os.makedirs(_out_dir, exist_ok=True)
         path = os.path.join(_out_dir, f"memory_rank{os.environ.get('RANK', '0')}.json")
