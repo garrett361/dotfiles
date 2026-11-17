@@ -9,9 +9,9 @@ A reader should get the answer in the first screen and the evidence for it in th
 
 ## Order
 
-- Open with summary cards: three or four, each a short label, the answer in a few words, and one or two supporting lines. A reader who stops after the cards should know the conclusion.
-- Lead every section with its main point in the first sentence, then give the evidence. Never build up to a conclusion.
-- When it matters, state the scope up front (what the numbers do and do not cover), and close with what was not tested yet.
+- Open with summary cards: three or four, each a short label, the answer in a few words, and one or two supporting lines. A reader who stops after the cards should know the conclusion. State each comparison in words a reader can act on without arithmetic ("7% slower than X", not "1.07x"); keep the ratio in the table.
+- Lead every section with its main point in the first sentence, then give the evidence. Never build up to a conclusion. Rarely put more than one sentence of lead-in before a section's chart or table, and keep the text after it to a few lines; explanation the reader does not need for the result goes to the appendix or a collapsed block.
+- When it matters, state the scope up front (what the numbers do and do not cover, including what each headline parameter means in practice, such as the data a sequence length holds), and close with what was not tested yet.
 - Get the reader to the charts and tables fast. Side investigations, no-go explanations, per-run tables and history each get one line in a table or a bullet with a link to their source, never their own multi-paragraph or multi-table section, unless the user asks for one.
 - Split the page into a main body and an appendix after a labeled divider. In the main body every element states a finding or shows the evidence for one, ending with what would change the conclusion or the next step. Supporting material (method, robustness checks, history, how to reproduce, open questions) goes in the appendix.
 
@@ -23,6 +23,7 @@ A reader should get the answer in the first screen and the evidence for it in th
 - Draw comparisons on one scale, with bars from zero, and align the axes of charts that show the same quantity (range, ticks and size) unless something serious precludes it. When a step is too small to see, label it, lay the bars out horizontally, or add a zoomed copy titled as zoomed.
 - Put the full data behind a chart, and any detail the main text already summarizes, in a collapsed "Show as table" block right under it: the main line stays short and the evidence stays one click away.
 - Compare against a reference design or a known baseline, so each number has something beside it.
+- Order the rows of a comparison table or bar chart by the result, reference first, so the ranking reads top to bottom, and keep that order in every table and chart on the page.
 - When items have a status (adopted, partial, ruled out, untried), color-code it the same way in every diagram and table, with hues that read in order and stay far apart.
 - Mark measured against predicted everywhere, and say what a model was checked against and what it never was.
 - Say which run, hardware and step a measured figure comes from.
