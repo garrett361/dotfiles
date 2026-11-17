@@ -11,10 +11,12 @@ that cover different cases; a later file wins on a repeated case); rows are join
 means faster than the reference within that run, so a ratio survives clock drift between sessions); `--ref-label
 first` uses each case's first label (bench_ops.py's own ratio reference). The last column
 is the first arm's median divided by the last arm's (above 1x means the last arm is faster). `--case REGEX` keeps
-matching cases.
+matching cases. `--weight REGEX=W` (repeatable, first match wins, default 1) adds a last row per label: the sum over the
+kept cases of W times each arm's median, e.g. a forward that runs twice under activation checkpointing (`--weight
+'fwd=2'`); a case missing from an arm leaves that arm's total blank.
 
 Usage: uv run --script bench_compare.py OLD=a.csv NEW=b.csv [MORE=c.csv ...] [--label triton]
-       [--ref-label torch._grouped_mm] [--case REGEX] [--spread] [--decimals 3]
+       [--ref-label torch._grouped_mm] [--case REGEX] [--spread] [--decimals 3] [--weight REGEX=W ...]
 """
 
 import argparse
@@ -42,7 +44,13 @@ def main():
     parser.add_argument("--case", default=".*", help="regex over case names to report")
     parser.add_argument("--spread", action="store_true", help="show p20 to p80 next to each median")
     parser.add_argument("--decimals", type=int, default=3)
+    parser.add_argument("--weight", action="append", default=[], metavar="REGEX=W",
+                        help="add a weighted-total row; cases matching REGEX count W times (repeatable)")
     args = parser.parse_args()
+    weights = [(re.compile(spec.rpartition("=")[0]), float(spec.rpartition("=")[2])) for spec in args.weight]
+
+    def weight_of(case):
+        return next((w for rx, w in weights if rx.search(case)), 1.0)
 
     arms = []
     for spec in args.arms:
@@ -89,6 +97,21 @@ def main():
                 row.append("-")
             if any(m is not None for m in medians):
                 print("| " + " | ".join(row) + " |")
+        if weights:
+            labeled = [case for case in cases if (case, label) in first_rows]
+            totals = []
+            for _, rows in arms:
+                found = [rows.get((case, label)) for case in labeled]
+                complete = all(r is not None for r in found)
+                totals.append(sum(weight_of(c) * float(r["median_ms"]) for c, r in zip(labeled, found)) if complete else None)
+            row = ["weighted total"]
+            for total in totals:
+                row.append(fmt.format(total) if total is not None else "-")
+                if args.ref_label and label != args.ref_label:
+                    row.append("")
+            ratio = totals[0] / totals[-1] if totals[0] and totals[-1] else None
+            row.append(f"{ratio:.2f}x" if ratio else "-")
+            print("| " + " | ".join(row) + " |")
 
 
 if __name__ == "__main__":
