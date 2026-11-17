@@ -167,7 +167,10 @@ An op-level win that disappears end to end is a finding, not noise: go to layer 
   fp32 gradient reduce against a 2.14 run with bf16 reduce read equal and hid a 2x collective regression.
 - Identical config, data, seed, step count, and rank for every arm. Change one thing.
 - Fresh compile caches per arm (`TRITON_CACHE_DIR`, `TORCHINDUCTOR_CACHE_DIR`, `TILELANG_CACHE_DIR`,
-  `CUTE_DSL_CACHE_DIR`), or JIT warmth biases the comparison.
+  `CUTE_DSL_CACHE_DIR`), or JIT warmth biases the comparison. Processes running at the same time (one per GPU) each
+  need their own Triton cache: two sharing one raced while compiling the same kernel and one failed with a Triton
+  `CompilationError`. Do not edit a JIT-built source (a `torch.utils.cpp_extension.load` `.cu`) while a run that
+  builds it is in flight: the run compiles whatever is on disk when it reaches the build.
 - Time ops and regions with CUDA events (`bench_ops.py`, `cuda_timer.py`), never host clocks around
   `torch.cuda.synchronize()`. Events also count idle gaps while the host is still launching, so a host-bound
   region reads as host time. Step time comes from untraced runs (median over steady-state steps); traces are
