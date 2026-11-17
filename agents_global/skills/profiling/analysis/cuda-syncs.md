@@ -14,10 +14,15 @@ line, with no false positive on a sync-free control.
 | Stack pass: `scripts/sync_stacks/` | Python stack per sync, per step, per thread | Costs; syncs outside torch |
 | `find_syncs.py --stacks` on the hooked run | Python site per trace sync point | Hook overhead inflates costs |
 | `scripts/join_sync_dumps.py` | Python sites (hooked run) on costs (unhooked trace) | Needs identical sequences |
+| `scripts/nsys_syncs.py` | Blocking calls, pageable copies per rank, every thread | Python lines |
 
 Start with the trace pass on an existing trace (no rerun). Rerun with the stack hooks only when you need lines,
 then join the two. nsys was not needed here: `cuda_api_sum` counts the same runtime calls, and
 `--cudabacktrace=sync` attributes them only to C++ frames in its SQLite export (see `tools/nsight-systems.md`).
+To cover every thread and rank of a run (NCCL, ctypes launches), capture a few steady steps under nsys with the
+hook's `SYNC_STACKS_PROFILER_STEPS` and `SYNC_STACKS_WARN=0`, then `scripts/nsys_syncs.py --steps N`. Its
+`sync-activity` rows count `cudaEventQuery` polls as "Event sync" (CUPTI does): only the `via
+cudaEventSynchronize` rows block.
 
 ## 1. Trace pass
 

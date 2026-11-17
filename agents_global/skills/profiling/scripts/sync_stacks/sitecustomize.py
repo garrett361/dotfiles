@@ -2,10 +2,13 @@
 
 Enabled only when SYNC_STACKS_OUT is set, the process command line contains SYNC_STACKS_MATCH (default
 "prime_rl.trainer"), and $RANK (set by torchrun, so the launcher is skipped; set it by hand for a single
-process) is in SYNC_STACKS_RANKS (default "0"). Hooks go in at the first call of
-SYNC_STACKS_STEP_HOOK (default "torch.cuda.reset_peak_memory_stats", called once at the top of each prime-rl
-training step), so CUDA is already initialized; each call increments the recorded step and flushes the records
-buffered in memory (stacks come from a frame walk without source lookup, to keep the per-sync cost low).
+process) is in SYNC_STACKS_RANKS (default "0"). Hooks go in at the call of SYNC_STACKS_STEP_HOOK (default
+"torch.cuda.reset_peak_memory_stats", called once at the top of each prime-rl training step) that starts step
+SYNC_STACKS_START_STEP (default 1, the first call; a later step leaves compile and warm-up unrecorded), so CUDA is
+already initialized; each call increments the recorded step and flushes the records buffered in memory (stacks come
+from a frame walk without source lookup, to keep the per-sync cost low). SYNC_STACKS_PROFILER_STEPS="A,B" also calls
+torch.cuda.profiler.start() as step A starts and stop() as step B starts, for an nsys capture of steps A to B-1
+(`nsys profile --capture-range=cudaProfilerApi --capture-range-end=stop`); SYNC_STACKS_WARN=0 then records nothing.
 
 Two sources, one JSON line per sync in $SYNC_STACKS_OUT/syncs_rank<RANK>.jsonl:
 - "warn" (default, SYNC_STACKS_WARN=1): torch.cuda.set_sync_debug_mode("warn") warnings, recorded as the op
@@ -36,6 +39,7 @@ if (
     import warnings
 
     import torch
+    import torch.cuda.profiler
 
     os.makedirs(os.environ["SYNC_STACKS_OUT"], exist_ok=True)
     _out = open(os.path.join(os.environ["SYNC_STACKS_OUT"], f"syncs_rank{os.environ['RANK']}.jsonl"), "a")
@@ -88,11 +92,18 @@ if (
     _mod = importlib.import_module(_mod_name)
     _orig_hook = getattr(_mod, _attr)
 
+    _start_step = int(os.environ.get("SYNC_STACKS_START_STEP", "1"))
+    _profiler_steps = [int(s) for s in os.environ.get("SYNC_STACKS_PROFILER_STEPS", "").split(",") if s]
+
     def _step_hook(*args, **kwargs):
-        if _step[0] == 0:
-            _install()
         _flush()
         _step[0] += 1
+        if _step[0] == _start_step:
+            _install()
+        if _profiler_steps and _step[0] == _profiler_steps[0]:
+            torch.cuda.profiler.start()
+        if _profiler_steps and _step[0] == _profiler_steps[1]:
+            torch.cuda.profiler.stop()
         warnings.filterwarnings("always", message=".*called a synchronizing CUDA operation")
         return _orig_hook(*args, **kwargs)
 

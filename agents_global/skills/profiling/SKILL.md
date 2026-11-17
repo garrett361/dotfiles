@@ -95,7 +95,8 @@ Runs, host and compiler:
 - How do arms compare on step time, memory, loss (prime-rl run dirs or any `.jsonl` with a step key)?
   `scripts/run_metrics.py`; `--step-table` puts arms side by side per step, for parity checks and per-step stalls.
 - Where does the host block on the GPU (syncs), from which Python line? `scripts/find_syncs.py` (costs), then
-  `scripts/sync_stacks/`, `sync_stacks_report.py` (file:line) and `join_sync_dumps.py`; `analysis/cuda-syncs.md`.
+  `scripts/sync_stacks/`, `sync_stacks_report.py` (file:line) and `join_sync_dumps.py`; syncs outside torch (NCCL, ctypes
+  launches) and pageable copies per rank from nsys: `scripts/nsys_syncs.py`; `analysis/cuda-syncs.md`.
 - What is allocated at a run's peak, by allocation site, and which buffers differ between two arms' peaks? Record with
   `scripts/memory_history/` on PYTHONPATH (no project edit), then `scripts/memory_peak.py` (`--diff`, `--blocks`).
 - What keeps `torch.compile` recompiling, at which step? `scripts/recompile_reasons.py`.
