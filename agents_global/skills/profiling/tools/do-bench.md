@@ -9,6 +9,8 @@ kernels inside the op changed, see `torch-profiler.md`.
 
 1. Write `inputs/cases.py` in the investigation, with the reference implementation as the first label of every case.
    Use the model's real shapes and dtypes (a trace's `Input Dims`, captured with `record_shapes=True`, lists them).
+   For data-dependent ops (routing, top-k, gathers), also use real values: replay inputs captured from a real step
+   (record-and-replay recipe below) rather than random or balanced ones (`../SKILL.md`, A/B hygiene).
    The script's docstring has an example that times forward and backward together; do that when the change
    touches autograd, since a faster forward can hide a slower backward.
 2. Run it with the project's interpreter from the investigation root, e.g.

@@ -187,6 +187,11 @@ An op-level win that disappears end to end is a finding, not noise: go to layer 
   the real caller passes), not only with plain tensors; a per-launch win measured one way can be a regression the
   other way (record-and-replay recipe: `tools/do-bench.md`). Confirm every op-level result end to end, where the gain
   can also be larger than per launch.
+- Time data-dependent ops (routing, top-k, gathers, sparse indexing) on inputs captured from a real step, not on
+  random, zero or forced-balanced ones: the value distribution sets cache reuse and load balance. A top-k ran 20 us on
+  random inputs and 62 ms on real ones, and random inputs misjudged a MoE grouped GEMM by 4 to 21%
+  ([Together AI, 2026](https://www.together.ai/blog/road-to-together-compiler)). A bench with forced balanced routing
+  is synthetic input too: say so next to its numbers.
 - Log SM clocks and power during every timing run (`gpu_clocks.py`), so throttling is ruled in or out by a table.
 - Write down the decision metric before measuring (which number, which node and session, arm order such as ABBA),
   especially when the arms cannot run at the same clock (fused vs unfused under a power cap: `tools/do-bench.md`).
