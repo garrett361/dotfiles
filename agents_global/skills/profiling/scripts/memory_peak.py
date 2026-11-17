@@ -234,7 +234,7 @@ def analyze(
         "sized": [
             (i, e["action"], e.get("stream"), site_key(e.get("frames", []), site, context))
             for i, e in enumerate(events)
-            if e["action"] in ("alloc", "free_requested") and e.get("size") == size
+            if size is not None and e["action"] in ("alloc", "free_requested") and e.get("size") == size
         ],
     }
 
