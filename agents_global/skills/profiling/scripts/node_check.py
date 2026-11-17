@@ -384,6 +384,12 @@ def run(args):
     import torch.distributed as dist
 
     local_rank, local_world = int(os.environ["LOCAL_RANK"]), int(os.environ["LOCAL_WORLD_SIZE"])
+    cpus, gpus = len(os.sched_getaffinity(0)), torch.cuda.device_count()
+    if cpus < local_world or gpus < local_world:
+        raise SystemExit(
+            f"{cpus} CPUs and {gpus} GPUs visible for {local_world} ranks per node: the allocation does not hold the "
+            "whole node (on Slurm, allocate with --exclusive), and its p2p and collective results would read low"
+        )
     device = torch.device("cuda", local_rank)
     torch.cuda.set_device(device)
     dist.init_process_group("nccl", device_id=device)

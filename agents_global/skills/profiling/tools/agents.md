@@ -13,6 +13,7 @@ Lessons from coordinating implementation, correctness, tuning and timing subagen
 ## Allocations and GPUs
 
 - Hold one allocation without a shell (`salloc ... --no-shell`) and have every agent run steps in it with `srun --jobid=<job> --overlap`, each pinned to its own `CUDA_VISIBLE_DEVICES` and its own `TRITON_CACHE_DIR`.
+- Allocate whole nodes with `--exclusive`. Without it, a job asking for all 8 GPUs of a node was given 2 CPUs (one core), its steps saw only the 4 GPUs on that core's socket, and `scripts/node_check.py` with all 8 GPUs made visible failed a healthy node (intra-node all_reduce 196 GB/s against 468 exclusive, p2p down to 255 GB/s), which reads as a bad node. Check `nproc` inside a step before trusting any measurement.
 - Hold a second, dedicated node for timing only, for the whole investigation, and give it to one timing agent at a time. A shared development node gave 2 to 25% spread per arm; the dedicated node gave under 0.5% drift across sessions. When its time limit expires, re-allocate the same node with `--nodelist`.
 
 ## Code ownership and freezing
