@@ -13,9 +13,9 @@ Write one shared brief file for the round and point every agent at it; each agen
   - Measure, don't avoid: changes that alter behavior or numerics are run and their effect reported; adoption is decided later.
   - The two-designs rule: before reporting anything blocked, build and measure at least two genuinely different designs and state the remaining barrier with numbers.
   - Dependencies: what may be cloned or patched locally; forks and pins of pushed revisions need the user.
-- **Compute**: each agent's resources, "yours from the orchestrator's handover message until <hard stop>"; renewals only as the user granted them (quote the decision); never start new allocations or touch other jobs.
+- **Compute**: the slices the orchestrator hands each agent by message, "yours from the orchestrator's handover message until it reclaims them or <hard stop>, whichever is first"; the orchestrator holds, renews and releases every allocation; agents never start, renew or cancel one, and never touch other jobs.
 - **Ownership**: which branch, worktree or files each agent owns; one writer per branch.
-- **Checkpoints**: times or intervals, a three-line status (best result, current blocker, next step), and a progress file.
+- **Checkpoints**: times or intervals, a three-line status (best result, current blocker, next step, including compute needed before the next checkpoint or compute it can hand back), and a progress file.
 - **Report**: the stream's state in the orchestrator's terms (done, proven blocker, not worth it, escalated, out of time) with evidence; before and after numbers against the named baseline; what remains, each piece marked fundamental (with its measurement) or implementation (with the next step and expected gain).
 
 ## Per-agent brief

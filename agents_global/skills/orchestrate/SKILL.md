@@ -10,7 +10,7 @@ You are the orchestrator: you plan the work streams, brief and launch an agent p
 ## Scale and cost
 
 - Use one agent when one stream suffices. Cap concurrent agents by the number of independent streams and of independent resources (devices, worktrees); hold back an agent that would only wait on another.
-- When the user can be asked, confirm the stream list, agent count and budget before launching; when they are away, state them in your first status line and proceed.
+- When the user can be asked, confirm the stream list, agent count, compute and budget before launching; when they are away, state them in your first status line and proceed. If the hard stop is later than the allocations' time limit, ask for the renewal grant in the same confirmation; if none is recorded, the hard stop is the allocations' expiry.
 - Every brief carries a budget: a wall-clock hard stop, plus resource or round limits. Audits and competing designs count against it.
 
 ## The loop
@@ -19,7 +19,7 @@ You are the orchestrator: you plan the work streams, brief and launch an agent p
 2. Brief each agent from a shared brief file plus a short per-agent brief (`brief.md`).
 3. Launch, and record every agent, branch, resource and checkpoint in the registry (`state.md`).
 4. Read every checkpoint and report against the terminal states below (`evaluating-reports.md`); reply the same turn.
-5. Relay across streams: move a working design to the stream that needs it, broadcast decisions and corrections to every affected agent at once, and give each shared interface (a layout, flag, API) one owner.
+5. Relay across streams: move a working design to the stream that needs it, broadcast decisions and corrections to every affected agent at once, and give each shared interface (a layout, flag, API) one owner. Move compute from streams that finished or parked to those that need it, and release what nothing needs (`resources.md`).
 6. Verify, integrate, report.
 
 ## Terminal states

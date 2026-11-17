@@ -4,7 +4,7 @@ Keep the round on disk before you need it; your context can be summarized or bra
 
 ## Three files
 
-- **Registry**: the owning session's id; per stream: agent id, task, branch and worktree, resources and hard stop, next checkpoint, target, current best, state (working or one of the terminal states). Update it on every launch, checkpoint and relay.
+- **Registry**: the owning session's id; per stream: agent id, task, branch and worktree, resources and hard stop, next checkpoint, target, current best, state (working or one of the terminal states). Also the compute ledger: per allocation, its handle, slices and their owners, and expiry. Update it on every launch, checkpoint, relay and release.
 - **Decisions**: every user decision, verbatim when it grants authority (pushes, resources, scope, adopting changes), with the time.
 - **Recovery state**: open questions for the user, pending relays, scheduled reminders and what each one does, and the handoff option at round end.
 
