@@ -83,6 +83,8 @@ End to end, from traces:
 - Does the compute stream wait for side-stream transfers it should overlap (copy engines, peer copies, collectives on
   NCCL's stream), how much of each transfer runs beside compute, per op, layer and pass, and what does one layer's
   timeline look like? `scripts/stream_stalls.py`; how such transfers appear in traces: `tools/torch-profiler.md`.
+- What fraction of each forward and backward window (and of each layer) has an all-gather, reduce-scatter or other
+  collective or copy in flight, and how many bytes each moves per rank (a link budget)? `scripts/stream_stalls.py --inflight`.
 - Is a slow collective transferring or waiting for a late rank, and which rank arrives last? `scripts/collective_skew.py`
   over every rank's trace from one node.
 - What annotations and host ranges does a trace have; where does one op's host time go, down to Python frames?

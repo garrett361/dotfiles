@@ -51,17 +51,34 @@ after>`) matches REGEX, e.g. one path's stalls (`prime_rl_ep::(dispatch|padded_r
 side-stream activity matching REGEX was running: a metric that counts a GPU as busy whenever any kernel runs books
 such stalls as that activity's exposed time (e.g. a copy-engine wait read as exposed FSDP all-gather).
 
+`--inflight LABEL:REGEX` (repeatable) reports when activities matching REGEX (on any stream, e.g. `ag:AllGather`,
+`rs:ReduceScatter`, `h2d:Memcpy HtoD`) are running, per pass window. REGEX is matched against the activity name,
+followed for a collective by ` group=<G> pg=<process group description>` from its args, so one kind can be split
+by process group (e.g. `ag16:AllGather.*group=16\\b`). A pass window is a maximal run of
+consecutive main-stream activities of one pass (recompute counts as backward), from the first one's start to the
+last one's end, e.g. one micro-batch's forward; an activity whose thread's segment mark is older than another
+thread's latest mark at its launch (e.g. gradient clipping on the main thread after autograd's backward) belongs to
+no window. Per window and per label: the union of the matching activities' GPU
+intervals inside the window (in-flight ms and its fraction of the window), and their bytes, booked to windows in
+proportion to each activity's time inside them, as bus bytes: the bytes each rank sends and receives under a
+bandwidth-optimal algorithm (nccl-tests' busbw convention: (G-1)/G of the full buffer for all-gather, reduce-scatter
+and all-to-all, 2(G-1)/G for all-reduce, for group size G; the buffer is `In msg nelems` or `Out msg nelems` times the
+dtype size, from the profiler's collective args; a memcpy counts its `bytes`). Also printed: totals per pass, the time
+between windows, and each label's distinct messages (collective, group size, dtype, in and out bytes, count, p50
+duration). With `--per-segment`, the same per (pass, segment) run, e.g. per layer, averaged over that pass's windows.
+
 `--timeline REGEX` prints every activity of the `--timeline-index`th invocation of a segment whose name matches REGEX
 in pass `--timeline-pass` (forward or backward; a backward invocation includes its recompute): offset from its first
 activity, duration, stream (main or side), pass, op, kernel name, and each main-stream gap with its cause. `--csv P`
 writes `P_stalls.csv` (one row per gap), `P_side.csv` (one row per side activity), `P_main_comm.csv` (one row
-per main-stream communication kernel) and, with `--timeline`, `P_timeline.csv`; `--json` writes the totals.
+per main-stream communication kernel), with `--timeline`, `P_timeline.csv` and, with `--inflight`, `P_inflight.csv`
+(one row per pass window and, with `--per-segment`, per segment window); `--json` writes the totals.
 
 Usage:
   uv run --script stream_stalls.py <trace.json.gz> [--annotation forward --annotation-index -4]
     [--end-annotation '^Optimizer\\.step'] [--steps 1] [--comm '^nccl'] [--op REGEX] [--segment REGEX]
     [--recompute-op REGEX] [--side REGEX] [--min-gap-us 2] [--match-us 30] [--per-segment] [--ops-total REGEX]
-    [--during REGEX] [--timeline 'model\\.layers\\.12$' --timeline-index -1 --timeline-pass backward] [--csv PREFIX] [--json out.json]
+    [--during REGEX] [--inflight ag:AllGather --inflight rs:ReduceScatter] [--timeline 'model\\.layers\\.12$' --timeline-index -1 --timeline-pass backward] [--csv PREFIX] [--json out.json]
   prime-pt copy-engine MoE: --recompute-op 'prime_rl_ep::(dispatch|dispatch_routes|gate_up|down|combine)$|all_to_all_single_equal|host_copy'
 """
 
@@ -101,6 +118,8 @@ def parse_args():
     p.add_argument("--match-us", type=float, default=30.0)
     p.add_argument("--during", default=None,
                    help="regex of side-stream activity names: report how much of each stall cause overlaps them")
+    p.add_argument("--inflight", action="append", default=[], metavar="LABEL:REGEX",
+                   help="activity names to time and count bytes for while in flight, per pass window")
     p.add_argument("--per-segment", action="store_true", help="also print totals per segment")
     p.add_argument("--ops-total", default=None,
                    help="regex: also print, per pass and cause kind, the total of the stall rows whose ops label matches")
@@ -138,6 +157,70 @@ def kind(name, comm):
     if name.startswith("Memset"):
         return "memset"
     return "nccl" if comm.search(name) else "kernel"
+
+
+DTYPE_BYTES = {"BFloat16": 2, "Half": 2, "Float": 4, "Double": 8, "Long": 8, "Int": 4, "Short": 2, "Char": 1,
+               "Byte": 1, "Bool": 1, "Float8_e4m3fn": 1, "Float8_e5m2": 1, "Float8_e4m3fnuz": 1, "Float8_e5m2fnuz": 1}
+
+
+def message(a):
+    """(collective, group size, dtype, in bytes, out bytes, bus bytes) of a collective kernel or memcpy, else None."""
+    args = a.get("args", {})
+    if "bytes" in args:
+        return ("memcpy", 1, "-", args["bytes"], args["bytes"], args["bytes"])
+    size = DTYPE_BYTES.get(args.get("dtype"))
+    if size is None or "In msg nelems" not in args:
+        return None
+    group = int(args.get("Group size", 1))
+    nin, nout = args["In msg nelems"] * size, args["Out msg nelems"] * size
+    name = re.sub(r"[^a-z]", "", str(args.get("Collective name", "")).lower())
+    if "allgather" in name:
+        bus = nout * (group - 1) / group
+    elif "reducescatter" in name or "alltoall" in name:
+        bus = nin * (group - 1) / group
+    elif "allreduce" in name:
+        bus = 2 * nin * (group - 1) / group
+    else:
+        bus = max(nin, nout)
+    return (args.get("Collective name", "?"), group, args.get("dtype"), nin, nout, bus)
+
+
+def inflight_text(a):
+    """The text `--inflight` regexes match: the name, plus ` group=<G> pg=<description>` for a collective."""
+    args = a.get("args", {})
+    if "Group size" not in args:
+        return a["name"]
+    return f"{a['name']} group={args['Group size']} pg={args.get('Process Group Description', '-')}"
+
+
+def runs(acts, key):
+    """Maximal runs of consecutive activities with the same non-None key, as [key, start, end]."""
+    out = []
+    for a in acts:
+        k = key(a)
+        if k is None:
+            continue
+        if out and out[-1][0] == k:
+            out[-1][2] = max(out[-1][2], a["ts"] + a["dur"])
+        else:
+            out.append([k, a["ts"], a["ts"] + a["dur"]])
+    return out
+
+
+def inflight_windows(windows, labeled):
+    """Per window: in-flight union us and pro-rata bus bytes of each label's activities."""
+    rows = []
+    for k, lo, hi in windows:
+        row = {"key": k, "start": lo, "wall": hi - lo, "labels": {}}
+        for label, (acts, merged, starts) in labeled.items():
+            bus_b = 0.0
+            for a in acts:
+                overlap = min(hi, a["ts"] + a["dur"]) - max(lo, a["ts"])
+                if overlap > 0 and a["msg"] is not None:
+                    bus_b += overlap / a["dur"] * a["msg"][5]
+            row["labels"][label] = {"us": covered(lo, hi, merged, starts), "bus_bytes": bus_b}
+        rows.append(row)
+    return rows
 
 
 MEMCPY_KINDS = {1: "HtoD", 2: "DtoH", 8: "DtoD", 10: "PtoP"}
@@ -373,6 +456,107 @@ def main():
         out["side"][f"{ps}|{k}|{op}"] = {"count": cnt / n, "ms": d / n / 1e3, "covered_ms": c / n / 1e3,
                                           "exposed_ms": x / n / 1e3}
 
+    inflight_rows = []
+    if args.inflight:
+        labeled = {}
+        for spec in args.inflight:
+            label, regex = spec.split(":", 1)
+            mine = [a | {"msg": message(a)} for a in acts if re.search(regex, inflight_text(a))]
+            merged = merge([(a["ts"], a["ts"] + a["dur"]) for a in mine])
+            labeled[label] = (mine, merged, [m[0] for m in merged])
+        mark_times = sorted(e["ts"] for e in events if e.get("cat") in ("cpu_op", "user_annotation")
+                            and seg_re.search(e["name"]))
+
+        def phase(a):
+            if a["inv"] is None or mark_times[bisect.bisect_right(mark_times, a["launch"]["ts"]) - 1] > a["inv"][0]:
+                return None
+            return {"forward": "forward", "backward": "backward", "recompute": "backward"}.get(a["pass"])
+
+        windows = inflight_windows(runs(main, phase), labeled)
+        t0 = windows[0]["start"] if windows else 0.0
+        heads = " | ".join(f"{lb} ms | {lb} frac | {lb} bus MB" for lb in labeled)
+        print("\n## In flight per pass window (bus MB = 10^6 bytes each rank sends, pro rata to time in the window)\n")
+        print(f"| # | pass | start ms | wall ms | {heads} |\n|---|---|---|---|" + "---|" * (3 * len(labeled)))
+        for i, w in enumerate(windows):
+            cells = " | ".join(f"{v['us'] / 1e3:.2f} | {v['us'] / w['wall']:.3f} | {v['bus_bytes'] / 1e6:.1f}"
+                               for v in w["labels"].values())
+            print(f"| {i} | {w['key']} | {(w['start'] - t0) / 1e3:.2f} | {w['wall'] / 1e3:.2f} | {cells} |")
+        tot = defaultdict(lambda: {"windows": 0, "wall": 0.0, "labels": defaultdict(lambda: [0.0, 0.0])})
+        for w in windows:
+            t = tot[w["key"]]
+            t["windows"] += 1
+            t["wall"] += w["wall"]
+            for lb, v in w["labels"].items():
+                t["labels"][lb][0] += v["us"]
+                t["labels"][lb][1] += v["bus_bytes"]
+        span = (windows[-1]["start"] + windows[-1]["wall"] - t0) if windows else 0.0
+        between = span - sum(t["wall"] for t in tot.values())
+        print(f"\nPer pass, per step (first window start to last window end {span / n / 1e3:.2f} ms, of which "
+              f"{between / n / 1e3:.2f} ms between windows)\n")
+        print(f"| pass | windows | wall ms | {heads} |\n|---|---|---|" + "---|" * (3 * len(labeled)))
+        out["inflight"] = {"labels": dict(spec.split(":", 1) for spec in args.inflight),
+                           "span_ms": span / n / 1e3, "between_ms": between / n / 1e3, "per_pass": {}, "windows": [],
+                           "messages": {}}
+        for ps, t in tot.items():
+            cells = " | ".join(f"{us / n / 1e3:.2f} | {us / t['wall']:.3f} | {b / n / 1e6:.1f}"
+                               for us, b in t["labels"].values())
+            print(f"| {ps} | {t['windows'] / n:g} | {t['wall'] / n / 1e3:.2f} | {cells} |")
+            out["inflight"]["per_pass"][ps] = {
+                "windows": t["windows"] / n, "wall_ms": t["wall"] / n / 1e3,
+                "labels": {lb: {"inflight_ms": us / n / 1e3, "fraction": us / t["wall"], "bus_bytes": b / n}
+                           for lb, (us, b) in t["labels"].items()}}
+        for i, w in enumerate(windows):
+            out["inflight"]["windows"].append({
+                "index": i, "pass": w["key"], "start_ms": (w["start"] - t0) / 1e3, "wall_ms": w["wall"] / 1e3,
+                "labels": {lb: {"inflight_ms": v["us"] / 1e3, "fraction": v["us"] / w["wall"],
+                                "bus_bytes": v["bus_bytes"]} for lb, v in w["labels"].items()}})
+            inflight_rows.append(["pass", w["key"], "-", (w["start"] - t0) / 1e3, w["wall"] / 1e3]
+                                 + [x for v in w["labels"].values() for x in (v["us"] / 1e3, v["bus_bytes"])])
+        print("\nMessages per label (MB = 10^6 bytes; count per step)\n")
+        print("| label | collective | group | dtype | in MB | out MB | bus MB | count | p50 us |\n"
+              "|---|---|---|---|---|---|---|---|---|")
+        for lb, (mine, _, _) in labeled.items():
+            msgs = defaultdict(list)
+            for a in mine:
+                msgs[a["msg"]].append(a["dur"])
+            out["inflight"]["messages"][lb] = []
+            for m, durs in sorted(msgs.items(), key=lambda kv: -len(kv[1]) * (kv[0][5] if kv[0] else 0)):
+                d = sorted(durs)
+                coll, group, dtype, nin, nout, bus = m if m else ("?", "?", "?", 0, 0, 0)
+                print(f"| {lb} | {coll} | {group} | {dtype} | {nin / 1e6:.2f} | {nout / 1e6:.2f} | {bus / 1e6:.2f} | "
+                      f"{len(d) / n:g} | {d[len(d) // 2]:.0f} |")
+                out["inflight"]["messages"][lb].append(
+                    {"collective": coll, "group": group, "dtype": dtype, "in_bytes": nin, "out_bytes": nout,
+                     "bus_bytes": bus, "count": len(d) / n, "p50_us": d[len(d) // 2]})
+        if args.per_segment:
+            seg_windows = inflight_windows(
+                runs(main, lambda a: (phase(a), a["segment"]) if phase(a) else None), labeled)
+            agg = defaultdict(lambda: {"runs": 0, "wall": 0.0, "labels": defaultdict(lambda: [0.0, 0.0])})
+            for w in seg_windows:
+                g = agg[w["key"]]
+                g["runs"] += 1
+                g["wall"] += w["wall"]
+                for lb, v in w["labels"].items():
+                    g["labels"][lb][0] += v["us"]
+                    g["labels"][lb][1] += v["bus_bytes"]
+                inflight_rows.append(["segment", w["key"][0], w["key"][1], (w["start"] - t0) / 1e3, w["wall"] / 1e3]
+                                     + [x for v in w["labels"].values() for x in (v["us"] / 1e3, v["bus_bytes"])])
+            print("\nPer segment and pass, mean per pass window (runs = segment runs over all windows)\n")
+            print(f"| pass | segment | runs | wall ms | {heads} |\n|---|---|---|---|" + "---|" * (3 * len(labeled)))
+            out["inflight"]["per_segment"] = {}
+            order = {}
+            for w in seg_windows:
+                order.setdefault(w["key"], w["start"])
+            for key in sorted(agg, key=lambda k: (k[0], order[k])):
+                g, per = agg[key], tot[key[0]]["windows"]
+                cells = " | ".join(f"{us / per / 1e3:.2f} | {us / g['wall']:.3f} | {b / per / 1e6:.1f}"
+                                   for us, b in g["labels"].values())
+                print(f"| {key[0]} | {key[1]} | {g['runs']} | {g['wall'] / per / 1e3:.2f} | {cells} |")
+                out["inflight"]["per_segment"][f"{key[0]}|{key[1]}"] = {
+                    "runs": g["runs"], "wall_ms_per_window": g["wall"] / per / 1e3,
+                    "labels": {lb: {"inflight_ms_per_window": us / per / 1e3, "fraction": us / g["wall"],
+                                    "bus_bytes_per_window": b / per} for lb, (us, b) in g["labels"].items()}}
+
     if args.per_segment:
         seg = defaultdict(lambda: defaultdict(float))
         for s in stalls:
@@ -429,6 +613,12 @@ def main():
             for a in main:
                 if a["kind"] == "nccl":
                     w.writerow([a["ts"], a["dur"], a["pass"], a["segment"], a["op"], a["name"]])
+        if inflight_rows:
+            with open(f"{args.csv}_inflight.csv", "w", newline="") as f:
+                w = csv.writer(f)
+                w.writerow(["window", "pass", "segment", "start_ms", "wall_ms"]
+                           + [f"{lb}_{c}" for lb in out["inflight"]["labels"] for c in ("inflight_ms", "bus_bytes")])
+                w.writerows(inflight_rows)
         if rows is not None:
             with open(f"{args.csv}_timeline.csv", "w", newline="") as f:
                 w = csv.DictWriter(f, fieldnames=list(rows[0]))
