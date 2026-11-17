@@ -30,6 +30,7 @@ Triton on Hopper (`triton/hopper.md`):
 
 CuTe DSL (`cute-dsl/authoring.md`):
 - PTX/SASS/IR dumps, line info, stable kernel names, register counts, spills and register caps, DSL 4.8 on Blackwell, copies into swizzled shared memory, TMA copy hangs, per-row bulk copies from raw (peer) addresses on sm90.
+- A warp-specialized SM90 GEMM that is wrong only at some stage counts, misses a CUDA kernel's bits, hangs at `setmaxnreg`, lost its WGMMAs in an ablation, or needs inline PTX, `stmatrix.trans` staging or multi-result asm: "Warp-specialized SM90 GEMM pitfalls".
 - Compile vs launch cost, executor caching and host overhead per call are measurement: `../profiling/tools/cute-dsl.md`.
 
 Fusion (`fusion.md`):
