@@ -17,14 +17,23 @@ the maximum device memory in use over all samples, which counts allocations outs
 window. `--with-reason BIT` (e.g. 0x80, HW power brake) adds a row per log or GPU over every sample with that reason
 active, whatever its power, so a throttle that hits short bursts shows its clocks and sample count.
 
+`--trace LABEL=TRACE` (repeatable) windows the log labeled LABEL on a torch.profiler chrome trace captured during it:
+from its first to its last GPU event, at `baseTimeNanoseconds` plus the event's `ts`, in the analysing machine's local
+time (nvidia-smi logs local time, so run this where the node's time zone applies). `--before-trace-s S` instead keeps
+the S seconds before the trace's first GPU event, e.g. the timed steps a bench runs just before its traced step. A
+traced step shorter than a few sampling intervals gives few samples, and a 100 ms log cannot attribute clocks to
+individual kernels.
+
 Usage: uv run --script gpu_clocks.py [LABEL=]log.csv [...] [--busy-watts 200] [--per-gpu] [--decimals 0]
-       [--start T] [--end T] [--with-reason BIT]
+       [--start T] [--end T] [--with-reason BIT] [--trace LABEL=TRACE [--before-trace-s S]]
 """
 
 import argparse
 import csv
+import gzip
+import json
 import statistics
-from datetime import datetime
+from datetime import datetime, timedelta
 
 REASONS = {
     0x1: "idle",
@@ -101,6 +110,24 @@ def in_window(time, start, end):
     return (start is None or time >= bound(start)) and (end is None or time <= bound(end))
 
 
+def trace_window(path, before_s):
+    """Local-time [start, end] of a chrome trace's GPU events, or the `before_s` seconds before its first one."""
+    opener = gzip.open if str(path).endswith(".gz") else open
+    with opener(path, "rt") as f:
+        trace = json.load(f)
+    base_ns = trace.get("baseTimeNanoseconds")
+    if base_ns is None:
+        raise SystemExit(f"{path}: no baseTimeNanoseconds, cannot place the trace on the wall clock")
+    gpu = [e for e in trace["traceEvents"] if e.get("ph") == "X" and e.get("cat") in ("kernel", "gpu_memcpy", "gpu_memset")]
+    if not gpu:
+        raise SystemExit(f"{path}: no GPU events")
+    first = min(e["ts"] for e in gpu)
+    last = max(e["ts"] + e.get("dur", 0) for e in gpu)
+    start = datetime.fromtimestamp(base_ns / 1e9) + timedelta(microseconds=first)
+    end = datetime.fromtimestamp(base_ns / 1e9) + timedelta(microseconds=last)
+    return (start - timedelta(seconds=before_s), start) if before_s is not None else (start, end)
+
+
 def interval_s(samples):
     gaps = []
     for gpu in {s["gpu"] for s in samples}:
@@ -147,7 +174,12 @@ def main():
     parser.add_argument("--end", help="keep samples at or before this time (HH:MM:SS or YYYY/MM/DD HH:MM:SS)")
     parser.add_argument("--with-reason", type=lambda text: int(text, 0),
                         help="also summarize every sample with this throttle reason bit active (e.g. 0x80)")
+    parser.add_argument("--trace", action="append", default=[], metavar="LABEL=TRACE",
+                        help="window the log labeled LABEL on this torch.profiler trace's GPU time span")
+    parser.add_argument("--before-trace-s", type=float, default=None,
+                        help="with --trace: keep the S seconds before the trace's first GPU event instead")
     args = parser.parse_args()
+    windows = {label: trace_window(path, args.before_trace_s) for label, _, path in (t.partition("=") for t in args.trace)}
 
     print(
         "| log | samples | busy samples | busy GPU-s | SM MHz median | p20 | p80 | power W median | max temp C "
@@ -157,6 +189,10 @@ def main():
     for spec in args.logs:
         label, _, path = spec.partition("=") if "=" in spec else (spec, "", spec)
         samples = [s for s in read_log(path) if in_window(s["time"], args.start, args.end)]
+        if label in windows:
+            start, end = windows[label]
+            samples = [s for s in samples if s["time"] is not None and start <= s["time"] <= end]
+            label = f"{label} ({start:%H:%M:%S.%f}"[:-3] + f" to {end:%H:%M:%S.%f}"[:-3] + ")"
         groups = [(label, samples)]
         if args.per_gpu:
             groups = [(f"{label} GPU {gpu}", [s for s in samples if s["gpu"] == gpu])
