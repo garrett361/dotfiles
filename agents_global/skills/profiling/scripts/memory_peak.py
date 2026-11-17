@@ -18,7 +18,11 @@ peak (GiB, event index, time), then the groups by bytes; `--diff B.json` prints 
 B minus A, largest change first. `--blocks REGEX` lists every block live at the peak whose site matches, with its
 size, stream and the event index of its alloc (to order them against the window's phases). When the dump holds the hook's `max_memory_allocated()` readings, they
 are printed as a check on the replayed peak. `--peaks K` also lists the K highest local peaks (event index, GiB) to show whether
-the peak repeats every step. `--device` picks the device trace (default: the one with most events).
+the peak repeats every step. `--device` picks the device trace (default: the one with most events). `--span REGEX`
+groups the alloc and free events whose Python frames (`file:function`) match REGEX into runs (a gap of at most
+`--span-gap` events joins them) and prints, per run, the allocated bytes just before it, its maximum, the bytes at its
+end and the maximum from its end to the next run: e.g. `--span lm_head` gives the memory at the end of the forward
+(before the LM head), the head's transient peak and the backward's peak.
 
 Reserved memory (`torch.cuda.memory_reserved()`, what `max_memory_reserved()` and `nvidia-smi` see) is replayed too:
 `segment_alloc` and `segment_map` (expandable segments) events add their size, `segment_free` and `segment_unmap`
@@ -35,6 +39,7 @@ but awaiting a cross-stream `free_completed`, free bytes, and largest free gap.
 
 Usage: uv run --script memory_peak.py A.json [--diff B.json] [--site REGEX] [--context 2] [--top 30] [--peaks 0]
          [--device N] [--blocks REGEX] [--at allocated|reserved] [--before-sizes] [--segments 0] [--size BYTES]
+         [--span REGEX [--span-gap 200]]
 """
 
 import argparse
@@ -117,6 +122,8 @@ def analyze(
     before_sizes: bool = False,
     segments: int = 0,
     size: int | None = None,
+    span: re.Pattern | None = None,
+    span_gap: int = 200,
 ) -> dict:
     with open(path) as f:
         snap = json.load(f)
@@ -208,6 +215,25 @@ def analyze(
         for seg in device_segments:
             final_ranges = add_range(final_ranges, seg["address"], seg["address"] + seg["total_size"])
         layout = segment_layout(final_ranges, events, target, occupied, pending)
+    spans = []
+    if span is not None:
+        hits = [i for i, e in enumerate(events) if e["action"] in ("alloc", "free_requested")
+                and any(span.search(f"{f.get('filename', '')}:{f.get('name', '')}") for f in e.get("frames", []))]
+        runs_ = []
+        for i in hits:
+            if runs_ and i - runs_[-1][1] <= span_gap:
+                runs_[-1][1] = i
+            else:
+                runs_.append([i, i])
+        level = dict(series)
+        for n, (a, b) in enumerate(runs_):
+            prior = [v for i, v in series if i < a]
+            before = prior[-1] if prior else start
+            within = max(v for i, v in series if a <= i <= b)
+            nxt = runs_[n + 1][0] if n + 1 < len(runs_) else len(events)
+            after = [v for i, v in series if b < i < nxt]
+            spans.append({"first": a, "last": b, "before": before, "within_max": within,
+                          "end": level.get(b, within), "after_max": max(after) if after else None})
     return {
         "path": path,
         "device": device,
@@ -228,6 +254,7 @@ def analyze(
         "live": [(site_key(e.get("frames", []), site, context), e["size"], e.get("stream"), e["index"]) for e in live.values()],
         "before_live": [(f"(allocated before the window) {freed}", size, index) for _, size, index, freed in before_live],
         "local_peaks": local[:peaks],
+        "spans": spans,
         "recorded_peaks": hook.get("peaks_before_call", []) + [hook.get("peak_at_dump")],
         "recorded_reserved_peaks": hook.get("reserved_peaks_before_call", []) + [hook.get("reserved_peak_at_dump")],
         "layout": sorted(layout, key=lambda x: -x[1])[:segments],
@@ -253,10 +280,13 @@ def main() -> None:
     p.add_argument("--before-sizes", action="store_true")
     p.add_argument("--segments", type=int, default=0)
     p.add_argument("--size", type=int, default=None)
+    p.add_argument("--span", default=None)
+    p.add_argument("--span-gap", type=int, default=200)
     args = p.parse_args()
     site = re.compile(args.site)
+    span = re.compile(args.span) if args.span else None
     runs = [
-        analyze(path, site, args.context, args.device, args.peaks, args.at, args.before_sizes, args.segments, args.size)
+        analyze(path, site, args.context, args.device, args.peaks, args.at, args.before_sizes, args.segments, args.size, span, args.span_gap)
         for path in [args.dump, args.diff]
         if path
     ]
@@ -282,6 +312,10 @@ def main() -> None:
             print("  max_memory_reserved per hook interval (GiB): " + ", ".join(f"{p / GIB:.3f}" for p in recorded))
         if r["local_peaks"]:
             print("  local peaks: " + ", ".join(f"{i}: {v / GIB:.3f}" for i, v in r["local_peaks"]))
+        for sp in r["spans"]:
+            after = f"{sp['after_max'] / GIB:.3f}" if sp["after_max"] is not None else "-"
+            print(f"  span events {sp['first']}-{sp['last']}: allocated before {sp['before'] / GIB:.3f} GiB, max within "
+                  f"{sp['within_max'] / GIB:.3f}, at its end {sp['end'] / GIB:.3f}, max until the next span {after}")
         if r["layout"]:
             print(f"  mapped ranges at event {r['target']} (GiB): size, allocated, awaiting free_completed, free, largest gap")
             for start, size, allocated, waiting, free, gap in r["layout"]:
