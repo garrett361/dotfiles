@@ -44,8 +44,8 @@ Measured 2026-10-21/22 on 8x H200 (700 W cap), Triton 3.8, torch 2.14.
 - Times also moved 5 to 10% with data values (random vs zeros change power draw): give every arm the same realistic
   random inputs.
 - `bench_ops.py` times labels one after another. For 1 to 5% effects, check order: rerun with the labels reversed
-  (compare with `scripts/bench_compare.py`), or time with a harness in `inputs/` that warms up about 4 s, then
-  alternates arm order over several rounds of `do_bench` and takes the median of rounds (1 to 5% spread).
+  (compare with `scripts/bench_compare.py`), or run `bench_ops.py --warmup 4000 --rounds 6`, which alternates arm
+  order over rounds of `do_bench` and takes the median of round medians (1 to 5% spread).
 - Log clocks during every timing run whose arms might sit at different power states: start
   `nvidia-smi --query-gpu=timestamp,index,clocks.sm,power.draw,temperature.gpu,clocks_event_reasons.active
   --format=csv -lms 100 > derived/<run>_clocks.csv &` before the run, kill it after, then
