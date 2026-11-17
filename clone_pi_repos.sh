@@ -24,7 +24,10 @@ add_main_worktree() {
     local dir="$1"
     local main_dir="${dir}-main"
 
-    is_git_checkout "$main_dir" && return 0
+    if is_git_checkout "$main_dir"; then
+        echo "main worktree exists: $main_dir"
+        return 0
+    fi
 
     # An rm -rf'd worktree still owns main until git is told it is gone.
     git -C "$dir" worktree prune
@@ -51,6 +54,8 @@ preflight_github || exit 1
 
 skipped=""
 for repo in "${REPOS[@]}"; do
+    echo "--- $repo"
+    is_git_checkout "$GITHUB/$ORG/$repo" && echo "already cloned: $GITHUB/$ORG/$repo"
     if ! clone_into_org "$ORG" "$repo"; then
         skipped="$skipped $repo"
         continue
