@@ -227,9 +227,12 @@ command -v bjobs  >/dev/null 2>&1 && [ -f "$HOME/.lsf_fns.sh" ]   && source "$HO
 
 # No synced claude.ai skills on remote machines. Connectors and synced plugins are off on every
 # host via claude_global/settings.json; skills stay on the Mac, so this flag is remote-only.
+# Remote sessions accept cross-session messages (same-machine peers; isolatePeerMachines still
+# gates sends beyond the machine). The Mac keeps the shared "refuse", so no remote session can
+# relay through a Mac session, and a launch that skips this wrapper also stays at "refuse".
 if [ "$(uname -s)" != "Darwin" ]; then
     claude() {
-        command claude --settings '{"syncClaudeAiSkills":false}' "$@"
+        command claude --settings '{"syncClaudeAiSkills":false,"crossSessionInbound":"accept"}' "$@"
     }
 fi
 
