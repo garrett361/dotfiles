@@ -44,6 +44,9 @@ Window: the whole trace, or from the `--annotation-index`th CPU-side `user_annot
 `<name>#<n>`) to the start of the next one matching `--end-annotation`, selected by launch time; `--tail-ms T`
 keeps only the last T ms (for a capture without annotations). `--steps N` divides the totals by N.
 
+`--ops-total REGEX` adds, per pass and cause kind, the total of the stall rows whose ops label (`<op before> > <op
+after>`) matches REGEX, e.g. one path's stalls (`prime_rl_ep::(dispatch|padded_routes)`) compared across arms.
+
 `--during REGEX` adds, per pass and cause kind (host, wait:memcpy, wait:nccl, ...), how much of the stall time a
 side-stream activity matching REGEX was running: a metric that counts a GPU as busy whenever any kernel runs books
 such stalls as that activity's exposed time (e.g. a copy-engine wait read as exposed FSDP all-gather).
@@ -57,8 +60,8 @@ per main-stream communication kernel) and, with `--timeline`, `P_timeline.csv`; 
 Usage:
   uv run --script stream_stalls.py <trace.json.gz> [--annotation forward --annotation-index -4]
     [--end-annotation '^Optimizer\\.step'] [--steps 1] [--comm '^nccl'] [--op REGEX] [--segment REGEX]
-    [--recompute-op REGEX] [--side REGEX] [--min-gap-us 2] [--match-us 30] [--per-segment] [--during REGEX]
-    [--timeline 'model\\.layers\\.12$' --timeline-index -1 --timeline-pass backward] [--csv PREFIX] [--json out.json]
+    [--recompute-op REGEX] [--side REGEX] [--min-gap-us 2] [--match-us 30] [--per-segment] [--ops-total REGEX]
+    [--during REGEX] [--timeline 'model\\.layers\\.12$' --timeline-index -1 --timeline-pass backward] [--csv PREFIX] [--json out.json]
   prime-pt copy-engine MoE: --recompute-op 'prime_rl_ep::(dispatch|dispatch_routes|gate_up|down|combine)$|all_to_all_single_equal|host_copy'
 """
 
@@ -99,6 +102,8 @@ def parse_args():
     p.add_argument("--during", default=None,
                    help="regex of side-stream activity names: report how much of each stall cause overlaps them")
     p.add_argument("--per-segment", action="store_true", help="also print totals per segment")
+    p.add_argument("--ops-total", default=None,
+                   help="regex: also print, per pass and cause kind, the total of the stall rows whose ops label matches")
     p.add_argument("--timeline", default=None, help="regex of the segment whose invocation to print")
     p.add_argument("--timeline-index", type=int, default=-1)
     p.add_argument("--timeline-pass", default="forward", choices=("forward", "backward"))
@@ -306,6 +311,16 @@ def main():
     for ps, d in sorted(by_pass.items()):
         print(f"| {ps} | {d['host']:.2f} | {d['wait']:.2f} | {d['other']:.2f} |")
     out["stalls_by_pass"] = {ps: dict(d) for ps, d in by_pass.items()}
+    if args.ops_total:
+        matched = defaultdict(lambda: defaultdict(float))
+        for (ps, cause, op), (_, t) in stall_tot.items():
+            if re.search(args.ops_total, op):
+                matched[ps][cause.split(":")[0]] += t / n / 1e3
+        print(f"\n## Stalls whose ops label matches {args.ops_total!r} (ms per step)\n")
+        print("| pass | host ms | wait ms | other ms | total ms |\n|---|---|---|---|---|")
+        for ps, d in sorted(matched.items()):
+            print(f"| {ps} | {d['host']:.2f} | {d['wait']:.2f} | {d['other']:.2f} | {sum(d.values()):.2f} |")
+        out["stalls_matching_ops"] = {"regex": args.ops_total, **{ps: dict(d) for ps, d in matched.items()}}
     if args.during:
         dur_tot = defaultdict(lambda: [0.0, 0.0])
         for s_ in stalls:
