@@ -30,7 +30,10 @@ separated, default all):
 - `health`: nvidia-smi power limit, max SM clock, uncorrectable ECC (volatile, aggregate), remapped rows
   (uncorrectable, pending, failure), PCIe width (current vs max), active NVLinks per GPU, kernel XID lines when
   `dmesg` is readable without root (`xid: null` otherwise), and InfiniBand ports from /sys/class/infiniband (state,
-  rate). Run after the load checks, so ECC errors raised during them count.
+  rate). Ports that NCCL_IB_HCA excludes (same syntax as NCCL: `^` excludes, `=` matches names exactly, otherwise by
+  prefix, optional `:port`) are recorded with `nccl: false`, listed as INFO and left out of every IB verdict, so a
+  node's slower management or storage ports do not fail it. Run after the load checks, so ECC errors raised during
+  them count.
 
 Rank 0 writes one JSON line per GPU (`kind: gpu`), per node (`node`), per shift rank (`p2p`) and per collective size
 (`comm`, with its host list) to `--out`, then prints a PASS/WARN/FAIL verdict per node against EXPECT (INFO lines, such as a lifetime-only ECC count, do not change it), the table of
@@ -346,11 +349,34 @@ def health():
     except (OSError, subprocess.TimeoutExpired):
         xid = None
     ports = []
+    hca_spec = os.environ.get("NCCL_IB_HCA", "")
     for port in sorted(glob.glob("/sys/class/infiniband/*/ports/*")):
         read = lambda name: open(os.path.join(port, name)).read().strip()
-        ports.append({"dev": port.split("/")[4], "port": port.split("/")[-1], "state": read("state"),
-                      "rate": read("rate"), "link_layer": read("link_layer")})
-    return gpus, {"xid": xid, "ib_ports": ports}
+        dev, port_num = port.split("/")[4], port.split("/")[-1]
+        ports.append({"dev": dev, "port": port_num, "state": read("state"), "rate": read("rate"),
+                      "link_layer": read("link_layer"), "nccl": nccl_uses_port(hca_spec, dev, port_num)})
+    return gpus, {"xid": xid, "ib_ports": ports, "nccl_ib_hca": hca_spec or None}
+
+
+def nccl_uses_port(spec, dev, port):
+    """Whether an NCCL_IB_HCA value (`[^][=]name[:port],...`) lets NCCL use this IB device port."""
+    if not spec:
+        return True
+    exclude = spec.startswith("^")
+    spec = spec.removeprefix("^")
+    exact = spec.startswith("=")
+    spec = spec.removeprefix("=")
+    matched = False
+    for entry in spec.split(","):
+        name, _, wanted_port = entry.strip().partition(":")
+        if (dev == name if exact else dev.startswith(name)) and wanted_port in ("", port):
+            matched = True
+    return matched != exclude
+
+
+def nccl_ib_ports(node):
+    """The node's InfiniBand ports that NCCL may use; records written before the `nccl` field count every port."""
+    return [p for p in node["ib_ports"] if p["link_layer"] == "InfiniBand" and p.get("nccl", True)]
 
 
 def run(args):
@@ -451,11 +477,15 @@ def node_problems(host, gpus, node, comm_rows, expect):
     if node:
         if node["xid"]:
             problems.append(("WARN", f"{len(node['xid'])} XID lines in dmesg, last: {node['xid'][-1]}"))
-        ib = [p for p in node["ib_ports"] if p["link_layer"] == "InfiniBand"]
+        ib = nccl_ib_ports(node)
         top = max((float(p["rate"].split()[0]) for p in ib), default=0)
         for p in ib:
             if p["state"] != "4: ACTIVE" or float(p["rate"].split()[0]) < top:
                 problems.append(("FAIL", f"IB {p['dev']}/{p['port']} {p['state']} {p['rate']}"))
+        excluded = [p for p in node["ib_ports"] if p["link_layer"] == "InfiniBand" and not p.get("nccl", True)]
+        if excluded:
+            problems.append(("INFO", f"NCCL_IB_HCA={node.get('nccl_ib_hca')} excludes "
+                             + ", ".join(f"{p['dev']}/{p['port']} ({p['rate']})" for p in excluded)))
     for op, row in largest([r for r in comm_rows if r["hosts"] == [host]], 1).items():
         if op in expect.get("comm", {}).get(1, {}):
             judge(row["busbw"], expect["comm"][1][op], f"intra {op} busbw", problems)
@@ -494,7 +524,7 @@ def summarize(records):
                 row[metric] = min(values)
         for op, r in largest([r for r in by_kind["comm"] if r["hosts"] == [h]], 1).items():
             row[f"intra_{op}"] = r["busbw"]
-        ib = [p for p in nodes[h]["ib_ports"] if p["link_layer"] == "InfiniBand"] if h in nodes else []
+        ib = nccl_ib_ports(nodes[h]) if h in nodes else []
         if ib:
             row["ib_active"] = sum(p["state"] == "4: ACTIVE" for p in ib)
             row["ib_rate_min"] = min(float(p["rate"].split()[0]) for p in ib)
@@ -526,8 +556,8 @@ def summarize(records):
         low = sum(1 for p in low_pairs.get(h, []) if p)
         levels = {l for l, _ in per_host[h]}
         verdict = "FAIL" if "FAIL" in levels else "WARN" if "WARN" in levels else "PASS"
-        ib = [p for p in nodes[h]["ib_ports"] if p["link_layer"] == "InfiniBand"] if h in nodes else []
-        active = f"{sum(p['state'] == '4: ACTIVE' for p in ib)}/{len(ib)}" if h in nodes else "-"
+        ib = nccl_ib_ports(nodes[h]) if h in nodes else []
+        active =f"{sum(p['state'] == '4: ACTIVE' for p in ib)}/{len(ib)}" if h in nodes else "-"
         print(f"| {h} | " + " | ".join(cells) + f" | {active} | {low}/{len(low_pairs.get(h, []))} | {verdict} |")
     print("(GPU columns are the node's slowest GPU; TFLOP/s for GEMMs, GB/s otherwise; comm columns are busbw at the largest size)")
     for h in sorted(per_host):
