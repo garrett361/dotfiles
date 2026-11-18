@@ -22,7 +22,8 @@ the peak repeats every step. `--device` picks the device trace (default: the one
 groups the alloc and free events whose Python frames (`file:function`) match REGEX into runs (a gap of at most
 `--span-gap` events joins them) and prints, per run, the allocated bytes just before it, its maximum, the bytes at its
 end and the maximum from its end to the next run: e.g. `--span lm_head` gives the memory at the end of the forward
-(before the LM head), the head's transient peak and the backward's peak. `--marks FILE --marks-step N` cuts the window
+(before the LM head), the head's transient peak and the backward's peak. `--span-sites` adds, per run, the blocks
+allocated within it and still live at its maximum, grouped by site (what a phase such as a checkpoint save adds). `--marks FILE --marks-step N` cuts the window
 at host-side marks: FILE is JSON lines whose records with a `marks` list (and a `step` equal to N) hold entries
 `[label, label, allocated bytes, reserved bytes, host time in s]` (prime-rl's `PRL_MEMORY_LAYER_MARKS` records); each
 mark is placed after the last event at or before its time (or, for entries without a time, at the next event whose
@@ -266,8 +267,22 @@ def analyze(
             within = max(v for i, v in series if a <= i <= b)
             nxt = runs_[n + 1][0] if n + 1 < len(runs_) else len(events)
             after = [v for i, v in series if b < i < nxt]
+            top = max((i for i, v in series if a <= i <= b), key=lambda i: level[i])
+            fresh = {}
+            for i in range(a, top + 1):
+                e = events[i]
+                if e["action"] == "alloc":
+                    fresh[e["addr"]] = e
+                elif e["action"] == "free_requested":
+                    fresh.pop(e["addr"], None)
+            sites = defaultdict(lambda: [0, 0])
+            for e in fresh.values():
+                g = sites[site_key(e.get("frames", []), site, context)]
+                g[0] += e["size"]
+                g[1] += 1
             spans.append({"first": a, "last": b, "before": before, "within_max": within,
-                          "end": level.get(b, within), "after_max": max(after) if after else None})
+                          "end": level.get(b, within), "after_max": max(after) if after else None,
+                          "sites": dict(sites)})
     pools = defaultdict(lambda: [0, 0, 0, 0])
     for seg in device_segments:
         pool = pools[seg.get("stream")]
@@ -327,6 +342,7 @@ def main() -> None:
     p.add_argument("--size", type=int, default=None)
     p.add_argument("--span", default=None)
     p.add_argument("--span-gap", type=int, default=200)
+    p.add_argument("--span-sites", action="store_true")
     p.add_argument("--marks", default=None)
     p.add_argument("--marks-step", type=int, default=None)
     args = p.parse_args()
@@ -368,6 +384,9 @@ def main() -> None:
             after = f"{sp['after_max'] / GIB:.3f}" if sp["after_max"] is not None else "-"
             print(f"  span events {sp['first']}-{sp['last']}: allocated before {sp['before'] / GIB:.3f} GiB, max within "
                   f"{sp['within_max'] / GIB:.3f}, at its end {sp['end'] / GIB:.3f}, max until the next span {after}")
+            if args.span_sites:
+                for key, (size, count) in sorted(sp["sites"].items(), key=lambda kv: -kv[1][0])[: args.top]:
+                    print(f"    {size / GIB:8.4f} GiB {count:5d} blocks  {key}")
         for mk in r["marks"]:
             name = " ".join(str(x) for x in mk["label"])
             if not mk["matched"]:

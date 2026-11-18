@@ -54,7 +54,8 @@ such stalls as that activity's exposed time (e.g. a copy-engine wait read as exp
 `--inflight LABEL:REGEX` (repeatable) reports when activities matching REGEX (on any stream, e.g. `ag:AllGather`,
 `rs:ReduceScatter`, `h2d:Memcpy HtoD`) are running, per pass window. REGEX is matched against the activity name,
 followed for a collective by ` group=<G> pg=<process group description>` from its args, so one kind can be split
-by process group (e.g. `ag16:AllGather.*group=16\\b`). A pass window is a maximal run of
+by process group (e.g. `ag16:AllGather.*group=16\\b`); with `--inflight-stream`, followed by ` stream=<id>` (the
+trace's stream id), so one kind can be split by the stream that ran it (e.g. `ckpt:DtoH.*stream=27\\b`). A pass window is a maximal run of
 consecutive main-stream activities of one pass (recompute counts as backward), from the first one's start to the
 last one's end, e.g. one micro-batch's forward; an activity whose thread's segment mark is older than another
 thread's latest mark at its launch (e.g. gradient clipping on the main thread after autograd's backward) belongs to
@@ -120,6 +121,8 @@ def parse_args():
                    help="regex of side-stream activity names: report how much of each stall cause overlaps them")
     p.add_argument("--inflight", action="append", default=[], metavar="LABEL:REGEX",
                    help="activity names to time and count bytes for while in flight, per pass window")
+    p.add_argument("--inflight-stream", action="store_true",
+                   help="append ' stream=<id>' to the text --inflight regexes match, to split one kind by stream")
     p.add_argument("--per-segment", action="store_true", help="also print totals per segment")
     p.add_argument("--ops-total", default=None,
                    help="regex: also print, per pass and cause kind, the total of the stall rows whose ops label matches")
@@ -185,12 +188,16 @@ def message(a):
     return (args.get("Collective name", "?"), group, args.get("dtype"), nin, nout, bus)
 
 
-def inflight_text(a):
-    """The text `--inflight` regexes match: the name, plus ` group=<G> pg=<description>` for a collective."""
+def inflight_text(a, with_stream=False):
+    """The text `--inflight` regexes match: the name, plus ` group=<G> pg=<description>` for a collective, plus
+    ` stream=<id>` with `--inflight-stream`."""
     args = a.get("args", {})
-    if "Group size" not in args:
-        return a["name"]
-    return f"{a['name']} group={args['Group size']} pg={args.get('Process Group Description', '-')}"
+    text = a["name"]
+    if "Group size" in args:
+        text += f" group={args['Group size']} pg={args.get('Process Group Description', '-')}"
+    if with_stream:
+        text += f" stream={a['stream'][1]}"
+    return text
 
 
 def runs(acts, key):
@@ -461,7 +468,7 @@ def main():
         labeled = {}
         for spec in args.inflight:
             label, regex = spec.split(":", 1)
-            mine = [a | {"msg": message(a)} for a in acts if re.search(regex, inflight_text(a))]
+            mine = [a | {"msg": message(a)} for a in acts if re.search(regex, inflight_text(a, args.inflight_stream))]
             merged = merge([(a["ts"], a["ts"] + a["dur"]) for a in mine])
             labeled[label] = (mine, merged, [m[0] for m in merged])
         mark_times = sorted(e["ts"] for e in events if e.get("cat") in ("cpu_op", "user_annotation")
