@@ -22,7 +22,11 @@ the peak repeats every step. `--device` picks the device trace (default: the one
 groups the alloc and free events whose Python frames (`file:function`) match REGEX into runs (a gap of at most
 `--span-gap` events joins them) and prints, per run, the allocated bytes just before it, its maximum, the bytes at its
 end and the maximum from its end to the next run: e.g. `--span lm_head` gives the memory at the end of the forward
-(before the LM head), the head's transient peak and the backward's peak.
+(before the LM head), the head's transient peak and the backward's peak. `--marks FILE --marks-step N` cuts the window
+at host-side marks: FILE is JSON lines whose records with a `marks` list (and a `step` equal to N) hold entries
+`[label, label, allocated bytes, reserved bytes, host time in s]` (prime-rl's `PRL_MEMORY_LAYER_MARKS` records); each
+mark is placed after the last event at or before its time (or, for entries without a time, at the next event whose
+running total is within 1 MiB of its allocated bytes: small blocks are counted slightly differently), and the allocated bytes there and the maximum until the next mark are printed.
 
 Reserved memory (`torch.cuda.memory_reserved()`, what `max_memory_reserved()` and `nvidia-smi` see) is replayed too:
 `segment_alloc` and `segment_map` (expandable segments) events add their size, `segment_free` and `segment_unmap`
@@ -39,7 +43,7 @@ but awaiting a cross-stream `free_completed`, free bytes, and largest free gap.
 
 Usage: uv run --script memory_peak.py A.json [--diff B.json] [--site REGEX] [--context 2] [--top 30] [--peaks 0]
          [--device N] [--blocks REGEX] [--at allocated|reserved] [--before-sizes] [--segments 0] [--size BYTES]
-         [--span REGEX [--span-gap 200]]
+         [--span REGEX [--span-gap 200]] [--marks FILE --marks-step N]
 """
 
 import argparse
@@ -49,6 +53,7 @@ from collections import Counter, defaultdict
 
 GIB = 1024**3
 RESERVE_ACTIONS = {"segment_alloc": 1, "segment_map": 1, "segment_free": -1, "segment_unmap": -1}
+MARK_TOLERANCE = 2**20
 
 
 def site_key(frames, site: re.Pattern, context: int) -> str:
@@ -112,6 +117,31 @@ def segment_layout(final_ranges: list, events: list, target: int, occupied: dict
     return layout
 
 
+def place_marks(events: list, series: list, marks: list) -> list:
+    """Each mark's position in `series` (index into it) and the maximum allocated until the next mark."""
+    placed, pos = [], 0
+    for mark in marks:
+        label, allocated, when = mark[:2], mark[2], mark[4] if len(mark) > 4 else None
+        if when is not None:
+            k = pos
+            while k + 1 < len(series) and events[series[k + 1][0]].get("time_us", 0) <= when * 1e6:
+                k += 1
+        else:
+            k = next((j for j in range(pos, len(series)) if abs(series[j][1] - allocated) <= MARK_TOLERANCE), None)
+            if k is None:
+                placed.append({"label": label, "recorded": allocated, "matched": False})
+                break
+        placed.append({"label": label, "recorded": allocated, "matched": True, "position": k, "event": series[k][0],
+                       "allocated": series[k][1]})
+        pos = k
+    for a, b in zip(placed, placed[1:] + [None]):
+        if not a["matched"]:
+            continue
+        end = b["position"] if b and b["matched"] else len(series) - 1
+        a["max_until_next"] = max(v for _, v in series[a["position"] : end + 1])
+    return placed
+
+
 def analyze(
     path: str,
     site: re.Pattern,
@@ -124,6 +154,7 @@ def analyze(
     size: int | None = None,
     span: re.Pattern | None = None,
     span_gap: int = 200,
+    marks: list | None = None,
 ) -> dict:
     with open(path) as f:
         snap = json.load(f)
@@ -255,6 +286,7 @@ def analyze(
         "before_live": [(f"(allocated before the window) {freed}", size, index) for _, size, index, freed in before_live],
         "local_peaks": local[:peaks],
         "spans": spans,
+        "marks": place_marks(events, series, marks) if marks else [],
         "recorded_peaks": hook.get("peaks_before_call", []) + [hook.get("peak_at_dump")],
         "recorded_reserved_peaks": hook.get("reserved_peaks_before_call", []) + [hook.get("reserved_peak_at_dump")],
         "layout": sorted(layout, key=lambda x: -x[1])[:segments],
@@ -282,11 +314,18 @@ def main() -> None:
     p.add_argument("--size", type=int, default=None)
     p.add_argument("--span", default=None)
     p.add_argument("--span-gap", type=int, default=200)
+    p.add_argument("--marks", default=None)
+    p.add_argument("--marks-step", type=int, default=None)
     args = p.parse_args()
     site = re.compile(args.site)
     span = re.compile(args.span) if args.span else None
+    marks = None
+    if args.marks:
+        with open(args.marks) as f:
+            records = [json.loads(line) for line in f]
+        marks = next(r["marks"] for r in records if "marks" in r and r.get("step") == args.marks_step)
     runs = [
-        analyze(path, site, args.context, args.device, args.peaks, args.at, args.before_sizes, args.segments, args.size, span, args.span_gap)
+        analyze(path, site, args.context, args.device, args.peaks, args.at, args.before_sizes, args.segments, args.size, span, args.span_gap, marks)
         for path in [args.dump, args.diff]
         if path
     ]
@@ -316,6 +355,13 @@ def main() -> None:
             after = f"{sp['after_max'] / GIB:.3f}" if sp["after_max"] is not None else "-"
             print(f"  span events {sp['first']}-{sp['last']}: allocated before {sp['before'] / GIB:.3f} GiB, max within "
                   f"{sp['within_max'] / GIB:.3f}, at its end {sp['end'] / GIB:.3f}, max until the next span {after}")
+        for mk in r["marks"]:
+            name = " ".join(str(x) for x in mk["label"])
+            if not mk["matched"]:
+                print(f"  mark {name}: allocated {mk['recorded'] / GIB:.3f} GiB not found in the window")
+                continue
+            print(f"  mark {name} at event {mk['event']}: allocated {mk['allocated'] / GIB:.3f} GiB (recorded "
+                  f"{mk['recorded'] / GIB:.3f}), max until the next mark {mk['max_until_next'] / GIB:.3f}")
         if r["layout"]:
             print(f"  mapped ranges at event {r['target']} (GiB): size, allocated, awaiting free_completed, free, largest gap")
             for start, size, allocated, waiting, free, gap in r["layout"]:
