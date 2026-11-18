@@ -85,8 +85,8 @@ before weighing in on the user's points, and do not fold their views into it.
     written; link the current line that makes or contradicts it.
   - Corrections and bugs: a GitHub permalink at the PR head SHA with line numbers
     (`.../blob/<sha>/<path>#L<a>-L<b>`) for every location, the defect in one or two sentences, and the
-    expected behavior. When the suggested fix is more than a one-line change, add a few lines of pseudocode
-    showing its intended shape; it states intent more precisely than prose. Permalinks render in the GitHub
+    expected behavior. Show every suggested code change as code, never only in prose: a minimal diff or
+    copy-pasteable snippet, even for a one-line fix, or a few lines of pseudocode for a larger change. Permalinks render in the GitHub
     UI and are precise enough for an agent to act on.
     GitHub expands a raw prime-rl permalink into a code snippet, so put it at the end of a sentence, never
     inside parentheses or markdown link syntax.
