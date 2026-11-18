@@ -14,6 +14,8 @@ A reader should get the answer in the first screen and the evidence for it in th
 - When it matters, state the scope up front (what the numbers do and do not cover, including what each headline parameter means in practice, such as the data a sequence length holds), and close with what was not tested yet.
 - Get the reader to the charts and tables fast. Side investigations, no-go explanations, per-run tables and history each get one line in a table or a bullet with a link to their source, never their own multi-paragraph or multi-table section, unless the user asks for one.
 - Split the page into a main body and an appendix after a labeled divider. In the main body every element states a finding or shows the evidence for one, ending with what would change the conclusion or the next step. Supporting material (method, robustness checks, history, how to reproduce, open questions) goes in the appendix.
+- Keep the main body to the cards, one chart per finding, and at most three short bullets per section; a reader should finish it in about five minutes. Everything else goes in a collapsed table or the appendix. When the main body grows past that, cut before adding.
+- When new results or corrections arrive, rewrite the affected section around the new finding instead of appending clauses or caveats, and re-read the whole page for anything the change made redundant. A superseded result gets one line in the appendix, not its old section.
 
 ## Show, then tell
 
@@ -31,6 +33,7 @@ A reader should get the answer in the first screen and the evidence for it in th
 ## Words
 
 - Keep prose light: short sentences, plain words, and bullets instead of a dense paragraph. Prefer spelling out a long comma-separated list as bullets, one item per line.
+- Put qualifiers (one run, modeled, within noise) in a tag, a parenthesis or the collapsed table, not as extra clauses in the main sentence.
 - Avoid jargon, including the project's internal names (code names, option labels, design letters, version tags): name a thing by what it does. When a term is unavoidable, define it inline at first use.
 - A simple model that yields a rule of thumb is worth including: name the few quantities, write the formulas in a code-style block, plug in the numbers, and end with the rule.
 - Give every number its unit and say whether it is measured or derived. Keep the same name for the same thing everywhere.
@@ -56,7 +59,8 @@ A reader should get the answer in the first screen and the evidence for it in th
 ## Before publishing
 
 - Have a subagent check every number and derived claim against the data and the code that produced it. Give it the claims and file pointers, not your conclusions, and ask for OK or WRONG with evidence; repo docs can be wrong.
-- Have a separate subagent read only for tone: blame, judgment words and claims stronger than the evidence.
+- Have a separate subagent read only for tone and length: blame, judgment words, claims stronger than the evidence, sections that do not lead with their point, and text a reader could skip.
+- After assembling a page from pieces, check that its tags nest correctly.
 - Fix what they confirm, then publish.
 
 ## Keeping this skill current
