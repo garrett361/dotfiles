@@ -27,6 +27,9 @@ at host-side marks: FILE is JSON lines whose records with a `marks` list (and a 
 `[label, label, allocated bytes, reserved bytes, host time in s]` (prime-rl's `PRL_MEMORY_LAYER_MARKS` records); each
 mark is placed after the last event at or before its time (or, for entries without a time, at the next event whose
 running total is within 1 MiB of its allocated bytes: small blocks are counted slightly differently), and the allocated bytes there and the maximum until the next mark are printed.
+`--segments` prints, per stream, the dump's final segments (count, reserved and active GiB) and the window's alloc events on
+that stream, to split reserved-but-unallocated memory into side-stream pools (FSDP all-gather, reduce-scatter) and the
+compute stream's free space (the compute stream is the one with the most alloc events).
 
 Reserved memory (`torch.cuda.memory_reserved()`, what `max_memory_reserved()` and `nvidia-smi` see) is replayed too:
 `segment_alloc` and `segment_map` (expandable segments) events add their size, `segment_free` and `segment_unmap`
@@ -42,7 +45,7 @@ its event index, stream and site (to follow a persistent block's size to where i
 but awaiting a cross-stream `free_completed`, free bytes, and largest free gap.
 
 Usage: uv run --script memory_peak.py A.json [--diff B.json] [--site REGEX] [--context 2] [--top 30] [--peaks 0]
-         [--device N] [--blocks REGEX] [--at allocated|reserved] [--before-sizes] [--segments 0] [--size BYTES]
+         [--device N] [--blocks REGEX] [--at allocated|reserved] [--before-sizes] [--segments [N]] [--size BYTES]
          [--span REGEX [--span-gap 200]] [--marks FILE --marks-step N]
 """
 
@@ -265,9 +268,19 @@ def analyze(
             after = [v for i, v in series if b < i < nxt]
             spans.append({"first": a, "last": b, "before": before, "within_max": within,
                           "end": level.get(b, within), "after_max": max(after) if after else None})
+    pools = defaultdict(lambda: [0, 0, 0, 0])
+    for seg in device_segments:
+        pool = pools[seg.get("stream")]
+        pool[0] += 1
+        pool[1] += seg["total_size"]
+        pool[2] += sum(b["size"] for b in seg["blocks"] if b["state"] == "active_allocated")
+    for e in events:
+        if e["action"] == "alloc":
+            pools[e.get("stream")][3] += 1
     return {
         "path": path,
         "device": device,
+        "pools": dict(pools),
         "events": len(events),
         "start": start,
         "start_from_segments": from_segments,
@@ -310,7 +323,7 @@ def main() -> None:
     p.add_argument("--blocks", default=None)
     p.add_argument("--at", choices=["allocated", "reserved"], default="allocated")
     p.add_argument("--before-sizes", action="store_true")
-    p.add_argument("--segments", type=int, default=0)
+    p.add_argument("--segments", nargs="?", type=int, default=0)
     p.add_argument("--size", type=int, default=None)
     p.add_argument("--span", default=None)
     p.add_argument("--span-gap", type=int, default=200)
@@ -325,7 +338,7 @@ def main() -> None:
             records = [json.loads(line) for line in f]
         marks = next(r["marks"] for r in records if "marks" in r and r.get("step") == args.marks_step)
     runs = [
-        analyze(path, site, args.context, args.device, args.peaks, args.at, args.before_sizes, args.segments, args.size, span, args.span_gap, marks)
+        analyze(path, site, args.context, args.device, args.peaks, args.at, args.before_sizes, args.segments or 0, args.size, span, args.span_gap, marks)
         for path in [args.dump, args.diff]
         if path
     ]
@@ -371,6 +384,10 @@ def main() -> None:
                 )
         for index, action, stream, key in r["sized"]:
             print(f"  {action}@{index} stream {stream} {args.size} B  {key}")
+        if args.segments is None:
+            for stream, (count, total, active, allocs) in sorted(r["pools"].items(), key=lambda kv: -kv[1][1]):
+                print(f"  stream {stream}: {count} segments, reserved {total / GIB:.3f} GiB, active {active / GIB:.3f}, "
+                      f"free {(total - active) / GIB:.3f}, {allocs} alloc events in the window")
         if args.blocks:
             pattern = re.compile(args.blocks)
             for key, size, stream, index in sorted(r["live"], key=lambda x: x[3]):
