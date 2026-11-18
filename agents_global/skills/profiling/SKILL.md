@@ -101,6 +101,8 @@ Runs, host and compiler:
   launches) and pageable copies per rank from nsys: `scripts/nsys_syncs.py`; `analysis/cuda-syncs.md`.
 - What is allocated at a run's peak, by allocation site, and which buffers differ between two arms' peaks? Record with
   `scripts/memory_history/` on PYTHONPATH (no project edit), then `scripts/memory_peak.py` (`--diff`, `--blocks`).
+- How much host RAM did a run or one phase of it take (pinned buffers, offloaded tensors, page cache), against the
+  node's idle level? Log `/proc/meminfo` during the run, then `scripts/host_memory.py` (logger in its docstring).
 - What keeps `torch.compile` recompiling, at which step? `scripts/recompile_reasons.py`.
 - Which ATen ops and source lines does each Inductor kernel cover, and which backward-graph kernels replay the checkpointed forward? `scripts/inductor_kernels.py` over a `TORCH_COMPILE_DEBUG=1` dump.
 - Which rank or node compiled (Dynamo recompile, DeepGEMM or Triton JIT) in which step, and when was the last compile, so
