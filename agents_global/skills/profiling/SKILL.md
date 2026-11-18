@@ -75,6 +75,8 @@ End to end, from traces:
   reconciled with untraced step time? `scripts/step_accounting.py`, then `scripts/accounting_figure.py`. On
   per-rank op traces from `bench_ops.py --distributed --trace`: `tools/torch-profiler.md`.
 - How much host work (launches, thread busy time, named ops) does each arm issue per step? `scripts/host_ops.py`.
+- Which Python functions hold the host per iteration without torch.profiler's overhead, per thread and arm, when a
+  host-bound path's gap must be attributed to code? py-spy raw stacks, then `scripts/pyspy_frames.py`.
 - How long is one module (e.g. a MoE block) on the compute stream, wall time with its waits, when torch.compile left
   it no `record_function` range? `scripts/region_spans.py` (spans from kernel-label regexes).
 - Per layer type and pass (forward, backward, AC recompute), how much time goes to Inductor, eager ATen, custom-op and GEMM kernels, and which runs of small kernels could one fused kernel replace? `scripts/layer_inventory.py`.
