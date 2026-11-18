@@ -12,7 +12,7 @@ Release an allocation as soon as no stream has a known next use for it: when its
 - Hold one allocation per slice you may release on its own (each development machine, the timing node) and one for the multi-machine pool, sized to the largest queued run. Part of an allocation cannot be given back, and a multi-machine step spans only one allocation's machines.
 - Size each slice by the stream's next measurement: a device or one machine for development and per-op work; the pool only for the runs that need several machines (end-to-end, scaling).
 - Split a machine's devices among agents explicitly (which devices each owns); one owner runs whole-machine jobs, or you schedule windows for them and have the other agents stop by a stated time.
-- Whole-machine and multi-machine runs (end-to-end benchmarks, acceptance checks) go through one queue you own, ordered by which result unblocks the most streams. A stream that needs such runs develops on its own slice and submits each run to the queue; the queue's machines are lent to the agent that launches the run, for that run only.
+- Whole-machine and multi-machine runs (end-to-end benchmarks, acceptance checks) go through one queue you own, ordered by which result unblocks the most streams. A stream that needs such runs develops on its own slice and submits each run to the queue; the queue's machines are lent to the agent that launches the run, for that run only. An agent starts a run on lent machines only after your message lending them names it; a driver that starts itself when another stream's run ends overlapped a run for three minutes on a shared pool.
 
 ## Keeping compute busy
 
