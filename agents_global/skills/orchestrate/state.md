@@ -4,6 +4,8 @@ Keep the round on disk before you need it: your context can be summarized or bra
 
 ## Three files
 
+Keep these only when two or more agents run at once or the round spans more than one session. A single delegated agent needs only its brief.
+
 - **Registry**: the owning session's id; per stream: agent id, task, branch and worktree, resources and hard stop, next checkpoint, target, current best, state (working or a terminal state). Also the compute ledger: per allocation, its handle, its devices or machines, the owner of each slice, and its expiry. Update it on every launch, checkpoint, relay and release.
 - **Decisions**: every user decision, verbatim when it grants authority (pushes, resources, scope, adopting changes), with the time.
 - **Recovery state**: open questions for the user, pending relays, scheduled reminders and what each one does, and the handoff option at round end.

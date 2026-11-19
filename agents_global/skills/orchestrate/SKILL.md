@@ -9,8 +9,9 @@ You plan the streams, brief and launch their agents, push each stream to a termi
 
 ## Scale and cost
 
+- First decide whether to orchestrate at all. If the work is one stream you can finish yourself within your context (a handful of edits and a few test runs, roughly under two hours), do it directly in this session: no brief, no state files, no subagent. Say so in one line, even when the user invoked this skill. Orchestrate only when there are several independent streams, the work will outlast your context, or the user is away and wants it pushed for hours.
 - Use one agent when one stream suffices. Cap concurrent agents by the number of independent streams and of independent resources (devices, worktrees); hold back an agent that would only wait on another.
-- When the user can be asked, confirm the stream list, agent count, compute and budget before launching; when they are away, state them in your first status line and proceed. If the hard stop is later than the allocations' time limit, ask for the renewal grant in the same confirmation; if none is recorded, the hard stop is the allocations' expiry.
+- When the user can be asked, confirm the stream list, agent count, compute and budget before launching, with the overhead (agents, files, rough setup time) set against doing it directly, so the user can pick the smaller option; when they are away, state them in your first status line and proceed. If the hard stop is later than the allocations' time limit, ask for the renewal grant in the same confirmation; if none is recorded, the hard stop is the allocations' expiry.
 
 ## The loop
 
