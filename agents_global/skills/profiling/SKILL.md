@@ -187,7 +187,10 @@ An op-level win that disappears end to end is a finding, not noise: go to layer 
 - Validate numerics before timing: bitwise (`torch.equal`, which compares fp8 directly in torch 2.13) when the change
   should be exact, otherwise loss/grad-norm curves that track step by step. Poisoned destinations, bitwise A/B of
   env-selected variants in one process, proving a device-predicated branch ran, and proving a fused path did not silently
-  fall back: `tools/do-bench.md` (correctness).
+  fall back: `tools/do-bench.md` (correctness). A bitwise check of `torch.compile`d code across commits or processes
+  needs one shared compile cache (seed each arm's `TORCHINDUCTOR_CACHE_DIR` and `TRITON_CACHE_DIR` from the same run):
+  Inductor's autotuner picks configs from noisy cold-compile timings and caches them, and two cold compiles of one tree
+  chose different configs for 136 of 568 kernels, moving gradients by up to 4e-3 relative with no code change.
 - Run arms on the same hardware class, on nodes that pass `scripts/node_check.py`, serially or in parallel as the user
   asks (ask if unclear); never share GPUs between a timing run and anything else.
 - Time the op in its production calling convention (the same operand kinds, offsets, capacity bounds and flags
