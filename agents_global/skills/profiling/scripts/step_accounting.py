@@ -84,7 +84,7 @@ import re
 import sqlite3
 from collections import defaultdict
 
-from trace_events import launch_context, launch_stacks
+from trace_events import is_marker, launch_context, launch_stacks
 
 BLOCKING = re.compile(
     r"cudaStreamSynchronize|cudaDeviceSynchronize|cudaEventSynchronize|cudaMemcpy(?!Async)|cuStreamSynchronize|"
@@ -221,15 +221,11 @@ def step_windows(rank, boundary, gap_us):
     return list(zip(ends[:-1], ends[1:]))
 
 
-def matches(label, wanted):
-    return label == wanted or label.startswith(wanted + "#")
-
-
 def annotation_windows(rank, name, end_name):
-    end_starts = [s for s, _, label in rank.annotations if end_name and matches(label, end_name)]
+    end_starts = [s for s, _, label in rank.annotations if end_name and is_marker(label, end_name)]
     windows = []
     for start, end, label in rank.annotations:
-        if not matches(label, name):
+        if not is_marker(label, name):
             continue
         if end_name:
             later = [s for s in end_starts if s > start]
@@ -246,7 +242,7 @@ COMM_LABELS = []
 def launched_windows(rank, name):
     windows = []
     for lo, hi, label in rank.host_annotations:
-        if not matches(label, name):
+        if not is_marker(label, name):
             continue
         inside = [(start, end) for launch, start, end in rank.launched if lo <= launch < hi]
         if inside:

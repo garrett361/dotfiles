@@ -10,11 +10,11 @@ window are grouped by kernel name, by call site (innermost `cpu_op` with its `In
 enclosing non-aten op, found via `args["correlation"]` -> launch -> enclosing ops on the launch thread), or by
 both. Ranks by total time and by time per call; NCCL kernels get their own table.
 
-Every annotation name also matches `NAME#<n>`: for a loop driven by `torch.profiler.schedule` and `prof.step()`, pass
-`ProfilerStep` to window on torch's per-step `ProfilerStep#<n>` ranges. CPU-side windows select kernels by GPU start
-time, so when the host runs ahead of the GPU they misplace kernels; there, `--from-annotation ProfilerStep
---from-index -2 --to-annotation ProfilerStep` (GPU-side) or `--launched-in ProfilerStep` gives the real step. The
-trace may be `.json` or `.json.gz`.
+Every annotation name matches `NAME` or `NAME#<any suffix>`: for a loop driven by `torch.profiler.schedule` and
+`prof.step()`, pass `ProfilerStep` to window on torch's per-step `ProfilerStep#<n>` ranges. CPU-side windows select
+kernels by GPU start time, so when the host runs ahead of the GPU they misplace kernels; there, `--from-annotation
+ProfilerStep --from-index -2 --to-annotation ProfilerStep` (GPU-side) or `--launched-in ProfilerStep` gives the real
+step. The trace may be `.json` or `.json.gz`.
 
 `--annotation-index N` starts the window at the Nth such annotation instead (0-based, negative from the end); unless
 it is the last one, the window ends at the next one's start, so `--annotation-index -3` covers the third-to-last
@@ -120,7 +120,8 @@ def parse_args():
     p.add_argument("--from-index", type=int, default=-1, help="which occurrence of --from-annotation")
     p.add_argument("--to-annotation", default=None, help="first later GPU-side annotation with this name closes it")
     p.add_argument("--launched-in", default=None,
-                   help="CPU-side user_annotation name: keep kernels launched inside its --launched-in-index'th range")
+                   help="CPU-side user_annotation name (matches NAME or NAME#<any suffix>): keep kernels launched"
+                        " inside its --launched-in-index'th range")
     p.add_argument("--launched-in-index", type=int, default=-1, help="which occurrence of --launched-in")
     p.add_argument("--whole-trace", action="store_true")
     p.add_argument("--min-calls", type=int, default=1, help="minimum launches for the per-call ranking")
@@ -413,7 +414,7 @@ def main():
         steps = sorted(e["ts"] for e in xs
                        if e.get("cat") == "user_annotation" and is_marker(e["name"], args.annotation))
         start = pick(steps, args.annotation_index,
-                     f"CPU-side user_annotation `{args.annotation}` (or `{args.annotation}#<n>`)")
+                     f"CPU-side user_annotation `{args.annotation}` (or `{args.annotation}#<any suffix>`)")
         later = [t for t in steps if t > start]
         if len(later) >= args.annotation_span:
             end = later[args.annotation_span - 1]

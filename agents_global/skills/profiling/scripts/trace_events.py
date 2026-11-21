@@ -10,7 +10,8 @@ Library (imported by the other trace scripts):
   thread that spans the launch and whose name matches `pattern`.
 - `Trace.window(marker, index)` returns the [start, end) of the `index`th CPU-side `user_annotation` named
   `marker`, from its start to its end (`span="event"`) or to the next marker of that name (`span="next"`).
-  A marker also matches `<marker>#<n>`, so `ProfilerStep` selects torch.profiler's per-step `ProfilerStep#<n>`.
+  A marker matches `<marker>` or `<marker>#<any suffix>`, so `ProfilerStep` selects torch.profiler's per-step
+  `ProfilerStep#<n>`.
 - `read_trace(path)` loads a `.json` or `.json.gz` chrome trace; `is_marker(name, marker)` is the marker match
   above; `pick(events, index, what)` indexes a list or exits with a message naming what was missing.
 - `Trace.main_stream(kernels, exclude)` is the (pid, tid) with the most kernel time among `kernels`, ignoring
@@ -132,7 +133,7 @@ def read_trace(path):
 
 
 def is_marker(name, marker):
-    return name == marker or re.fullmatch(re.escape(marker) + r"#\d+", name) is not None
+    return name == marker or name.startswith(marker + "#")
 
 
 def pick(events, index, what):
