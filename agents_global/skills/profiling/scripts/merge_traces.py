@@ -25,9 +25,9 @@ The anchor is the Nth event (0-based, negative counts from the end) whose name e
 prefix restricts the event category: `kernel:` GPU kernels, `gpu:` GPU-side `record_function` annotations
 (e.g. `gpu:FSDP::all_gather_copy_out (model.layers.2)`, which starts that layer's forward, matching
 `timeline_figure.py --anchor-annotation`), `cpu:` CPU ops and annotations. No prefix matches any event, so a
-`record_function` name matches both its CPU range and its GPU projection. The name also matches `<name>#<n>`:
-`--anchor cpu:ProfilerStep --anchor-index -1` is the start of the last `ProfilerStep#<n>`. Inputs may be `.json`
-or `.json.gz`.
+`record_function` name matches both its CPU range and its GPU projection. The name matches `<name>` or
+`<name>#<any suffix>`: `--anchor cpu:ProfilerStep --anchor-index -1` is the start of the last `ProfilerStep#<n>`.
+Inputs may be `.json` or `.json.gz`.
 
 Usage: uv run --script merge_traces.py <out.json.gz> --anchor <name> [--anchor-index N] --trace "<label>=<trace.json.gz>" ...
   e.g. `--anchor cpu:forward --anchor-index -1` (last SFT step start), `--anchor kernel:main_kernel --anchor-index 2`,

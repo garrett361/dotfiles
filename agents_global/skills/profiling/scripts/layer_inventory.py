@@ -4,7 +4,8 @@
 """Per layer type and pass, GPU launches and time by kernel class, plus chains of small kernels, from a torch trace.
 
 Every kernel, memcpy and memset launched (host time, joined via `args["correlation"]`) from the start of the
-`--annotation-index`th CPU-side `user_annotation` named `--annotation` (default `forward`, also matching `forward#<n>`)
+`--annotation-index`th CPU-side `user_annotation` named `--annotation` (default `forward`; matches `forward` or
+`forward#<any suffix>`)
 to the start of the next `user_annotation` matching the regex `--end-annotation` (default `^Optimizer\\.step`,
 torch.optim's step range) is assigned:
 - a segment: the latest host event on the launch's thread, at or before the launch, matching `--segment`. Its named

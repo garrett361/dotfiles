@@ -31,7 +31,8 @@ unmatched point that returned before it (at most 20 ms before), and is dropped a
 already has a callback record.
 `--dump out.json` writes the per-point rows for join_sync_dumps.py. `--list` prints every sync point in time order.
 
-An anchor also matches `ANCHOR#<n>`, so `--anchor ProfilerStep` windows on torch.profiler's per-step ranges.
+An anchor matches `ANCHOR` or `ANCHOR#<any suffix>`, so `--anchor ProfilerStep` windows on torch.profiler's per-step
+ranges.
 
 `--to-end` windows from the last anchor to the last GPU event instead (e.g. the final micro-batch plus optimizer).
 

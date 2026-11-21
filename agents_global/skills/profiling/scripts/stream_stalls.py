@@ -40,9 +40,9 @@ driver call by correlation id; it has no host ops, so every op label is `-` and 
 activity it waited for (e.g. `wait:memcpy:Memcpy PtoP`). Use it to check a torch trace's stalls without the
 profiler's host overhead.
 
-Window: the whole trace, or from the `--annotation-index`th CPU-side `user_annotation` named `--annotation` (also
-`<name>#<n>`) to the start of the next one matching `--end-annotation`, selected by launch time; `--tail-ms T`
-keeps only the last T ms (for a capture without annotations). `--steps N` divides the totals by N.
+Window: the whole trace, or from the `--annotation-index`th CPU-side `user_annotation` named `--annotation` (`<name>`
+or `<name>#<any suffix>`) to the start of the next one matching `--end-annotation`, selected by launch time;
+`--tail-ms T` keeps only the last T ms (for a capture without annotations). `--steps N` divides the totals by N.
 
 `--ops-total REGEX` adds, per pass and cause kind, the total of the stall rows whose ops label (`<op before> > <op
 after>`) matches REGEX, e.g. one path's stalls (`prime_rl_ep::(dispatch|padded_routes)`) compared across arms.

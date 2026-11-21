@@ -212,7 +212,9 @@ def latest_marks(events, correlations, pattern):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("trace")
-    parser.add_argument("--from-annotation", help="CPU user_annotation name (or name#<n>) opening the window")
+    parser.add_argument(
+        "--from-annotation", help="CPU user_annotation name (matches NAME or NAME#<any suffix>) opening the window"
+    )
     parser.add_argument(
         "--list-annotations", metavar="REGEX", help="list distinct CPU and GPU annotation names matching REGEX, then exit"
     )

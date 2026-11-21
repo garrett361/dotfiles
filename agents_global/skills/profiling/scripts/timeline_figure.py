@@ -84,7 +84,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 
 from comm_waits import analyze_trace
-from trace_events import load_trace
+from trace_events import is_marker, load_trace
 
 OTHER = ("other", None, "#999999")
 
@@ -151,7 +151,8 @@ def categorize(name, categories):
 
 def load_step(path, step_marker, step_index, main_exclude=None):
     trace = load_trace(path)
-    nth(trace.annotations(f"^{re.escape(step_marker)}(#\\d+)?$"), step_index, f"{path}: CPU user_annotation {step_marker!r}")
+    markers = [e for e in trace.annotations("") if is_marker(e["name"], step_marker)]
+    nth(markers, step_index, f"{path}: CPU user_annotation {step_marker!r}")
     start, end = trace.window(step_marker, step_index, span="next")
     kernels = [e for e in trace.kernels if start <= (e["launch"] or e)["ts"] < end]
     main = trace.main_stream(kernels, main_exclude)

@@ -34,7 +34,7 @@ import json
 import re
 from collections import defaultdict
 
-from trace_events import load_trace
+from trace_events import is_marker, load_trace
 
 
 def parse_args():
@@ -93,7 +93,7 @@ def label_for(name, rules):
 
 def analyze_trace(trace, args, rules):
     """Waits and labeled comm kernels in one trace; `args` carries the CLI options (see parse_args)."""
-    markers = trace.annotations(f"^{re.escape(args.step_marker)}(#\\d+)?$")
+    markers = [e for e in trace.annotations("") if is_marker(e["name"], args.step_marker)]
     if not -len(markers) <= args.step_index < len(markers):
         raise SystemExit(f"--step-marker {args.step_marker!r} occurs {len(markers)} times as a CPU user_annotation, "
                          f"so --step-index {args.step_index} is out of range")
