@@ -1,6 +1,6 @@
 """Per GPU on one node, all GPUs at once: short and sustained bf16 GEMM rates and the hardware power-brake counter.
 
-Self-contained (standard library and torch) for pasting into a bad-node report (`../reporting/bad-nodes.md`).
+Self-contained (standard library and torch), so it can be pasted into a bad-node report.
 
 An intermittent brake (episodes of about a second when all GPUs step from idle to full load at once) can miss a single
 measurement: `--rounds R --gap-s G` repeats the short burst R times, each after G idle seconds and a barrier so every GPU

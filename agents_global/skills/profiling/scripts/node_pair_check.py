@@ -1,6 +1,6 @@
 """Measure, per GPU on two nodes, the NCCL send rate to the same GPU index on the other node and the median NVLink send rate to each other GPU on its own node.
 
-Self-contained (standard library and torch) for pasting into a bad-node report (`../reporting/bad-nodes.md`).
+Self-contained (standard library and torch), so it can be pasted into a bad-node report.
 
 Usage, under torchrun on exactly 2 nodes: node_pair_check.py [--mib 256] [--iters 10] [--warmup 3]
 """

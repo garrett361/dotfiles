@@ -1,6 +1,6 @@
 """Per GPU, every GPU on one or more nodes at once: the hardware power-brake counter under a training-like load cycle.
 
-Self-contained (standard library and torch) for pasting into a bad-node report (`../reporting/bad-nodes.md`). A node
+Self-contained (standard library and torch), so it can be pasted into a bad-node report. A node
 whose power brake fires under training but not under `gemm_brake_check.py` may react to how power swings rather than to
 its level: training repeats bursts of matrix multiplies and short idle or communication waits at a step cadence, on
 every GPU at once. Each step here starts on every GPU together (a barrier), runs bf16 GEMMs for about --busy-ms, optionally

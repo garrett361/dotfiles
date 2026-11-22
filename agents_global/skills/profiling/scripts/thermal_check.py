@@ -1,6 +1,6 @@
 """Per GPU on one node, all GPUs at once: SM clock, temperature, power and thermal slowdown under minutes of bf16 GEMMs.
 
-Self-contained (standard library and torch) for pasting into a bad-node report (`../reporting/bad-nodes.md`). A short
+Self-contained (standard library and torch), so it can be pasted into a bad-node report. A short
 node check can pass on a node whose cooling falls behind only after minutes of full load; this keeps every GPU busy for
 --minutes while nvidia-smi samples each GPU every --interval-ms, then reports per-GPU statistics over the samples after
 the first --warmup-s. The verdict line reads FAIL for GPUs that throttle or run slow (report those), WARN for GPUs that
