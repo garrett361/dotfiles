@@ -42,6 +42,7 @@ The reader is an admin deciding what hardware to inspect. Everything above the r
 - The page's full URL directly under the title, so it is copied along with the note.
 - Three bullets of one sentence each, about 25 words: the problem against healthy with one pair of numbers; how and when it was confirmed (repeats, healthy reference, UTC date); what to check.
 - Everything else lives on the page: the remaining measurements, each run's figures, counter histories, and how the node was found or what it did to a training run. A note of about 80 words is the target.
-- No commands, scripts or local paths in the note; those live in the page.
+- No commands or scripts in the note; those live in the page.
+- No paths only the user can read, in the note or on the page: nothing under their home directory (`~/...`, `/home/<user>/...`), no scratch or session directories, no job log locations. Readers are admins and teammates who cannot open them. This covers every later line too, such as a recheck or pass note appended to an existing section: state the result, the date and the job ID, and keep log locations in the project's own notes.
 
 Keep the notes in one file the user can paste from. Ask the user where it should live and how they mark notes already sent; a single markdown file in their scratch directory works well.
