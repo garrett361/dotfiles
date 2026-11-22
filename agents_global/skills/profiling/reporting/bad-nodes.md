@@ -36,9 +36,10 @@ For a single-node check, `-N 1 -w <node>` and `torchrun --standalone --nproc-per
 
 ## 4. The note
 
-- A heading with the date and the full node name, then a bold one-line title in plain language.
+- A heading with the date and the full node name, then a bold one-line title in plain language naming the GPUs or ports and the size of the problem.
 - The page's full URL directly under the title, so it is copied along with the note.
-- Three to five short bullets: the problem and its size against healthy, how it was confirmed, when, and what to check.
+- Three bullets of one sentence each, about 25 words: the problem against healthy with one pair of numbers; how and when it was confirmed (repeats, healthy reference, UTC date); what to check.
+- Everything else lives on the page: the remaining measurements, each run's figures, counter histories, and how the node was found or what it did to a training run. A note of about 80 words is the target.
 - No commands, scripts or local paths in the note; those live in the page.
 
 Keep the notes in one file the user can paste from. Ask the user where it should live and how they mark notes already sent; a single markdown file in their scratch directory works well.
