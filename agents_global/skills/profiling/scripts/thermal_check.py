@@ -3,9 +3,10 @@
 Self-contained (standard library and torch) for pasting into a bad-node report (`../reporting/bad-nodes.md`). A short
 node check can pass on a node whose cooling falls behind only after minutes of full load; this keeps every GPU busy for
 --minutes while nvidia-smi samples each GPU every --interval-ms, then reports per-GPU statistics over the samples after
-the first --warmup-s.
+the first --warmup-s. The verdict line reads FAIL for GPUs that throttle or run slow (report those), WARN for GPUs that
+only come close to their temperature limit (watch and recheck), else OK.
 
-Usage, under torchrun --standalone on one node: thermal_check.py [--minutes 8] [--n 8192] [--interval-ms 500]
+Usage, under torchrun --standalone on one node: thermal_check.py [--minutes 5] [--n 8192] [--interval-ms 500]
 """
 
 import argparse
@@ -66,17 +67,18 @@ def read_samples(path, warmup_s):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--minutes", type=float, default=8.0, help="minutes of back-to-back GEMMs on every GPU")
+    parser.add_argument("--minutes", type=float, default=5.0, help="minutes of back-to-back GEMMs on every GPU")
     parser.add_argument("--n", type=int, default=8192, help="square GEMM size")
     parser.add_argument("--interval-ms", type=int, default=500, help="nvidia-smi sampling interval")
     parser.add_argument("--warmup-s", type=float, default=60.0, help="seconds at the start left out of the statistics")
     parser.add_argument("--min-headroom", type=float, default=5.0,
-                        help="flag GPUs that come within this many C of their temperature limit (T.Limit); default for "
-                             "H100 SXM, which reports its slowdown point at -2 C headroom")
+                        help="WARN on GPUs that come within this many C of their temperature limit (T.Limit); default "
+                             "for H100 SXM, which reports its slowdown point at -2 C headroom; healthy H100s were seen "
+                             "at 4-12 C, so a margin alone is a warning")
     parser.add_argument("--max-thermal-share", type=float, default=0.01,
-                        help="flag GPUs with thermal slowdown active in more than this share of samples")
+                        help="FAIL GPUs with thermal slowdown active in more than this share of samples")
     parser.add_argument("--clock-gap", type=float, default=0.05,
-                        help="flag GPUs whose median SM clock is this fraction below the node's median GPU")
+                        help="FAIL GPUs whose median SM clock is this fraction below the node's median GPU")
     args = parser.parse_args()
 
     local_rank = int(os.environ["LOCAL_RANK"])
@@ -138,18 +140,24 @@ def main():
               "thermal s = seconds of thermal slowdown the GPU's own counters added during the run")
         print(f"{'gpu':>3} {'samples':>7} {'SM MHz med':>10} {'SM MHz min':>10} {'max C':>5} {'headroom C':>10} "
               f"{'power W med':>11} {'thermal %':>9} {'power cap %':>11} {'thermal s':>9} {'TFLOP/s med':>11}")
-        flagged = []
+        failed, warned = [], []
         for gpu, s in stats.items():
             print(f"{gpu:>3} {s['samples']:>7} {s['median']:>10.0f} {s['min']:>10.0f} {s['temp']:>5.0f} "
                   f"{s['headroom']:>10.0f} {s['power']:>11.0f} {100 * s['thermal']:>9.1f} {100 * s['cap']:>11.1f} "
                   f"{s['counter']:>9.1f} {rate[gpu]:>11.0f}")
-            if (s["headroom"] < args.min_headroom or s["thermal"] > args.max_thermal_share
-                    or s["median"] < (1 - args.clock_gap) * node_median):
-                flagged.append(gpu)
-        verdict = (f"HOT or slow on GPUs {flagged} (under {args.min_headroom:g} C headroom, thermal slowdown in more "
-                   f"than {100 * args.max_thermal_share:g}% of samples, or median SM clock more than "
-                   f"{100 * args.clock_gap:g}% under the node's median GPU at {node_median:.0f} MHz)")
-        print(f"{host}: " + (verdict if flagged else "OK"))
+            if s["thermal"] > args.max_thermal_share or s["median"] < (1 - args.clock_gap) * node_median:
+                failed.append(gpu)
+            elif s["headroom"] < args.min_headroom:
+                warned.append(gpu)
+        parts = []
+        if failed:
+            parts.append(f"FAIL on GPUs {failed} (thermal slowdown in more than {100 * args.max_thermal_share:g}% of "
+                         f"samples, or median SM clock more than {100 * args.clock_gap:g}% under the node's median GPU "
+                         f"at {node_median:.0f} MHz)")
+        if warned:
+            parts.append(f"WARN on GPUs {warned} (under {args.min_headroom:g} C headroom to the temperature limit, "
+                         f"not throttling)")
+        print(f"{host}: " + ("; ".join(parts) if parts else "OK"))
     dist.destroy_process_group()
 
 
