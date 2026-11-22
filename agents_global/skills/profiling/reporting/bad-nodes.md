@@ -27,11 +27,13 @@ For a single-node check, `-N 1 -w <node>` and `torchrun --standalone --nproc-per
 
 ## 3. The page (one per node)
 
-- A plain-language lede: what is wrong, on which GPUs, how much against healthy.
-- A small table of the bad node against a healthy reference node, with units and the date.
-- What was done: how it was found, partners tried, repeats, times in UTC.
-- What to check: the specific hardware path (NIC port and cable, PCIe and GPUDirect RDMA path, NVLink and NVSwitch, power supplies and the power-brake signal, or for a hot GPU its cooling: fans, airflow, heatsink and thermal interface, and the BMC's thermal logs).
-- The reproducer command, its output, and the script.
+The reader is an admin deciding what hardware to inspect. Everything above the reproducer fits one screen, about 250 words.
+
+- A lede of one or two sentences: what is wrong, on which GPUs or ports, how much against healthy.
+- A small table of the bad GPUs against a healthy reference node: the three or four measurements that show the fault, with units and the date. Name other GPUs on the node only when they also fail.
+- What was done, in two or three bullets: how it was found in one sentence, the repeats with UTC times, the healthy reference and partners tried. Leave out the investigation behind it (job IDs, ranks, collective timings, swap tests, counter histories); it lives in the project's own notes.
+- What to check: the specific hardware path (NIC port and cable, PCIe and GPUDirect RDMA path, NVLink and NVSwitch, power supplies and the power-brake signal, or for a hot GPU its cooling: fans, airflow, heatsink and thermal interface, and the BMC's thermal logs), with bus IDs or serials so the admin can find the part.
+- The reproducer command, the bad node's real output, and the script folded in a collapsed block. The healthy node's numbers go in the table, not in a second output block.
 - Have a second agent check every number on the page against the raw results before it is shared.
 
 ## 4. The note
