@@ -9,8 +9,13 @@ and every positional and keyword argument, with CPU tensors of at most ARG_LOG_M
 and ints, floats, strings and lists of them written as values, and anything else as its type and shape. Device
 tensors are never read, so the hook adds no host sync.
 
+When the target is a `torch.library.custom_op` (a CustomOpDef), its implementations are wrapped in place instead, so
+the log has every eager call of the op, including the calls a compiled graph makes at run time.
+
 Example: per-rank document lengths per micro-batch in prime-rl, from the host `seq_lens` its train loop passes:
   PYTHONPATH=<this dir> ARG_LOG_OUT=<dir> ARG_LOG_TARGET=prime_rl.utils.sequence:get_cu_seqlens_from_seq_lens ...
+Example: when each rank first reaches the MoE dispatch inside the compiled layers (the arrival skew of a collective):
+  ARG_LOG_TARGET=prime_rl.trainer.distributed.per_rank.overlapped:dispatch ...
 Shadows the interpreter's own sitecustomize (Ubuntu's only installs apport).
 """
 
@@ -69,7 +74,13 @@ if (
 
         def exec_module(self, module):
             self._loader.exec_module(module)
-            setattr(module, _function_name, _wrap(getattr(module, _function_name)))
+            target = getattr(module, _function_name)
+            backend_fns = getattr(target, "_backend_fns", None)
+            if backend_fns is None:
+                setattr(module, _function_name, _wrap(target))
+            else:
+                for device_type, function in list(backend_fns.items()):
+                    backend_fns[device_type] = _wrap(function)
 
     class _PatchFinder(importlib.abc.MetaPathFinder):
         def find_spec(self, name, path, target=None):

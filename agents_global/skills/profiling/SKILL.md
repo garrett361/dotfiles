@@ -106,7 +106,9 @@ Runs, host and compiler:
 - How much host RAM did a run or one phase of it take (pinned buffers, offloaded tensors, page cache), against the
   node's idle level? Log `/proc/meminfo` during the run, then `scripts/host_memory.py` (logger in its docstring).
 - What did one Python function receive on each call, per rank (e.g. each micro-batch's document lengths), with no
-  project edit and no host sync? `scripts/arg_log/` on PYTHONPATH.
+  project edit and no host sync? `scripts/arg_log/` on PYTHONPATH (a custom op too, e.g. one called from compiled
+  code). When did each rank first reach it, and how long did the earliest rank of each group wait (startup skew at a
+  collective)? `scripts/arg_log_arrivals.py` over those logs.
 - What keeps `torch.compile` recompiling, at which step? `scripts/recompile_reasons.py`.
 - Which ATen ops and source lines does each Inductor kernel cover, and which backward-graph kernels replay the checkpointed forward? `scripts/inductor_kernels.py` over a `TORCH_COMPILE_DEBUG=1` dump.
 - Which rank or node compiled (Dynamo recompile, DeepGEMM or Triton JIT) in which step, and when was the last compile, so
