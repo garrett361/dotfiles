@@ -15,7 +15,7 @@ and $RANK is in HOST_PHASES_RANKS (default "all"). If STACK_SAMPLER_OUT is also 
 sitecustomize is started too, since only one sitecustomize is imported per interpreter; to add ../gil_probe, put its
 directory on PYTHONPATH instead of this one (it starts this one, which starts the stack sampler).
 
-Output: $HOST_PHASES_OUT/phases_rank<RANK>.jsonl. Event lines `{"n": name, "t0": unix, "t1": unix, "th": thread}`; a
+Output: $HOST_PHASES_OUT/phases_rank<RANK>.jsonl. A first line `{"host": hostname, "pid": pid}`; event lines `{"n": name, "t0": unix, "t1": unix, "th": thread}`; a
 `{"agg": {name: {thread: [calls, seconds, bytes]}}, "t": unix}` snapshot after every event and at exit (the last one
 wins). Analyze with ../host_phases.py.
 """
@@ -30,6 +30,7 @@ def _start():
     import importlib
     import importlib.abc
     import json
+    import socket
     import threading
     import time
 
@@ -48,6 +49,7 @@ def _start():
         return targets
 
     events, aggregated = parse("HOST_PHASES"), parse("HOST_PHASES_AGG")
+    out.write(json.dumps({"host": socket.gethostname(), "pid": os.getpid()}) + "\n")
 
     def write(record):
         inside.busy = True
