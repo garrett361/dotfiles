@@ -82,6 +82,10 @@ End to end, from traces:
   PYTHONPATH (in-process wall-clock sampler, every thread), then `scripts/stack_timeline.py` (seconds per labelled
   frame and a timeline; `--collapsed` feeds `pyspy_frames.py`). Group by a lock or build frame
   (`torch/utils/_filelock`, `cpp_extension`) to catch ranks waiting on another rank's JIT build.
+- Does a background thread (async checkpoint writer, metrics or data thread) starve the training thread of the GIL,
+  when and by how much, and do garbage collection pauses line up with a stall? `scripts/gil_probe/` on PYTHONPATH
+  (1 ms wake-up lateness probe plus every collection, per rank), then `scripts/gil_probe.py`; name the thread that
+  holds the GIL in a flagged window with `py-spy record --gil --threads` and `scripts/pyspy_frames.py`.
 - How long is one module (e.g. a MoE block) on the compute stream, wall time with its waits, when torch.compile left
   it no `record_function` range? `scripts/region_spans.py` (spans from kernel-label regexes).
 - Per layer type and pass (forward, backward, AC recompute), how much time goes to Inductor, eager ATen, custom-op and GEMM kernels, and which runs of small kernels could one fused kernel replace? `scripts/layer_inventory.py`.
