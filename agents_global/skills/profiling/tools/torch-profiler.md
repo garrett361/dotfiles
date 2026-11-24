@@ -42,6 +42,11 @@ Per-category accounting over all ranks treats each call as a step (verified 2026
   the scripts' default, once per micro-batch; see `projects/prime-rl.md`).
 - `record_shapes` puts `Input Dims` on CPU ops, which identifies call sites and shapes. `with_stack=True` adds
   Python frames, for `trace_events.py --include-python`.
+- For a step-time reconciliation (`step_accounting.py --untraced`) of a host-bound path, capture without
+  `record_shapes` and average 6 or more steps. On a copy-engine MoE layer with host syncs (8x H100, one layer, 44 to
+  49 ms steps), shapes and 3 averaged steps left traced-minus-untraced residuals of -1.0 to +1.4 ms per arm pair;
+  without shapes and 7 steps, -0.05 ms. Without shapes the `--category-context` text has no `[dims]`, so write
+  regexes as `op( \[[^:]*)? : kernel` to match either capture.
 - Keep captures short (a handful of steps) and analyze only a steady-state step: early steps include
   compile, autotuning, and allocator warmup.
 - Prefer a scaled-down model that reproduces the full-scale behavior (same per-GPU tokens and context,

@@ -199,12 +199,19 @@ An op-level win that disappears end to end is a finding, not noise: go to layer 
 - Fresh compile caches per arm (`TRITON_CACHE_DIR`, `TORCHINDUCTOR_CACHE_DIR`, `TILELANG_CACHE_DIR`,
   `CUTE_DSL_CACHE_DIR`), or JIT warmth biases the comparison. Processes running at the same time (one per GPU) each
   need their own Triton cache: two sharing one raced while compiling the same kernel and one failed with a Triton
-  `CompilationError`. Do not edit a JIT-built source (a `torch.utils.cpp_extension.load` `.cu`) while a run that
-  builds it is in flight: the run compiles whatever is on disk when it reaches the build.
+  `CompilationError`. Do not edit a JIT-built source (a `torch.utils.cpp_extension.load` `.cu`) or a bench script
+  while a run or queue that will load it is in flight: each process reads whatever is on disk when it starts, and a
+  half-applied edit to a harness failed every queued run after it.
 - Time ops and regions with CUDA events (`bench_ops.py`, `cuda_timer.py`), never host clocks around
   `torch.cuda.synchronize()`. Events also count idle gaps while the host is still launching, so a host-bound
   region reads as host time. Step time comes from untraced runs (median over steady-state steps); traces are
   for attribution only, since profiler overhead changes step time.
+- To split a feature's cost from its effect (a load balancer, a re-router, a cache), add a control arm that applies
+  the feature's decision without its machinery, e.g. the baseline dispatcher run over the balancer's output
+  assignment. Feature minus control is the machinery; control minus baseline is what the decision leaves (residual
+  imbalance, smaller GEMM groups). On a least-loaded expert-parallel MoE layer this showed 5.1 of 5.2 ms of the
+  overhead at one routing was machinery, and at another that 5.2 ms of the routing's cost remained with perfectly
+  balanced routes (receive-side transfers), which no balancer could remove.
 - Validate numerics before timing: bitwise (`torch.equal`, which compares fp8 directly in torch 2.13) when the change
   should be exact, otherwise loss/grad-norm curves that track step by step. Poisoned destinations, bitwise A/B of
   env-selected variants in one process, proving a device-predicated branch ran, and proving a fused path did not silently

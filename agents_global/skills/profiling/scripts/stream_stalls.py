@@ -16,7 +16,7 @@ activity with no launch record, such as the copies of a `cuMemcpyBatchAsync` cal
 `args["External id"]` to the cpu_op that issued it. It gets a segment (layer) and pass from the latest host event on
 the launch's thread at or before the launch matching `--segment` (named groups `segment` and `pass`; default FSDP2's
 `FSDP::pre_forward (<module>)` / `FSDP::pre_backward (<module>)` hooks). Pass is backward if that text contains
-"backward"; a backward activity whose op matches `--recompute-op` becomes pass `recompute` (activation checkpointing
+"backward" (any case); a backward activity whose op matches `--recompute-op` becomes pass `recompute` (activation checkpointing
 replays). The main stream is the stream with the most kernel time outside `--comm`.
 
 Stalls: every gap of at least `--min-gap-us` between consecutive main-stream activities is split into
@@ -321,7 +321,7 @@ def main():
         else:
             event, found = mark
             a["segment"] = found.groupdict().get("segment") or event["name"]
-            a["pass"] = "backward" if "backward" in (found.groupdict().get("pass") or event["name"]) else "forward"
+            a["pass"] = "backward" if "backward" in (found.groupdict().get("pass") or event["name"]).lower() else "forward"
             a["inv"] = (event["ts"], event["tid"], a["segment"], a["pass"])
             if a["pass"] == "backward" and recompute_re and recompute_re.search(a["op"]):
                 a["pass"] = "recompute"

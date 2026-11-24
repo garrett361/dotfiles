@@ -39,6 +39,11 @@ Measured 2026-10-21/22 on 8x H200 (700 W cap), Triton 3.8, torch 2.14.
   long before that, so the first callable timed in a process runs partly unthrottled and gets a fast lower tail
   (p20 far below the median), biasing whichever arm comes first. Pass `--warmup 1000` (1 s per callable), or put a
   sacrificial case first; the tables then report power-capped steady state, and should say so.
+- Step-level benches that time each arm right after compiling it start cool: measured 2026-11-24 on 8x H100, one MoE
+  layer (44 ms steps), the first block of 12 iterations ran about 1 ms faster than the next five (SM clock median
+  1965 MHz in a 2-minute run vs 1740 MHz in 9-minute runs, SW power cap in 66% vs 92% of busy samples). A 4 warm-up
+  plus 12 iteration bench therefore reports the cool state. Time several blocks per arm, drop the first, and judge
+  spread on the rest; the block-to-block drift is systematic, so it also inflates a naive spread estimate.
 - Back-to-back bursts right after idle (e.g. the 10 traced calls after a cool-down) ran about 15% shorter than the
   steady-state medians. Inside an end-to-end step, GEMMs that alternate with memory-bound kernels and communication
   logged a median near 1935 MHz while the per-launch benchmark of the same GEMMs sat near 1710 MHz, so a per-launch
