@@ -236,6 +236,13 @@ An op-level win that disappears end to end is a finding, not noise: go to layer 
   ([Together AI, 2026](https://www.together.ai/blog/road-to-together-compiler)). A bench with forced balanced routing
   is synthetic input too: say so next to its numbers.
 - Log SM clocks and power during every timing run (`gpu_clocks.py`), so throttling is ruled in or out by a table.
+- Host CPU clocks bias arms with different host waits. Under the `powersave` cpufreq governor
+  (`/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor`), a thread that sleeps in a blocking wait wakes on a slow or
+  sleeping core, and a host-bound forward then launches late. A host sync on the autograd thread (e.g. `torch.tensor(list,
+  device="cuda")`, a pageable copy) parks the main thread in `backward()` instead of spinning in the end-of-step sync.
+  Measured 2026-11-24 on 8x H100: replacing one such copy with a pinned `non_blocking` copy cut a 2.0 ms gap
+  to 0.4 ms. Test the mechanism by removing the sync, not with a pre-step host spin: the spin also idles the GPUs and
+  lowers power-cap throttling, so it moves the control arm too.
 - Write down the decision metric before measuring (which number, which node and session, arm order such as ABBA),
   especially when the arms cannot run at the same clock (fused vs unfused under a power cap: `tools/do-bench.md`).
 - Splitting an investigation across subagents (implementers, timers, tuners on a cluster)? `tools/agents.md`.
