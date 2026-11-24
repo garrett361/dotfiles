@@ -211,6 +211,13 @@ An op-level win that disappears end to end is a finding, not noise: go to layer 
   imbalance, smaller GEMM groups). On a least-loaded expert-parallel MoE layer this showed 5.1 of 5.2 ms of the
   overhead at one routing was machinery, and at another that 5.2 ms of the routing's cost remained with perfectly
   balanced routes (receive-side transfers), which no balancer could remove.
+- Before extrapolating a one-layer bench to a model, time at least two stacked layers: a fixed cost can be paid once
+  per step rather than per layer. A least-loaded expert-parallel layer paid 2.9 ms the first time its plan moved
+  anything in a step and about 0.2 ms for each further such layer, so a per-layer reading of the one-layer bench
+  overstated a 39-layer cost about 14-fold. When fitting a cost model to per-rank times, separate what every rank
+  waits for (equal across ranks, e.g. a forward behind all-to-alls) from a per-rank tail (e.g. the backward after the
+  last exchange), each with its own max over ranks; group totals alone cannot split the two, so fit the split from
+  per-rank times.
 - Validate numerics before timing: bitwise (`torch.equal`, which compares fp8 directly in torch 2.13) when the change
   should be exact, otherwise loss/grad-norm curves that track step by step. Poisoned destinations, bitwise A/B of
   env-selected variants in one process, proving a device-predicated branch ran, and proving a fused path did not silently
