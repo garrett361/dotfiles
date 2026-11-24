@@ -42,6 +42,9 @@ Fusion (`fusion.md`):
 - How to fuse an op that needs two separated halves of the GEMM output along N (SwiGLU), without changing MMA arithmetic?
 - A new epilogue op made the kernel spill?
 
+CUDA C++ through `torch.utils.cpp_extension.load`:
+- A ported `.cu` file fails with "no suitable conversion function from `__nv_bfloat16` to `float`": the extension build adds `-D__CUDA_NO_HALF_OPERATORS__`, `-D__CUDA_NO_HALF_CONVERSIONS__`, `-D__CUDA_NO_BFLOAT16_CONVERSIONS__` and `-D__CUDA_NO_HALF2_OPERATORS__` to every nvcc command, which a standalone build of the same source may not. Undo the ones the code needs with matching `-U...` entries in `extra_cuda_cflags` instead of rewriting its casts.
+
 Compiled code, any compiler:
 - Did a change alter a kernel's generated code at all, and which instructions changed? `../profiling/scripts/artifact_diff.py`; `../profiling/tools/sass.md`.
 - Do two kernels (TileLang, CuTe DSL, Triton, CUDA) share a design: MMA flavor, TMA vs `cp.async`, barriers, registers, spills by source line? `../profiling/tools/sass.md` (`../profiling/scripts/sass_inventory.py`).
