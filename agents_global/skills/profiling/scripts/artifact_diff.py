@@ -38,6 +38,7 @@ import re
 import sys
 
 SASS_ADDR = re.compile(r"/\*[0-9a-f]{4,}\*/")
+SASS_ENCODING = re.compile(r"/\* 0x[0-9a-f]{16} \*/|^\s*\n", re.MULTILINE)
 PTX_DROP = re.compile(r"^\s*\.(loc|file)\b.*$|//.*$", re.MULTILINE)
 TTIR_DROP = re.compile(r"\s*loc\((?:[^()]|\([^()]*\))*\)|^#loc.*$", re.MULTILINE)
 REGISTER = re.compile(r"\b(R|UR|P|UP)\d+\b|(%[a-z]+)\d+")
@@ -47,7 +48,7 @@ def normalize(path):
     with open(path, errors="replace") as f:
         text = f.read()
     if path.endswith(".sass"):
-        text = SASS_ADDR.sub("", text).replace(".reuse", "")
+        text = SASS_ENCODING.sub("", SASS_ADDR.sub("", text)).replace(".reuse", "")
     elif path.endswith(".ptx"):
         text = PTX_DROP.sub("", text.split("\t.section\t.debug")[0])
     elif path.endswith(".ttir"):
