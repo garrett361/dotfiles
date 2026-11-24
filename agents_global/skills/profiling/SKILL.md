@@ -219,6 +219,11 @@ An op-level win that disappears end to end is a finding, not noise: go to layer 
   needs one shared compile cache (seed each arm's `TORCHINDUCTOR_CACHE_DIR` and `TRITON_CACHE_DIR` from the same run):
   Inductor's autotuner picks configs from noisy cold-compile timings and caches them, and two cold compiles of one tree
   chose different configs for 136 of 568 kernels, moving gradients by up to 4e-3 relative with no code change.
+  Warm caches still leave backward atomics: rerun the reference arm, and if it is not bitwise, make every arm
+  deterministic (FA3's backward takes `deterministic=True`; `torch.use_deterministic_algorithms(True, warn_only=True)`
+  lists the other ops) before comparing. For a change that is not exact, also run both arms at learning rate 0: each
+  step then compares the same weights, which separates the change's per-step error from the trajectories drifting
+  apart (an MoE trainer A/B stayed within 1.6e-5 in loss per step at learning rate 0 but drifted 1.4e-4 by step 5).
 - Run arms on the same hardware class, on nodes that pass `scripts/node_check.py`, serially or in parallel as the user
   asks (ask if unclear); never share GPUs between a timing run and anything else.
 - Time the op in its production calling convention (the same operand kinds, offsets, capacity bounds and flags
