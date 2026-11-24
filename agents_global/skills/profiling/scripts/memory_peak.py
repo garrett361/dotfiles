@@ -401,7 +401,7 @@ def main() -> None:
             print(f"  span events {sp['first']}-{sp['last']}: allocated before {sp['before'] / GIB:.3f} GiB, max within "
                   f"{sp['within_max'] / GIB:.3f}, at its end {sp['end'] / GIB:.3f}, max until the next span {after}")
             if args.span_sites:
-                for key, (size, count) in sorted(sp["sites"].items(), key=lambda kv: -kv[1][0])[: args.top]:
+                for key, (size, count) in sorted(sp["sites"].items(), key=lambda kv: (-kv[1][0], kv[0]))[: args.top]:
                     print(f"    {size / GIB:8.4f} GiB {count:5d} blocks  {key}")
         for mk in r["marks"]:
             name = " ".join(str(x) for x in mk["label"])
@@ -432,14 +432,14 @@ def main() -> None:
                 if pattern.search(key):
                     print(f"  block free@{index} {size / GIB:.3f} GiB  {key}")
     if len(runs) == 1:
-        rows = sorted(runs[0]["groups"].items(), key=lambda kv: -kv[1][0])[: args.top]
+        rows = sorted(runs[0]["groups"].items(), key=lambda kv: (-kv[1][0], kv[0]))[: args.top]
         print(f"blocks live at the {args.at} peak")
         print(f"{'GiB':>8} {'blocks':>7}  site")
         for key, (size, count) in rows:
             print(f"{size / GIB:8.3f} {count:7d}  {key}")
         return
     a, b = runs[0]["groups"], runs[1]["groups"]
-    keys = sorted(set(a) | set(b), key=lambda k: -abs(b.get(k, [0, 0])[0] - a.get(k, [0, 0])[0]))[: args.top]
+    keys = sorted(set(a) | set(b), key=lambda k: (-abs(b.get(k, [0, 0])[0] - a.get(k, [0, 0])[0]), k))[: args.top]
     print(f"blocks live at the {args.at} peak")
     print(f"{'A GiB':>8} {'B GiB':>8} {'B-A':>8}  site")
     for key in keys:
