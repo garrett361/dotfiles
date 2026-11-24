@@ -82,6 +82,14 @@ End to end, from traces:
   PYTHONPATH (in-process wall-clock sampler, every thread), then `scripts/stack_timeline.py` (seconds per labelled
   frame and a timeline; `--collapsed` feeds `pyspy_frames.py`). Group by a lock or build frame
   (`torch/utils/_filelock`, `cpp_extension`) to catch ranks waiting on another rank's JIT build.
+- How long does each named host function take on every rank, which rank is slowest, and which phases only wait on
+  the last rank (checkpoint load or save: metadata, planning, reads, decode, collectives; startup; data setup)?
+  `scripts/host_phases/` on PYTHONPATH (per-call timers on `module:function` targets, summed timers for hot calls,
+  no project edit; it also starts the stack sampler), then `scripts/host_phases.py` (per-rank min, median, max and
+  span on the merged clock). Is a phase I/O-bound on NFS: how many bytes the node reads, with how many requests in
+  flight and what round trip? `scripts/nfs_sampler.py`, one per node beside the job; a per-rank read rate far under
+  the node's ceiling with about one request in flight per reader means latency-bound sequential reads (add reads in
+  flight), a flat node rate with rising round trips means the server or link is the limit.
 - Does a background thread (async checkpoint writer, metrics or data thread) starve the training thread of the GIL,
   when and by how much, and do garbage collection pauses line up with a stall? `scripts/gil_probe/` on PYTHONPATH
   (1 ms wake-up lateness probe plus every collection, per rank), then `scripts/gil_probe.py`; name the thread that
