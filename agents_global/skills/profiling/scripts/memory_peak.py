@@ -4,7 +4,9 @@
 """What is allocated at the peak of a recorded window, by allocation site, from a CUDA allocator history dump.
 
 Input: the JSON `memory_history/sitecustomize.py` writes (`torch.cuda.memory._snapshot()` taken with
-`_record_memory_history(stacks="python")`). Allocated bytes follow `torch.cuda.memory_allocated()`: an `alloc` event
+`_record_memory_history(stacks="python")`), or a pickled `_snapshot()` such as prime-pt's in-tree recorder writes
+(`PRL_MEMORY_RECORD`, `PRL_MEMORY_SNAPSHOT_STEP`), read directly (detected by the pickle header; only builtin types
+are unpickled). Allocated bytes follow `torch.cuda.memory_allocated()`: an `alloc` event
 adds its size, a `free_requested` event subtracts it (the allocator lowers its stat there, before any deferred free
 for blocks used on other streams completes), so the peak here is the window's `max_memory_allocated()`. The
 allocated bytes at the window's start come from the dump's final segments (active blocks) minus the trace's net
@@ -52,6 +54,7 @@ Usage: uv run --script memory_peak.py A.json [--diff B.json] [--site REGEX] [--c
 
 import argparse
 import json
+import pickle
 import re
 from collections import Counter, defaultdict
 
@@ -146,6 +149,20 @@ def place_marks(events: list, series: list, marks: list) -> list:
     return placed
 
 
+class BuiltinsOnlyUnpickler(pickle.Unpickler):
+    def find_class(self, module, name):
+        raise pickle.UnpicklingError(f"a snapshot holds only builtin types, not {module}.{name}")
+
+
+def load_snapshot(path: str) -> dict:
+    with open(path, "rb") as f:
+        if f.read(1) == b"\x80":
+            f.seek(0)
+            return BuiltinsOnlyUnpickler(f).load()
+    with open(path) as f:
+        return json.load(f)
+
+
 def analyze(
     path: str,
     site: re.Pattern,
@@ -160,8 +177,7 @@ def analyze(
     span_gap: int = 200,
     marks: list | None = None,
 ) -> dict:
-    with open(path) as f:
-        snap = json.load(f)
+    snap = load_snapshot(path)
     traces = snap["device_traces"]
     if device is None:
         device = max(range(len(traces)), key=lambda d: len(traces[d]))

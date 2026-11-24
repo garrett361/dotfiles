@@ -118,8 +118,7 @@ Runs, host and compiler:
 - Where does the host block on the GPU (syncs), from which Python line? `scripts/find_syncs.py` (costs), then
   `scripts/sync_stacks/`, `sync_stacks_report.py` (file:line) and `join_sync_dumps.py`; syncs outside torch (NCCL, ctypes
   launches) and pageable copies per rank from nsys: `scripts/nsys_syncs.py`; `analysis/cuda-syncs.md`.
-- What is allocated at a run's peak, by allocation site, and which buffers differ between two arms' peaks? Record with
-  `scripts/memory_history/` on PYTHONPATH (no project edit), then `scripts/memory_peak.py` (`--diff`, `--blocks`).
+- What is allocated at a run's peak, by allocation site, and which buffers differ between two arms' peaks? Record with `scripts/memory_history/` on PYTHONPATH (no project edit), or in prime-pt with its in-tree recorder (`PRL_MEMORY_RECORD=<dir>`, `PRL_MEMORY_SNAPSHOT_STEP=<n>`), whose pickled snapshot `scripts/memory_peak.py` reads directly; then `scripts/memory_peak.py` (`--diff`, `--blocks`).
 - How much host RAM did a run or one phase of it take (pinned buffers, offloaded tensors, page cache), against the
   node's idle level? Log `/proc/meminfo` during the run, then `scripts/host_memory.py` (logger in its docstring).
 - What did one Python function receive on each call, per rank (e.g. each micro-batch's document lengths), with no
@@ -236,6 +235,7 @@ An op-level win that disappears end to end is a finding, not noise: go to layer 
   ([Together AI, 2026](https://www.together.ai/blog/road-to-together-compiler)). A bench with forced balanced routing
   is synthetic input too: say so next to its numbers.
 - Log SM clocks and power during every timing run (`gpu_clocks.py`), so throttling is ruled in or out by a table.
+- Compare memory between runs on the allocator's allocated peak (`max_memory_allocated()`, prime-pt's `memory/allocated_peak`), not on reserved-based peaks (`max_memory_reserved()`, `perf/peak_memory`): those carry the reserved high-water mark and memory outside the allocator, which vary run to run. A 3.4 GiB gap between two L12 runs was a one-step transient that raised the reserved high-water mark plus 0.8 GiB of outside-allocator memory; their allocated peaks differed by 11 MiB.
 - Host CPU clocks bias arms with different host waits. Under the `powersave` cpufreq governor
   (`/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor`), a thread that sleeps in a blocking wait wakes on a slow or
   sleeping core, and a host-bound forward then launches late. A host sync on the autograd thread (e.g. `torch.tensor(list,
