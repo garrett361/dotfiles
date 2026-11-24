@@ -19,6 +19,7 @@ A reader should get the answer in the first screen and the evidence for it in th
 
 ## Show, then tell
 
+- Assume every draft is too prose-heavy, and plan the figures before the text. For each finding, first ask which visual carries it (a chart of the measured series over steps or sizes, a breakdown bar, a heatmap, a timeline, a mechanism diagram); the runs' own metric files usually hold the data. Text is the lead line and the caption. On every revision, replace prose with a visual before adding anything.
 - Draw a diagram for each mechanism the report explains. Use a table only for values a chart cannot carry, and prose last.
 - Show a mechanism as cartoons in sequence: one panel per state, with each arrow labeled by the change between them.
 - When the answer depends on a few quantities, map the decision space: put them on the axes, shade the regions (works, fails, does not fit), draw the boundary from a simple model, and place each concrete design as a point, with an arrow where a design moves.
