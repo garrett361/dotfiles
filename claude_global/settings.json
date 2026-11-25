@@ -1,6 +1,7 @@
 {
   "disableClaudeAiConnectors": true,
   "syncClaudeAiPlugins": false,
+  "cleanupPeriodDays": 365,
   "crossSessionInbound": "refuse",
   "isolatePeerMachines": true,
   "permissions": {
