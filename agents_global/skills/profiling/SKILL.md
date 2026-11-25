@@ -130,6 +130,9 @@ Runs, host and compiler:
 - Which rank or node compiled (Dynamo recompile, DeepGEMM or Triton JIT) in which step, and when was the last compile, so
   step time can be reported over all steps and after it? `scripts/compile_events.py`, then `scripts/run_metrics.py
   --steady <last+1> <end>` (and `--stat mean` for the all-step view).
+- Did a run compile in any JIT cache (Inductor, Triton, DeepGEMM, quack, CuTe DSL, torch extensions, KDA, TileLang)
+  after step 1, including a warm start that wrote no listings? `scripts/compile_events.py --bundle <compile cache
+  bundle> --start <job start epoch>` reads the bundle's members as listings (on a compute node).
 - Does a prime-rl model change move logprobs, step time or peak memory on real weights, and which class did a
   module become? `scripts/prime_rl_logprob_ab.py`.
 
