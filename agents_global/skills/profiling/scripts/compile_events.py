@@ -34,8 +34,9 @@ Paths are relative to RUN_DIR unless absolute. The defaults match a prime-rl run
   those JIT builds.
   `--deepgemm-listing FILE[:HOST]` (repeatable) replaces the DeepGEMM listings found under `--listings`, e.g. for
   runs launched outside the `rl` launcher. A listing may also use
-  `find <cache> -type f -printf "%TY-%Tm-%Td %TT %p\n"` lines; each `kernel.*` entry counts once, at its first file's
-  mtime.
+  `find <cache> -type f -printf "%TY-%Tm-%Td %TT %p\n"` lines; each DeepGEMM kernel (a `kernel.*` directory, or in newer
+  versions a directory under `cache/` named by the kernel, e.g. `sm90_fp8_gemm_1d2d.<hash>`) counts once, at its first
+  file's mtime.
 - Compile cache bundles: `--bundle TAR[:HOST]` (repeatable) reads the members of a prime-rl compile cache bundle
   (`model.compile_cache_bundle_dir`, a gzipped tar of `<VARIABLE>/<path in that cache>` files that keep their
   mtimes) as listings, each cache by its variable: TORCHINDUCTOR_CACHE_DIR inductor, TRITON_CACHE_DIR triton,
@@ -147,9 +148,14 @@ def dynamo_events(log_dir: Path, year: int) -> list[tuple[float, str, str]]:
 
 def cache_entry(kind: str, path: str) -> str | None:
     """The cache entry a file belongs to: its directory in the directory caches, else its directory and name up to the
-    first dot; DeepGEMM's is the `kernel.*` part of the path (None without one). A bare file name is its own entry."""
+    first dot; DeepGEMM's is the `kernel.*` part of the path, else the directory under `cache/` (newer DeepGEMM names
+    them by kernel, e.g. `sm90_fp8_gemm_1d2d.<hash>`), else None. A bare file name is its own entry."""
     if kind == "deep_gemm":
-        return next((part for part in Path(path).parts if part.startswith("kernel.")), None)
+        parts = Path(path).parts
+        kernel = next((part for part in parts if part.startswith("kernel.")), None)
+        if kernel is None and parts and parts[0] == "cache" and len(parts) > 1:
+            kernel = parts[1]
+        return kernel or (path if len(parts) == 1 else None)
     directory, name = os.path.split(path)
     if not directory:
         return path
