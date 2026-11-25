@@ -20,7 +20,7 @@ Paths are relative to RUN_DIR unless absolute. The defaults match a prime-rl run
   file name up to the first dot (one cache key's files). Listings of every cache the prime-rl trainer sets (its
   `utils/process.py`), run on each node after training:
     find $TRITON_CACHE_DIR -mindepth 2 -maxdepth 2 -name "*.cubin" -printf "%T@ %f\n" > triton_cache_$(hostname).txt
-    find $DG_JIT_CACHE_DIR/cache -mindepth 1 -maxdepth 1 -printf "%T@ %f\n" > deep_gemm_cache_$(hostname).txt
+    (cd $DG_JIT_CACHE_DIR && find cache -type f -printf "%T@ %p\n") > deep_gemm_cache_$(hostname).txt
     for kind in inductor:TORCHINDUCTOR_CACHE_DIR quack:QUACK_CACHE_DIR cute_dsl:CUTE_DSL_CACHE_DIR \
         torch_extensions:TORCH_EXTENSIONS_DIR kda_cuda:PRIME_RL_KERNEL_CACHE tilelang:TILELANG_CACHE_DIR; do
       dir=$(printenv ${kind#*:}) && [ -d "$dir" ] && (cd "$dir" && find . -type f -printf "%T@ %P\n") \
@@ -32,6 +32,8 @@ Paths are relative to RUN_DIR unless absolute. The defaults match a prime-rl run
   The inductor listing adds Inductor's FX graph, AOTAutograd and autotune result files; quack's holds its kernels and
   `*.autotune.json` results; cute_dsl, torch_extensions, kda_cuda (prime-rl's KDA CUDA kernels) and tilelang hold
   those JIT builds.
+  List files, not directories: a directory's mtime is when its last file was added, so one unpacked from a compile
+  cache bundle (whose files keep their mtimes) shows the unpack time and looks like a fresh compile.
   `--deepgemm-listing FILE[:HOST]` (repeatable) replaces the DeepGEMM listings found under `--listings`, e.g. for
   runs launched outside the `rl` launcher. A listing may also use
   `find <cache> -type f -printf "%TY-%Tm-%Td %TT %p\n"` lines; each DeepGEMM kernel (a `kernel.*` directory, or in newer
