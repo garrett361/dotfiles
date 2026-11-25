@@ -7,6 +7,8 @@
 Each run is a prime-rl run directory (`<run>/monitors/file/metrics.jsonl`, records merged by `step`) or a `.jsonl`
 file with a `step` key. `--steps LO HI` picks the counted steps (inclusive) and `--metric` the per-step value
 (default `time/step`); records written by several processes can be narrowed with `--row-filter KEY=VALUE`.
+`--step-mod M:R` keeps only the counted steps that are R modulo M and `--not-step-mod M:R` drops them, so periodic
+heavier steps (every M-th step records extra metrics) are compared apart from the regular ones.
 
 Pilot (`--pilot RUN_A RUN_B`, two runs of the same arm and code): per counted step the difference A - B, reported
 as the run-to-run offset (mean difference), its standard deviation, the lag-1 autocorrelation of the differences,
@@ -36,7 +38,17 @@ from pathlib import Path
 from scipy import stats
 
 
-def load(run: str, metric: str, lo: int, hi: int, filters: list[tuple[str, str]]) -> dict[int, float]:
+def counted(step: int, args) -> bool:
+    lo, hi = args.steps
+    if not lo <= step <= hi:
+        return False
+    if args.step_mod and step % args.step_mod[0] != args.step_mod[1]:
+        return False
+    return not (args.not_step_mod and step % args.not_step_mod[0] == args.not_step_mod[1])
+
+
+def load(run: str, args) -> dict[int, float]:
+    metric, filters = args.metric, args.row_filter
     path = Path(run)
     if path.is_dir():
         path = path / "monitors" / "file" / "metrics.jsonl"
@@ -44,11 +56,11 @@ def load(run: str, metric: str, lo: int, hi: int, filters: list[tuple[str, str]]
     for line in path.open():
         record = json.loads(line)
         step = record.get("step")
-        if step is None or not lo <= step <= hi or metric not in record:
+        if step is None or not counted(step, args) or metric not in record:
             continue
         if all(str(record.get(key)) == value for key, value in filters):
             values[step] = float(record[metric])
-    missing = [step for step in range(lo, hi + 1) if step not in values]
+    missing = [step for step in range(args.steps[0], args.steps[1] + 1) if counted(step, args) and step not in values]
     if missing:
         raise SystemExit(f"{run}: no {metric} at steps {missing}")
     return values
@@ -62,7 +74,7 @@ def lag1(values: list[float]) -> float:
 
 
 def pilot(args) -> dict:
-    a, b = (load(run, args.metric, args.steps[0], args.steps[1], args.row_filter) for run in args.pilot)
+    a, b = (load(run, args) for run in args.pilot)
     diffs = [(a[step] - b[step]) * 1000 for step in sorted(a)]
     r1 = lag1(diffs)
     n_eff = min(len(diffs), len(diffs) * (1 - r1) / (1 + r1)) if r1 < 1 else 1.0
@@ -87,12 +99,11 @@ def pilot(args) -> dict:
 
 
 def rounds(args) -> dict:
-    lo, hi = args.steps
     table = {}
     for spec in args.round:
         name, _, arms = spec.partition(":")
         table[name] = {
-            arm: statistics.fmean(load(run, args.metric, lo, hi, args.row_filter).values()) * 1000
+            arm: statistics.fmean(load(run, args).values()) * 1000
             for arm, _, run in (item.partition("=") for item in arms.split(","))
         }
     base = statistics.fmean(row[args.reference] for row in table.values())
@@ -123,7 +134,11 @@ def main():
     parser.add_argument("--round", action="append", default=[], metavar="NAME:ARM=RUN,...")
     parser.add_argument("--reference", default="baseline")
     parser.add_argument("--json", type=Path, default=None)
+    parser.add_argument("--step-mod", default=None, metavar="M:R", help="count only steps with step %% M == R")
+    parser.add_argument("--not-step-mod", default=None, metavar="M:R", help="skip steps with step %% M == R")
     args = parser.parse_args()
+    args.step_mod = tuple(map(int, args.step_mod.split(":"))) if args.step_mod else None
+    args.not_step_mod = tuple(map(int, args.not_step_mod.split(":"))) if args.not_step_mod else None
     args.row_filter = [tuple(spec.split("=", 1)) for spec in args.row_filter]
     if not args.pilot and not args.round:
         parser.error("give --pilot or --round")
