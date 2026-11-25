@@ -17,6 +17,10 @@ file is read as one record at step 0 (its own `step` key if it has one), with ne
 (`{"forward_ms": {"median": 2.9}}` gives `forward_ms/median`), for benchmarks that write one result object per run. `--prefer KEY=VALUE`
 makes a record with that key value win instead, for logs where two processes write the same metric at a step.
 
+Step filter: `--step-mod M:R` keeps only steps whose number is R modulo M (e.g. the steps that record a metric
+every M steps), `--not-step-mod M:R` drops them; both apply with `--steady` in summary and step-table modes, so the
+two populations of a run with periodic heavier steps are summarized apart.
+
 Summary: `--summarize COLUMN=METRIC` (repeatable) writes the per-run summary CSV that the bar mode reads: one row per
 `--run GROUP:VARIANT=RUN_DIR` with the median (`--stat mean` for the mean) of METRIC over the `--steady` steps (all
 steps without it) in COLUMN, plus COLUMN_min and COLUMN_max. The mean suits all-step views, where one-time stalls
@@ -74,6 +78,8 @@ def parse_args():
     parser.add_argument("--lines", action="append", default=[], help="per-step metric name in metrics.jsonl")
     parser.add_argument("--steady", type=int, nargs=2, default=None, metavar=("LO", "HI"))
     parser.add_argument("--stat", choices=("median", "mean"), default="median", help="summary statistic per run")
+    parser.add_argument("--step-mod", default=None, metavar="M:R", help="keep only steps with step %% M == R")
+    parser.add_argument("--not-step-mod", default=None, metavar="M:R", help="drop steps with step %% M == R")
     parser.add_argument("--title", default="")
     parser.add_argument(
         "--step-table", action="append", default=[], help="METRIC, write per-step values side by side per run"
@@ -85,7 +91,18 @@ def parse_args():
                         help="when several records of a step carry a metric, take the one whose KEY equals VALUE")
     args = parser.parse_args()
     args.prefer = tuple(args.prefer.split("=", 1)) if args.prefer else None
+    args.step_mod = tuple(map(int, args.step_mod.split(":"))) if args.step_mod else None
+    args.not_step_mod = tuple(map(int, args.not_step_mod.split(":"))) if args.not_step_mod else None
     return args
+
+
+def step_selected(step, args):
+    """Whether STEP lies in --steady and passes --step-mod and --not-step-mod."""
+    if args.steady and not args.steady[0] <= step <= args.steady[1]:
+        return False
+    if args.step_mod and step % args.step_mod[0] != args.step_mod[1]:
+        return False
+    return not (args.not_step_mod and step % args.not_step_mod[0] == args.not_step_mod[1])
 
 
 def read_rows(args):
@@ -110,7 +127,7 @@ def write_summary(rows, args):
             values = [
                 v
                 for s, v in load_metric(row["run_dir"], metric, args.prefer)
-                if (not args.steady or args.steady[0] <= s <= args.steady[1]) and math.isfinite(v)
+                if step_selected(s, args) and math.isfinite(v)
             ]
             if not values:
                 print(f"warning: no finite '{metric}' values in {row['run_dir']} for the steps asked", file=sys.stderr)
@@ -275,8 +292,7 @@ def write_step_table(rows, args):
         metric: [dict(load_metric(r["run_dir"], metric, args.prefer)) for r in rows] for metric in args.step_table
     }
     steps = sorted({s for per_run in by_metric.values() for values in per_run for s in values})
-    if args.steady:
-        steps = [s for s in steps if args.steady[0] <= s <= args.steady[1]]
+    steps = [s for s in steps if step_selected(s, args)]
     with open(args.out, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["step"] + [f"{metric}@{label}" for metric in args.step_table for label in labels])
